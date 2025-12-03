@@ -1,0 +1,30 @@
+*.iml
+.gradle
+/local.properties
+.idea/
+.DS_Store
+build/
+**/build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Kotlin 编译器生成的元数据
+.kotlin/
+
+# 从依赖库提取的源代码（不应提交）
+coil_base_src/
+coil_src/
+
+# 签名文件（不要提交到版本控制）
+keystore.properties
+*.jks
+*.keystore
+*.key
+
+# 其他常见临时文件
+*.log
+*.tmp
+*.swp
+*~

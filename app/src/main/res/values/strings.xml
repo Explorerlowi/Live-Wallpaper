@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Live Wallpaper</string>
+    <string name="app_title">Live Wallpaper</string>
+    
+    <!-- 顶部栏 -->
+    <string name="settings">Settings</string>
+    
+    <!-- 图片操作 -->
+    <string name="add_image">Add Image</string>
+    <string name="delete_image">Delete</string>
+    <string name="delete_confirm_title">Delete Image</string>
+    <string name="delete_confirm_message">Are you sure you want to delete this image?</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    
+    <!-- 多选模式 -->
+    <string name="multi_select_count">%1$d selected</string>
+    <string name="select_all">Select All</string>
+    <string name="delete_selected">Delete Selected</string>
+    <string name="delete_all">Delete All</string>
+    <string name="delete_all_title">Delete All Images</string>
+    <string name="delete_all_message">Are you sure you want to delete all images? This action cannot be undone.</string>
+    <string name="delete_selected_title">Delete Selected Images</string>
+    <string name="delete_selected_message">Are you sure you want to delete %1$d selected images?</string>
+    
+    <!-- 底部按钮 -->
+    <string name="set_live_wallpaper">Set as Live Wallpaper</string>
+    
+    <!-- 设置页面 -->
+    <string name="settings_title">Settings</string>
+    <string name="interval_label">Interval</string>
+    <string name="interval_seconds">%1$.1fs</string>
+    <string name="interval_seconds_label">Seconds</string>
+    <string name="interval_input_title">Set Interval</string>
+    <string name="interval_input_hint">Enter interval between 1-60 seconds</string>
+    <string name="interval_input_error">Please enter a value between 1 and 60</string>
+    <string name="scale_mode_label">Scale Mode</string>
+    <string name="scale_mode_fit">Fit</string>
+    <string name="scale_mode_fill">Fill</string>
+    <string name="play_mode_label">Play Mode</string>
+    <string name="play_mode_sequential">Sequential</string>
+    <string name="play_mode_random">Random</string>
+    <string name="reorder_images">Reorder Images</string>
+    <string name="reorder_tip">Long press and drag the handle on the right to reorder</string>
+    <string name="reorder">Reorder</string>
+    <string name="reorder_item_label">Image %1$d</string>
+    <string name="language_label">Language</string>
+    <string name="language_en">English</string>
+    <string name="language_zh">Simplified Chinese</string>
+    
+    <!-- 图片预览 -->
+    <string name="close">Close</string>
+    
+    <!-- 空状态 -->
+    <string name="no_images">No images yet</string>
+    <string name="tap_to_add">Tap + to add images</string>
+    
+    <!-- 权限相关 -->
+    <string name="permission_limited_title">Limited Photo Access</string>
+    <string name="permission_limited_message">You have granted limited access to photos. Tap \"Select More Photos\" to add more photos, tap \"Allow Full Access\" to grant the app access to all photos, or \"Use File Picker\" to browse any folder.</string>
+    <string name="permission_select_more">Select More Photos</string>
+    <string name="permission_full_access">Allow Full Access</string>
+    <string name="permission_use_file_picker">Use File Picker</string>
+    <string name="permission_continue">Continue</string>
+    
+    <!-- 图片裁剪 -->
+    <string name="crop_confirm">Save</string>
+    <string name="crop_title">Adjust Image</string>
+    
+    <!-- 图库浏览器 -->
+    <string name="gallery_select_album">Select Album</string>
+    <string name="gallery_photo_count">%1$d photos</string>
+    <string name="gallery_selected_count">%1$d selected</string>
+    <string name="gallery_select_all">Select All</string>
+    <string name="gallery_clear_selection">Clear</string>
+    <string name="gallery_confirm">Confirm</string>
+    <string name="gallery_preview">Preview</string>
+    <string name="gallery_no_albums">No albums found</string>
+    <string name="gallery_no_images">No images in this album</string>
+    <string name="gallery_retry">Retry</string>
+    <string name="gallery_permission_required">Storage permission required to browse photos</string>
+    <string name="gallery_grant_permission">Grant Permission</string>
+    <string name="gallery_preview_image">Preview Image</string>
+    
+    <!-- 壁纸设置 -->
+    <string name="no_images_hint">Please add images first</string>
+</resources>

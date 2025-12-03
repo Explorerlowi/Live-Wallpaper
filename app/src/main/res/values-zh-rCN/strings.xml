@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">动态壁纸</string>
+    <string name="app_title">动态壁纸</string>
+    
+    <!-- 顶部栏 -->
+    <string name="settings">设置</string>
+    
+    <!-- 图片操作 -->
+    <string name="add_image">添加图片</string>
+    <string name="delete_image">删除</string>
+    <string name="delete_confirm_title">删除图片</string>
+    <string name="delete_confirm_message">确定要删除这张图片吗？</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    
+    <!-- 多选模式 -->
+    <string name="multi_select_count">已选择 %1$d 张</string>
+    <string name="select_all">全选</string>
+    <string name="delete_selected">删除选中</string>
+    <string name="delete_all">删除全部</string>
+    <string name="delete_all_title">删除全部图片</string>
+    <string name="delete_all_message">确定要删除全部图片吗？此操作不可撤销。</string>
+    <string name="delete_selected_title">删除选中图片</string>
+    <string name="delete_selected_message">确定要删除选中的 %1$d 张图片吗？</string>
+    
+    <!-- 底部按钮 -->
+    <string name="set_live_wallpaper">设置为动态壁纸</string>
+    
+    <!-- 设置页面 -->
+    <string name="settings_title">设置</string>
+    <string name="interval_label">切换间隔</string>
+    <string name="interval_seconds">%1$.1f秒</string>
+    <string name="interval_seconds_label">秒数</string>
+    <string name="interval_input_title">设置间隔</string>
+    <string name="interval_input_hint">输入 1-60 秒之间的数值</string>
+    <string name="interval_input_error">请输入 1 到 60 之间的数值</string>
+    <string name="scale_mode_label">缩放模式</string>
+    <string name="scale_mode_fit">适应</string>
+    <string name="scale_mode_fill">填充</string>
+    <string name="play_mode_label">播放模式</string>
+    <string name="play_mode_sequential">顺序播放</string>
+    <string name="play_mode_random">随机播放</string>
+    
+    <!-- 图片预览 -->
+    <string name="close">关闭</string>
+    
+    <!-- 空状态 -->
+    <string name="no_images">还没有图片</string>
+    <string name="tap_to_add">点击 + 添加图片</string>
+    
+    <!-- 权限相关 -->
+    <string name="permission_limited_title">照片访问受限</string>
+    <string name="permission_limited_message">您已授予部分照片访问权限。点击「选择更多照片」添加更多图片，点击「允许全部访问」在系统设置中放开权限，或使用「文件选择器」访问任意文件夹。</string>
+    <string name="permission_select_more">选择更多照片</string>
+    <string name="permission_full_access">允许全部访问</string>
+    <string name="permission_use_file_picker">使用文件选择器</string>
+    <string name="permission_continue">继续</string>
+    
+    <!-- 图片裁剪 -->
+    <string name="crop_confirm">保存</string>
+    <string name="crop_title">调整图片</string>
+    
+    <!-- 图库浏览器 -->
+    <string name="gallery_select_album">选择相册</string>
+    <string name="gallery_photo_count">%1$d 张照片</string>
+    <string name="gallery_selected_count">已选择 %1$d 张</string>
+    <string name="gallery_select_all">全选</string>
+    <string name="gallery_clear_selection">取消全选</string>
+    <string name="gallery_confirm">确认</string>
+    <string name="gallery_preview">预览</string>
+    <string name="gallery_no_albums">没有找到相册</string>
+    <string name="gallery_no_images">此相册中没有图片</string>
+    <string name="gallery_retry">重试</string>
+    <string name="gallery_permission_required">需要存储权限才能浏览照片</string>
+    <string name="gallery_grant_permission">授予权限</string>
+    <string name="gallery_preview_image">预览图片</string>
+    
+    <!-- 壁纸设置 -->
+    <string name="no_images_hint">请先添加图片</string>
+
+    <!-- 排序 -->
+    <string name="reorder_images">调整顺序</string>
+    <string name="reorder_tip">长按并拖动右侧把手调整顺序</string>
+    <string name="reorder">调整顺序</string>
+    <string name="reorder_item_label">第 %1$d 张</string>
+    <string name="language_label">语言</string>
+    <string name="language_en">英文</string>
+    <string name="language_zh">简体中文</string>
+</resources>
+
