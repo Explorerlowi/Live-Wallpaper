@@ -17,6 +17,15 @@ local.properties
 coil_base_src/
 coil_src/
 
+# Android 构建产物
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+app/debug/
+app/release/
+
 # 签名文件（不要提交到版本控制）
 keystore.properties
 *.jks
