@@ -1,6 +1,20 @@
 # Live Wallpaper
 
-一个基于 Kotlin Multiplatform 开发的动态壁纸应用，支持 Android 平台。通过轮播多张图片创建个性化的动态壁纸体验。
+> A dynamic wallpaper app developed with Kotlin Multiplatform (KMP) and Cursor, supporting Android platform. Create personalized dynamic wallpaper experiences by cycling through multiple images.
+
+一个基于 Kotlin Multiplatform (KMP) 和 Cursor 开发的动态壁纸应用，支持 Android 平台。通过轮播多张图片创建个性化的动态壁纸体验。
+
+---
+
+## 📖 Project Description / 项目介绍
+
+**English:**
+
+Live Wallpaper is a modern Android application built with Kotlin Multiplatform (KMP) and developed using Cursor IDE. It allows users to create dynamic wallpapers by cycling through multiple images with customizable settings. The app features a clean architecture, supporting both Chinese and English languages, and provides an intuitive interface for managing and customizing wallpaper collections.
+
+**中文:**
+
+Live Wallpaper 是一款使用 Kotlin Multiplatform (KMP) 技术栈开发、通过 Cursor IDE 构建的现代化 Android 动态壁纸应用。用户可以通过轮播多张图片来创建个性化动态壁纸，并支持丰富的自定义设置。应用采用清晰的架构设计，支持中英文双语，提供直观的界面用于管理和自定义壁纸集合。
 
 ## ✨ 功能特性
 
@@ -256,7 +270,9 @@ defaultConfig {
 
 ## 📄 许可证
 
-[在此添加许可证信息]
+本项目采用 [MIT License](LICENSE) 开源协议。
+
+This project is licensed under the [MIT License](LICENSE).
 
 ## 🤝 贡献
 
