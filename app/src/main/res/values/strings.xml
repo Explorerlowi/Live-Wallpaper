@@ -5,6 +5,7 @@
     
     <!-- 顶部栏 -->
     <string name="settings">Settings</string>
+    <string name="draw">Draw</string>
     
     <!-- 图片操作 -->
     <string name="add_image">Add Image</string>
@@ -85,4 +86,16 @@
     
     <!-- 壁纸设置 -->
     <string name="no_images_hint">Please add images first</string>
+    
+    <!-- 主题设置 -->
+    <string name="theme_label">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    
+    <!-- 退出确认 -->
+    <string name="exit_confirm_title">Save Changes?</string>
+    <string name="exit_confirm_message">You have unsaved changes. Do you want to save them before exiting?</string>
+    <string name="save_and_exit">Save</string>
+    <string name="discard_and_exit">Discard</string>
 </resources>

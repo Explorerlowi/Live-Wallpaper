@@ -5,6 +5,7 @@
     
     <!-- 顶部栏 -->
     <string name="settings">设置</string>
+    <string name="draw">绘图</string>
     
     <!-- 图片操作 -->
     <string name="add_image">添加图片</string>
@@ -87,5 +88,17 @@
     <string name="language_label">语言</string>
     <string name="language_en">英文</string>
     <string name="language_zh">简体中文</string>
+    
+    <!-- 主题设置 -->
+    <string name="theme_label">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    
+    <!-- 退出确认 -->
+    <string name="exit_confirm_title">保存更改？</string>
+    <string name="exit_confirm_message">您有未保存的更改，是否要在退出前保存？</string>
+    <string name="save_and_exit">保存</string>
+    <string name="discard_and_exit">放弃</string>
 </resources>
 

@@ -47,6 +47,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -123,6 +124,7 @@ import com.example.livewallpaper.ui.theme.TextPrimary
 import com.example.livewallpaper.ui.theme.TextSecondary
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.ui.LanguageOption
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -173,8 +175,38 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
+    // Activity Result Launcher for Settings
+    val settingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.let { data ->
+                data.getLongExtra("interval", -1L).takeIf { it != -1L }?.let { interval ->
+                    viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
+                }
+                data.getStringExtra("scaleMode")?.let { scaleMode ->
+                    viewModel.onEvent(SettingsEvent.UpdateScaleMode(
+                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode.valueOf(scaleMode)
+                    ))
+                }
+                data.getStringExtra("playMode")?.let { playMode ->
+                    viewModel.onEvent(SettingsEvent.UpdatePlayMode(
+                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode.valueOf(playMode)
+                    ))
+                }
+                data.getStringExtra("languageTag")?.let { languageTag ->
+                    viewModel.onEvent(SettingsEvent.UpdateLanguage(languageTag))
+                }
+                data.getStringExtra("themeMode")?.let { themeMode ->
+                    viewModel.onEvent(SettingsEvent.UpdateThemeMode(
+                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode.valueOf(themeMode)
+                    ))
+                }
+            }
+        }
+    }
+
     // 对话框状态
-    var showSettingsDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showPreviewIndex by remember { mutableStateOf<Int?>(null) }
     var showPermissionDialog by remember { mutableStateOf(false) }
@@ -330,6 +362,7 @@ fun SettingsScreen(
         }
     }
 
+    // 监听语言变化并应用，applyLanguage 内部会检查是否需要真正切换
     LaunchedEffect(state.config.languageTag) {
         applyLanguage(state.config.languageTag)
     }
@@ -343,8 +376,8 @@ fun SettingsScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            MintGreen100,
-                            MintGreen200.copy(alpha = 0.5f)
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surface
                         )
                     )
                 )
@@ -361,7 +394,16 @@ fun SettingsScreen(
                     selectedCount = selectedUris.size,
                     totalCount = state.config.imageUris.size,
                     isReorderEnabled = state.config.imageUris.size > 1,
-                    onSettingsClick = { showSettingsDialog = true },
+                    onSettingsClick = {
+                        val intent = Intent(context, SettingsActivity::class.java).apply {
+                            putExtra("interval", state.config.interval)
+                            putExtra("scaleMode", state.config.scaleMode.name)
+                            putExtra("playMode", state.config.playMode.name)
+                            putExtra("languageTag", state.config.languageTag)
+                            putExtra("themeMode", state.config.themeMode.name)
+                        }
+                        settingsLauncher.launch(intent)
+                    },
                     onReorderClick = { showReorderSheet = true },
                     onExitMultiSelect = {
                         isMultiSelectMode = false
@@ -482,24 +524,7 @@ fun SettingsScreen(
         }
     }
 
-    // 设置对话框
-    if (showSettingsDialog) {
-        SettingsDialog(
-            currentInterval = state.config.interval,
-            currentScaleMode = state.config.scaleMode,
-            currentPlayMode = state.config.playMode,
-            currentLanguageTag = state.config.languageTag,
-            onConfirm = { interval, scaleMode, playMode ->
-                viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
-                viewModel.onEvent(SettingsEvent.UpdateScaleMode(scaleMode))
-                viewModel.onEvent(SettingsEvent.UpdatePlayMode(playMode))
-            },
-            onLanguageChange = { option ->
-                viewModel.onEvent(SettingsEvent.UpdateLanguage(option.localeTag))
-            },
-            onDismiss = { showSettingsDialog = false }
-        )
-    }
+
 
     // 删除确认对话框（单张图片）
     showDeleteDialog?.let { uri ->
@@ -624,7 +649,7 @@ private fun TopBar(
                 text = stringResource(R.string.multi_select_count, selectedCount),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onBackground
             )
             
             Spacer(modifier = Modifier.weight(1f))
@@ -636,7 +661,7 @@ private fun TopBar(
             ) {
                 Text(
                     text = stringResource(R.string.select_all),
-                    color = if (selectedCount < totalCount) Teal300 else TextSecondary
+                    color = if (selectedCount < totalCount) Teal300 else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             
@@ -646,7 +671,7 @@ private fun TopBar(
                 enabled = selectedCount > 0,
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = if (selectedCount > 0) MaterialTheme.colorScheme.error.copy(alpha = 0.1f) else Color.Transparent,
-                    contentColor = if (selectedCount > 0) MaterialTheme.colorScheme.error else TextSecondary
+                    contentColor = if (selectedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 modifier = Modifier.size(44.dp)
             ) {
@@ -657,68 +682,74 @@ private fun TopBar(
                 )
             }
         } else {
-            // 普通模式顶部栏
-            // Logo 和标题
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+            // 普通模式顶部栏 - 使用 Box 实现标题真正居中
+            Box(
+                modifier = Modifier.fillMaxWidth()
             ) {
-                // 应用图标
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.White,
-                    shadowElevation = 4.dp
+                // 左侧绘图按钮
+                IconButton(
+                    onClick = { /* TODO: 绘图功能 */ },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = Teal300
+                    ),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .align(Alignment.CenterStart)
                 ) {
-                    Image(
-                        painter = painterResource(R.mipmap.ic_launcher_foreground),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                    Icon(
+                        imageVector = Icons.Default.Brush,
+                        contentDescription = stringResource(R.string.draw),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
+                // 中间标题（真正居中）
                 Text(
                     text = stringResource(R.string.app_title),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.align(Alignment.Center)
                 )
-            }
 
-            Spacer(modifier = Modifier.weight(1f))
+                // 右侧按钮组
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                ) {
+                    // 排序按钮
+                    IconButton(
+                        onClick = onReorderClick,
+                        enabled = isReorderEnabled,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = if (isReorderEnabled) Teal300 else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Reorder,
+                            contentDescription = stringResource(R.string.reorder),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
 
-            IconButton(
-                onClick = onReorderClick,
-                enabled = isReorderEnabled,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = if (isReorderEnabled) Teal300 else TextSecondary
-                ),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Reorder,
-                    contentDescription = stringResource(R.string.reorder),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            // 设置按钮
-            IconButton(
-                onClick = onSettingsClick,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Teal300
-                ),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings),
-                    modifier = Modifier.size(24.dp)
-                )
+                    // 设置按钮
+                    IconButton(
+                        onClick = onSettingsClick,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = Teal300
+                        ),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.settings),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -806,13 +837,13 @@ private fun ReorderImagesSheet(
                 text = stringResource(R.string.reorder_images),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.reorder_tip),
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -887,7 +918,7 @@ private fun ReorderRow(
             .crossfade(true)
             .build()
     )
-    val backgroundColor = if (isDragging) MintGreen100 else Color.White
+    val backgroundColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
 
     Row(
         modifier = modifier
@@ -914,12 +945,12 @@ private fun ReorderRow(
             Text(
                 text = stringResource(R.string.reorder_item_label, index + 1),
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = Uri.parse(uri).lastPathSegment ?: uri,
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
         }
@@ -938,8 +969,20 @@ private fun applyLanguage(languageTag: String?) {
         languageTag.isNullOrBlank() -> Locale.getDefault().language
         else -> languageTag
     }
-    val localeList = LocaleListCompat.forLanguageTags(tag)
-    AppCompatDelegate.setApplicationLocales(localeList)
+    
+    // 检查当前应用语言是否已经是目标语言，避免重复设置导致 Activity 重建
+    val currentLocales = AppCompatDelegate.getApplicationLocales()
+    val currentTag = if (currentLocales.isEmpty) {
+        Locale.getDefault().language
+    } else {
+        currentLocales[0]?.language ?: Locale.getDefault().language
+    }
+    
+    // 只有当语言不同时才应用，避免不必要的 Activity 重建
+    if (currentTag != tag) {
+        val localeList = LocaleListCompat.forLanguageTags(tag)
+        AppCompatDelegate.setApplicationLocales(localeList)
+    }
 }
 
 /**
@@ -1083,7 +1126,7 @@ private fun AddImageButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = Teal300,
+        color = MaterialTheme.colorScheme.primary,
         shadowElevation = 8.dp,
         modifier = modifier.size(80.dp)
     ) {
@@ -1095,7 +1138,7 @@ private fun AddImageButton(
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = null,
-                tint = Color.White,
+                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(28.dp)
             )
             
@@ -1105,7 +1148,7 @@ private fun AddImageButton(
                 text = stringResource(R.string.add_image),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -1132,7 +1175,7 @@ private fun BottomActionBar(
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = ButtonPrimary
+                containerColor = MaterialTheme.colorScheme.primary
             ),
             elevation = ButtonDefaults.buttonElevation(
                 defaultElevation = 6.dp
@@ -1142,7 +1185,7 @@ private fun BottomActionBar(
                 text = stringResource(R.string.set_live_wallpaper),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -1170,7 +1213,7 @@ private fun EmptyState(
             text = stringResource(R.string.no_images),
             fontSize = 20.sp,
             fontWeight = FontWeight.Medium,
-            color = TextPrimary
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -1178,7 +1221,7 @@ private fun EmptyState(
         Text(
             text = stringResource(R.string.tap_to_add),
             fontSize = 14.sp,
-            color = TextPrimary.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
             textAlign = TextAlign.Center
         )
     }
@@ -1291,7 +1334,7 @@ private fun PartialAccessPermissionDialog(
                 text = stringResource(R.string.permission_limited_title),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -1300,7 +1343,7 @@ private fun PartialAccessPermissionDialog(
             Text(
                 text = stringResource(R.string.permission_limited_message),
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 lineHeight = 22.sp
             )
@@ -1379,7 +1422,7 @@ private fun PartialAccessPermissionDialog(
                 Text(
                     text = stringResource(R.string.permission_continue),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             

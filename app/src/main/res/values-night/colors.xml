@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 窗口背景色 - 深色主题使用深色背景，与 Compose 主题的 DarkBackground 一致 -->
+    <color name="window_background">#FF1A2E26</color>
+</resources>

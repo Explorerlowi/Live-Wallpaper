@@ -7,4 +7,7 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- 窗口背景色 - 浅色主题使用薄荷绿背景，与 Compose 主题的 BackgroundMint 一致 -->
+    <color name="window_background">#FFE8F5E9</color>
 </resources>

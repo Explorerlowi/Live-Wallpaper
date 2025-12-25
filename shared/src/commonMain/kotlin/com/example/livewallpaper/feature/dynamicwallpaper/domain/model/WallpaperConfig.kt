@@ -22,7 +22,8 @@ data class WallpaperConfig(
     val scaleMode: ScaleMode = ScaleMode.CENTER_CROP,
     val imageCropParams: Map<String, ImageCropParams> = emptyMap(),
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
-    val languageTag: String? = null
+    val languageTag: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
 
 /**

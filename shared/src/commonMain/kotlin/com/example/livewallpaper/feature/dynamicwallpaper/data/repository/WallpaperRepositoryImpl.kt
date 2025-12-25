@@ -3,6 +3,7 @@ package com.example.livewallpaper.feature.dynamicwallpaper.data.repository
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperConfig
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.repository.WallpaperRepository
 import com.russhwolf.settings.ObservableSettings
@@ -114,6 +115,11 @@ class WallpaperRepositoryImpl(
     override suspend fun setLanguage(languageTag: String?) {
         val current = getCurrentConfig()
         updateConfig(current.copy(languageTag = languageTag))
+    }
+
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        val current = getCurrentConfig()
+        updateConfig(current.copy(themeMode = mode))
     }
 
     private fun getCurrentConfig(): WallpaperConfig {

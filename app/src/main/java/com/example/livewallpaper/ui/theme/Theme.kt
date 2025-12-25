@@ -1,7 +1,6 @@
 package com.example.livewallpaper.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -12,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 
 // 薄荷绿浅色主题
 private val LightColorScheme = lightColorScheme(
@@ -42,16 +42,16 @@ private val LightColorScheme = lightColorScheme(
 
 // 深色主题
 private val DarkColorScheme = darkColorScheme(
-    primary = DarkPrimary,
-    onPrimary = Color.Black,
+    primary = Teal300,  // 使用更亮的青色作为主色
+    onPrimary = Color.White,  // 白色文字
     primaryContainer = Teal500,
     onPrimaryContainer = MintGreen100,
     secondary = Teal200,
-    onSecondary = Color.Black,
+    onSecondary = Color.White,
     secondaryContainer = Teal500,
     onSecondaryContainer = MintGreen100,
     tertiary = MintGreen300,
-    onTertiary = Color.Black,
+    onTertiary = Color.White,
     tertiaryContainer = MintGreen500,
     onTertiaryContainer = MintGreen100,
     background = DarkBackground,
@@ -67,11 +67,24 @@ private val DarkColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6)
 )
 
+/**
+ * 根据 ThemeMode 判断是否使用深色主题
+ */
+@Composable
+fun shouldUseDarkTheme(themeMode: ThemeMode): Boolean {
+    return when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+}
+
 @Composable
 fun LiveWallpaperTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = shouldUseDarkTheme(themeMode)
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     val view = LocalView.current

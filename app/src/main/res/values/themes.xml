@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.LiveWallpaper" parent="Theme.AppCompat.DayNight.NoActionBar" />
+    <style name="Theme.LiveWallpaper" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowAnimationStyle">@style/ActivitySlideAnimation</item>
+        <!-- 设置窗口背景色，避免语言切换时的黑屏闪烁 -->
+        <item name="android:windowBackground">@color/window_background</item>
+        <!-- 禁用窗口内容过渡动画，减少闪烁 -->
+        <item name="android:windowContentTransitions">false</item>
+    </style>
+
+    <style name="ActivitySlideAnimation" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/slide_in_right</item>
+        <item name="android:activityOpenExitAnimation">@anim/slide_out_left</item>
+        <item name="android:activityCloseEnterAnimation">@anim/slide_in_left</item>
+        <item name="android:activityCloseExitAnimation">@anim/slide_out_right</item>
+    </style>
 </resources>

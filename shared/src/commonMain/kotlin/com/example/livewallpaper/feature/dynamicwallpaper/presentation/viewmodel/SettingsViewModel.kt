@@ -42,6 +42,7 @@ class SettingsViewModel(
                 is SettingsEvent.UpdatePlayMode -> repository.setPlayMode(event.mode)
                 is SettingsEvent.UpdateImageCropParams -> repository.setImageCropParams(event.uri, event.params)
                 is SettingsEvent.UpdateLanguage -> repository.setLanguage(event.languageTag)
+                is SettingsEvent.UpdateThemeMode -> repository.setThemeMode(event.mode)
             }
         }
     }
