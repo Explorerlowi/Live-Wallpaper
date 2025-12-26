@@ -63,3 +63,8 @@
 # 保留 Service（动态壁纸服务）
 -keep class com.example.livewallpaper.LiveWallpaperService { *; }
 -keep class com.example.livewallpaper.LiveWallpaperEngine { *; }
+
+# SLF4J 日志库
+-dontwarn org.slf4j.**
+-keep class org.slf4j.** { *; }
+-dontwarn org.slf4j.impl.StaticLoggerBinder

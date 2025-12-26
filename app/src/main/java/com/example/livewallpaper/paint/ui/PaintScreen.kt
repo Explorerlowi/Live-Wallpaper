@@ -789,6 +789,7 @@ private fun formatDuration(durationMillis: Long): String {
 /**
  * 消息图片组件 - 异步解码，带缓存
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageImage(
     imageId: String,
@@ -831,6 +832,7 @@ private fun MessageImage(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageLocalImage(
     path: String,
