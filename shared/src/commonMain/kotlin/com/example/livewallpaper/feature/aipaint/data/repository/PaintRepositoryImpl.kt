@@ -1,6 +1,7 @@
 package com.example.livewallpaper.feature.aipaint.data.repository
 
 import com.example.livewallpaper.core.error.AppResult
+import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
@@ -67,7 +68,7 @@ class PaintRepositoryImpl(
             val sessions = getCurrentSessions().toMutableList()
             val index = sessions.indexOfFirst { it.id == session.id }
             if (index >= 0) {
-                sessions[index] = session.copy(updatedAt = System.currentTimeMillis())
+                sessions[index] = session.copy(updatedAt = TimeProvider.currentTimeMillis())
                 saveSessions(sessions)
             }
         }
@@ -160,7 +161,7 @@ class PaintRepositoryImpl(
         withContext(Dispatchers.Default) {
             migrateLegacyMessagesIfNeeded(message.sessionId)
             settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(
-                message.copy(updatedAt = System.currentTimeMillis())
+                message.copy(updatedAt = TimeProvider.currentTimeMillis())
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.example.livewallpaper.feature.aipaint.domain.model
 
+import com.example.livewallpaper.core.util.TimeProvider
 import kotlinx.serialization.Serializable
 
 /**
@@ -14,8 +15,8 @@ data class PaintMessage(
     val reasoningContent: String? = null,
     val messageType: MessageType,
     val images: List<PaintImage> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis(),
+    val createdAt: Long = TimeProvider.currentTimeMillis(),
+    val updatedAt: Long = TimeProvider.currentTimeMillis(),
     val status: MessageStatus = MessageStatus.SUCCESS
 )
 
@@ -58,8 +59,8 @@ data class PaintSession(
     val model: PaintModel = PaintModel.GEMINI_2_5_FLASH,
     val aspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     val resolution: Resolution = Resolution.RES_1K,
-    val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val createdAt: Long = TimeProvider.currentTimeMillis(),
+    val updatedAt: Long = TimeProvider.currentTimeMillis()
 )
 
 /**

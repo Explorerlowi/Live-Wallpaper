@@ -2,6 +2,7 @@ package com.example.livewallpaper.feature.aipaint.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
@@ -243,7 +244,7 @@ class PaintViewModel(
                             )
                         ),
                         status = MessageStatus.SUCCESS,
-                        updatedAt = System.currentTimeMillis()
+                        updatedAt = TimeProvider.currentTimeMillis()
                     )
                     repository.updateMessage(updatedMessage)
                     
@@ -251,7 +252,7 @@ class PaintViewModel(
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
-                        updatedAt = System.currentTimeMillis()
+                        updatedAt = TimeProvider.currentTimeMillis()
                     )
                     repository.updateMessage(errorMessage)
                 } finally {
@@ -403,7 +404,7 @@ class PaintViewModel(
     }
 
     private fun generateId(): String = 
-        "${System.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
+        "${TimeProvider.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
 
     // API调用方法 - 这些将在Android端实现
     private suspend fun callGeminiApi(
