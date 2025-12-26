@@ -4,6 +4,7 @@ import android.app.Application
 import com.example.livewallpaper.di.appModule
 import com.example.livewallpaper.di.galleryModule
 import com.example.livewallpaper.di.imageModule
+import com.example.livewallpaper.di.paintModule
 import com.example.livewallpaper.di.platformModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -16,7 +17,7 @@ class LiveWallpaperApplication : Application() {
         startKoin {
             androidLogger()
             androidContext(this@LiveWallpaperApplication)
-            modules(appModule, platformModule, galleryModule, imageModule)
+            modules(appModule, platformModule, galleryModule, imageModule, paintModule)
         }
     }
 }

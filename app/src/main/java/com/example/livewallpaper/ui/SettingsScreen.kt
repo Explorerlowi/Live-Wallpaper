@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
@@ -127,6 +128,7 @@ import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.ui.LanguageOption
 import org.koin.androidx.compose.koinViewModel
+import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import org.koin.compose.koinInject
 import org.burnoutcrew.reorderable.ReorderableItem
 import org.burnoutcrew.reorderable.detectReorderAfterLongPress
@@ -386,7 +388,9 @@ fun SettingsScreen(
             PawPrintDecorations()
 
             Column(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
             ) {
                 // 顶部栏
                 TopBar(
@@ -405,6 +409,12 @@ fun SettingsScreen(
                         settingsLauncher.launch(intent)
                     },
                     onReorderClick = { showReorderSheet = true },
+                    onDrawClick = {
+                        val intent = Intent(context, com.example.livewallpaper.paint.PaintActivity::class.java).apply {
+                            putExtra("themeMode", state.config.themeMode.name)
+                        }
+                        context.startActivity(intent)
+                    },
                     onExitMultiSelect = {
                         isMultiSelectMode = false
                         selectedUris = emptySet()
@@ -414,10 +424,7 @@ fun SettingsScreen(
                     },
                     onDeleteSelected = {
                         showDeleteSelectedDialog = true
-                    },
-                    modifier = Modifier.padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-                    )
+                    }
                 )
 
                 // 图片瀑布流
@@ -557,7 +564,7 @@ fun SettingsScreen(
     // 图片预览对话框（保留作为备用）
     showPreviewIndex?.let { index ->
         ImagePreviewDialog(
-            imageUris = state.config.imageUris,
+            imagePaths = state.config.imageUris,
             initialIndex = index,
             onDismiss = { showPreviewIndex = null }
         )
@@ -616,13 +623,13 @@ private fun TopBar(
     isReorderEnabled: Boolean,
     onSettingsClick: () -> Unit,
     onReorderClick: () -> Unit,
+    onDrawClick: () -> Unit,
     onExitMultiSelect: () -> Unit,
     onSelectAll: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    modifier: Modifier = Modifier
+    onDeleteSelected: () -> Unit
 ) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -688,7 +695,7 @@ private fun TopBar(
             ) {
                 // 左侧绘图按钮
                 IconButton(
-                    onClick = { /* TODO: 绘图功能 */ },
+                    onClick = onDrawClick,
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = Color.Transparent,
                         contentColor = Teal300

@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nano Banana 插画工坊</title>
+  
+  <!-- 引入 Tailwind CSS 进行快速美化 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入 Phosphor Icons 图标库 -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <!-- 自定义配置 Tailwind 主题色 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sakura: {
+              50: '#fff0f5',
+              100: '#ffe4e6',
+              200: '#fecdd3',
+              300: '#fda4af',
+              400: '#fb7185',
+              500: '#f43f5e', // 主色调
+              600: '#e11d48',
+              700: '#be123c',
+              800: '#9f1239',
+              900: '#881337',
+            },
+            banana: {
+               50: '#fffbea',
+               100: '#fff1c1',
+               400: '#f6e05e',
+               500: '#ecc94b',
+            }
+          },
+          animation: {
+            'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #fff0f5; 
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #fb7185; 
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #f43f5e; 
+    }
+    
+    /* Toast 动画 */
+    .toast-enter { transform: translateY(-100%); opacity: 0; }
+    .toast-enter-active { transform: translateY(0); opacity: 1; transition: all 300ms ease-out; }
+    .toast-exit { transform: translateY(0); opacity: 1; }
+    .toast-exit-active { transform: translateY(-100%); opacity: 0; transition: all 300ms ease-in; }
+
+    /* 图片查看器过渡 */
+    .lightbox-enter { opacity: 0; transform: scale(0.95); }
+    .lightbox-enter-active { opacity: 1; transform: scale(1); transition: all 200ms ease-out; }
+
+    /* 聚焦上传框时的轮廓 */
+    #dropZone:focus {
+        outline: 2px solid #fb7185;
+        outline-offset: 2px;
+        background-color: #fff0f5;
+    }
+
+    /* 聊天气泡动画 */
+    .message-enter { opacity: 0; transform: translateY(10px); }
+    .message-enter-active { opacity: 1; transform: translateY(0); transition: all 300ms ease-out; }
+  </style>
+</head>
+<body class="bg-sakura-50 text-slate-700 font-sans min-h-screen flex flex-col">
+
+  <!-- 顶部导航栏 -->
+  <header class="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-sakura-200 shadow-sm">
+    <div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <i class="ph-fill ph-plant text-3xl text-yellow-500"></i>
+        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-yellow-500 to-sakura-600">Nano Banana 插画工坊</h1>
+      </div>
+      
+      <!-- API Key 触发器 -->
+      <button id="toggleApiBtn" class="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-sakura-600 transition-colors">
+        <i class="ph ph-gear"></i>
+        <span id="apiKeyStatusText">API 未配置</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- API Key 设置模态框 -->
+  <div id="apiKeyPanel" class="hidden bg-white border-b border-sakura-200 p-6 transition-all duration-300 ease-in-out shadow-sm relative z-30">
+    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Profile List (Left Column) -->
+        <div class="lg:col-span-1 border-r lg:pr-8 border-slate-100">
+            <h3 class="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider flex items-center justify-between">
+                API 配置列表
+                <span id="profileCount" class="text-xs font-normal text-slate-400"> (0 个)</span>
+            </h3>
+            <div id="profileList" class="space-y-2 max-h-64 overflow-y-auto pr-2">
+                <div class="text-sm text-slate-400 p-4 bg-slate-50 rounded-lg text-center" id="noProfiles">暂无配置</div>
+            </div>
+        </div>
+        <!-- Profile Form (Right Columns) -->
+        <div class="lg:col-span-2">
+            <h3 class="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider flex items-center gap-2">
+                <span id="formTitle">创建新配置</span>
+            </h3>
+            <form id="profileForm" class="space-y-4">
+                <input type="hidden" id="profileId" value="">
+                <div>
+                    <label for="profileName" class="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">配置名称</label>
+                    <input type="text" id="profileName" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-sakura-400 transition-all text-sm" placeholder="例如：我的中转 API">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="apiBaseUrl" class="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">API Base URL</label>
+                        <div class="relative">
+                            <input type="text" id="apiBaseUrl" class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-sakura-400 focus:ring-2 focus:ring-sakura-200 transition-all text-sm" placeholder="https://yunwu.ai">
+                            <i class="ph ph-globe absolute left-3 top-2.5 text-slate-400"></i>
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1 ml-1">例如: https://yunwu.ai (无需结尾斜杠)</p>
+                    </div>
+                    <div>
+                        <label for="authMode" class="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">鉴权方式 (Header)</label>
+                        <div class="relative">
+                            <select id="authMode" class="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-sakura-400 focus:ring-2 focus:ring-sakura-200 transition-all text-sm appearance-none cursor-pointer">
+                                <option value="bearer">Bearer Token (Authorization: Bearer)</option>
+                                <option value="official">API Key (x-goog-api-key)</option>
+                            </select>
+                            <i class="ph ph-caret-down absolute right-3 top-2.5 text-slate-400 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label for="apiKey" class="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">访问令牌 (Token)</label>
+                    <div class="relative">
+                        <input type="password" id="apiKey" class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-sakura-400 focus:ring-2 focus:ring-sakura-200 transition-all text-sm" placeholder="在此粘贴您的 API 令牌">
+                        <i class="ph ph-lock-key absolute left-3 top-2.5 text-slate-400"></i>
+                    </div>
+                </div>
+                <div class="flex justify-end pt-2 space-x-3">
+                    <button type="button" id="resetFormBtn" class="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors hidden">重置/取消</button>
+                    <button type="submit" id="saveProfileBtn" class="bg-sakura-500 hover:bg-sakura-600 text-white px-6 py-2 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 shadow-sm shadow-sakura-200"><i class="ph ph-floppy-disk"></i> 保存配置</button>
+                </div>
+            </form>
+        </div>
+    </div>
+  </div>
+
+  <!-- 主内容区 -->
+  <main class="flex-grow max-w-[1400px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <!-- 左侧：控制面板 + 历史记录 (占4列) -->
+      <div class="lg:col-span-4 space-y-6">
+        <!-- 创作设置 -->
+        <div class="bg-white rounded-2xl shadow-lg shadow-sakura-100/50 p-5 border border-white">
+          <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="ph ph-magic-wand text-sakura-500"></i> 创作设置</h2>
+          <form id="generationForm" onsubmit="return false;" class="space-y-4">
+            
+            <!-- 提示词 -->
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                  <label for="prompt" class="block text-sm font-medium text-slate-600">提示词 (Prompt)</label>
+                  <button id="enhanceBtn" type="button" class="text-xs bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-3 py-1 rounded-full shadow-md shadow-indigo-200 hover:shadow-lg hover:scale-105 transition-all flex items-center gap-1 group">
+                      <i class="ph-bold ph-sparkle group-hover:animate-spin"></i> 智能优化
+                  </button>
+              </div>
+              <textarea id="prompt" rows="8" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-sakura-400 focus:ring-2 focus:ring-sakura-200 transition-all resize-y text-sm leading-relaxed" placeholder="描述你想象中的画面，例如：一只正在吃香蕉的小猴子，像素风格..."></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="aspectRatio" class="block text-xs font-medium text-slate-500 mb-1">宽高比</label>
+                <div class="relative">
+                  <select id="aspectRatio" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 py-2 px-3 pr-8 rounded-lg text-sm focus:outline-none focus:border-sakura-400 focus:ring-1 focus:ring-sakura-400">
+                    <option value="1:1">1:1 (正方)</option>
+                    <option value="2:3">2:3 (肖像)</option>
+                    <option value="3:2">3:2 (风景)</option>
+                    <option value="3:4">3:4 (标准)</option>
+                    <option value="4:3">4:3 (标准)</option>
+                    <option value="16:9">16:9 (宽屏)</option>
+                    <option value="9:16">9:16 (手机)</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-2.5 top-2.5 text-slate-400 pointer-events-none"></i>
+                </div>
+              </div>
+              <div id="resolutionGroup" class="hidden">
+                <label for="resolution" class="block text-xs font-medium text-slate-500 mb-1">分辨率 (Pro)</label>
+                <div class="relative">
+                  <select id="resolution" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 py-2 px-3 pr-8 rounded-lg text-sm focus:outline-none focus:border-sakura-400">
+                    <option value="1K">1K</option>
+                    <option value="2K">2K</option>
+                    <option value="4K">4K</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-2.5 top-2.5 text-slate-400 pointer-events-none"></i>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2">选择模型</label>
+              <div class="flex gap-3">
+                <label class="flex-1 cursor-pointer">
+                  <input type="checkbox" name="model" value="2.5" checked class="peer sr-only">
+                  <div class="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 text-sm text-center transition-all peer-checked:border-sakura-500 peer-checked:bg-sakura-50 peer-checked:text-sakura-600 hover:bg-white">Gemini 2.5</div>
+                </label>
+                <label class="flex-1 cursor-pointer">
+                  <input type="checkbox" name="model" value="3" checked class="peer sr-only">
+                  <div class="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 text-sm text-center transition-all peer-checked:border-sakura-500 peer-checked:bg-sakura-50 peer-checked:text-sakura-600 hover:bg-white">Gemini 3 Pro</div>
+                </label>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2">垫图/编辑 (可选)</label>
+              <div id="dropZone" tabindex="0" class="border-2 border-dashed border-sakura-200 rounded-xl p-4 text-center cursor-default hover:bg-sakura-50 hover:border-sakura-400 transition-colors group relative focus:outline-none min-h-[100px] flex items-center justify-center">
+                <input type="file" id="imageUpload" accept="image/*" multiple class="hidden">
+                <div class="space-y-2 pointer-events-none">
+                  <i id="uploadIcon" class="ph ph-image text-3xl text-sakura-300 group-hover:text-sakura-500 transition-colors cursor-pointer pointer-events-auto"></i>
+                  <p class="text-xs text-slate-500">
+                    <span id="uploadTextBtn" class="text-sakura-500 hover:text-sakura-600 font-bold underline decoration-sakura-300 underline-offset-2 hover:decoration-sakura-600 transition-all cursor-pointer pointer-events-auto relative z-10 px-1">点击上传图片</span>
+                    <span class="text-slate-300 mx-1">|</span>
+                    <span>点击空白处 Ctrl+V 粘贴</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div id="selectedImages" class="grid grid-cols-3 gap-2 empty:hidden pt-2"></div>
+            <div id="actionBtnContainer">
+              <button id="generateBtn" type="button" class="w-full bg-gradient-to-r from-sakura-400 to-sakura-600 hover:from-sakura-500 hover:to-sakura-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-sakura-300/40 transform transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+                <i class="ph ph-sparkle text-xl"></i><span>开始新会话</span>
+              </button>
+            </div>
+          </form>
+        </div>
+        <!-- Base64 工具 -->
+        <div class="bg-white rounded-2xl shadow-lg shadow-sakura-100/50 p-5 border border-white">
+          <div class="flex items-center justify-between cursor-pointer" onclick="document.getElementById('toolContent').classList.toggle('hidden');">
+             <h2 class="text-md font-bold text-slate-700 flex items-center gap-2"><i class="ph ph-toolbox text-slate-400"></i> Base64 转换工具</h2>
+             <i class="ph ph-caret-down text-slate-400"></i>
+          </div>
+          <div id="toolContent" class="hidden space-y-3 mt-4">
+             <textarea id="base64Input" rows="2" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" placeholder="粘贴 Base64 字符串..."></textarea>
+             <button id="convertBase64Btn" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm py-2 rounded-lg transition-colors">预览图片</button>
+             <div id="base64Result" class="hidden mt-2 p-2 border rounded bg-slate-50"></div>
+          </div>
+        </div>
+        <!-- 历史画廊 -->
+        <div id="historySection" class="hidden bg-white rounded-2xl shadow-lg shadow-sakura-100/50 p-5 border border-white">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-clock-counter-clockwise text-sakura-500"></i> 历史画廊</h2>
+            <div class="flex items-center gap-2">
+                <span id="historySize" class="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">0 KB</span>
+                <button id="clearHistoryBtn" class="text-xs text-red-400 hover:text-red-600 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 transition-colors" title="清空历史"><i class="ph-bold ph-trash"></i></button>
+            </div>
+          </div>
+          <div id="historyContainer" class="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+      <!-- 右侧：生成结果 (聊天模式) -->
+      <div class="lg:col-span-8">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-chats-circle text-sakura-500"></i> 创作会话</h2>
+        </div>
+        <!-- 结果容器改为垂直布局，支持多卡片 -->
+        <div id="resultContainer" class="flex flex-col gap-8 w-full">
+          <div id="emptyState" class="py-20 text-center text-slate-400 bg-white/50 border-2 border-dashed border-slate-200 rounded-3xl">
+            <i class="ph ph-paint-brush-broad text-6xl mb-4 opacity-30 text-sakura-300"></i>
+            <p class="text-lg font-medium text-slate-500">画布空白，等待灵感...</p>
+            <p class="text-sm mt-2">在左侧输入描述，开始您的创作之旅！</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="bg-white border-t border-slate-100 mt-auto py-6">
+    <div class="max-w-7xl mx-auto px-4 text-center">
+      <p class="text-slate-400 text-sm">Powered by Gemini Models • Nano Banana Workshop</p>
+    </div>
+  </footer>
+
+  <!-- Toast 容器 -->
+  <div id="toastContainer" class="fixed top-4 left-0 right-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4"></div>
+
+  <!-- 图片查看器 (Lightbox) - 增加左右切换按钮 -->
+  <div id="lightbox" class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm hidden flex-col items-center justify-center transition-all duration-300">
+    <button id="closeLightboxBtn" class="absolute top-4 right-4 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors z-[70]">
+        <i class="ph-bold ph-x text-3xl"></i>
+    </button>
+    <div id="lightboxTitle" class="absolute top-6 left-0 right-0 text-center text-white/80 text-sm font-medium pointer-events-none z-[65]"></div>
+    <button id="lbPrev" class="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white p-3 rounded-full hover:bg-white/10 transition-colors z-[70] hidden"><i class="ph-bold ph-caret-left text-4xl"></i></button>
+    <button id="lbNext" class="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white p-3 rounded-full hover:bg-white/10 transition-colors z-[70] hidden"><i class="ph-bold ph-caret-right text-4xl"></i></button>
+    <div class="relative w-full h-full flex items-center justify-center p-4 sm:p-8 overflow-hidden">
+        <img id="lightboxImg" src="" class="max-w-full max-h-full object-contain transition-transform duration-300 shadow-2xl" style="transform: rotate(0deg) scaleX(1);">
+    </div>
+    <div class="absolute bottom-8 bg-black/50 backdrop-blur-md rounded-full px-6 py-3 flex items-center gap-6 border border-white/10 shadow-xl z-[70]">
+        <button onclick="window.rotateImage()" class="text-white hover:text-sakura-300 flex flex-col items-center gap-1 group"><i class="ph-bold ph-arrow-counter-clockwise text-xl group-active:-rotate-90 transition-transform"></i><span class="text-[10px] opacity-70">旋转</span></button>
+        <button onclick="window.flipImage()" class="text-white hover:text-sakura-300 flex flex-col items-center gap-1"><i class="ph-bold ph-arrows-left-right text-xl"></i><span class="text-[10px] opacity-70">镜像</span></button>
+        <div class="w-px h-8 bg-white/20 mx-2"></div>
+        <button onclick="window.downloadLightboxImage()" class="text-white hover:text-sakura-300 flex flex-col items-center gap-1"><i class="ph-bold ph-download-simple text-xl"></i><span class="text-[10px] opacity-70">保存</span></button>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain(); osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+        if (type === 'success') { osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1046.5, audioCtx.currentTime + 0.1); gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); } 
+        else if (type === 'error') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.4); osc.start(); osc.stop(audioCtx.currentTime + 0.4); }
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const colors = { success: 'bg-green-50 text-green-700 border-green-200', error: 'bg-red-50 text-red-700 border-red-200', info: 'bg-white text-slate-700 border-sakura-200 shadow-sakura-100' };
+      const icons = { success: '<i class="ph-fill ph-check-circle text-green-500 text-lg"></i>', error: '<i class="ph-fill ph-warning-circle text-red-500 text-lg"></i>', info: '<i class="ph-fill ph-info text-sakura-500 text-lg"></i>' };
+      const bgClass = colors[type] || colors.info;
+      const iconHtml = icons[type] || icons.info;
+      toast.className = `pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border ${bgClass} w-full max-w-sm toast-enter`;
+      toast.innerHTML = `${iconHtml}<span class="text-sm font-medium flex-1">${message}</span>`;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.classList.remove('toast-enter'); toast.classList.add('toast-enter-active'); });
+      setTimeout(() => { toast.classList.remove('toast-enter-active'); toast.classList.add('toast-exit-active'); setTimeout(() => toast.remove(), 300); }, 3000);
+    }
+
+    // === Lightbox Logic ===
+    let currentRotation = 0, currentFlip = 1, lightboxImageList = [], lightboxCurrentIndex = 0;
+    const lightbox = document.getElementById('lightbox'), lightboxImg = document.getElementById('lightboxImg'), lightboxTitle = document.getElementById('lightboxTitle'), lbPrev = document.getElementById('lbPrev'), lbNext = document.getElementById('lbNext');
+    const resultsCache = new Map(); // Store light box view data
+    const sessionContents = new Map(); // Store chat history { id: {contents:[], model:'', ...} }
+    const sessionControllers = new Map(); // sessionId -> AbortController
+
+    window.openLightbox = (images, index = 0) => {
+        if (!images || images.length === 0) return;
+        lightboxImageList = images; lightboxCurrentIndex = index; currentRotation = 0; currentFlip = 1; updateLightboxUI(); lightbox.classList.remove('hidden'); lightbox.classList.add('flex');
+    };
+    function updateLightboxUI() {
+        const item = lightboxImageList[lightboxCurrentIndex]; lightboxImg.src = item.src; updateTransform();
+        const label = item.label || ''; const count = lightboxImageList.length > 1 ? `${lightboxCurrentIndex + 1} / ${lightboxImageList.length}` : '';
+        lightboxTitle.innerHTML = `<span class="bg-black/50 px-3 py-1 rounded-full backdrop-blur-md">${count} ${label ? ' • ' + label : ''}</span>`;
+        if (lightboxImageList.length > 1) { lbPrev.classList.remove('hidden'); lbNext.classList.remove('hidden'); } else { lbPrev.classList.add('hidden'); lbNext.classList.add('hidden'); }
+        lightboxImg.classList.remove('lightbox-enter-active'); void lightboxImg.offsetWidth; lightboxImg.classList.add('lightbox-enter-active');
+    }
+    window.prevImage = () => { if (lightboxImageList.length <= 1) return; lightboxCurrentIndex = (lightboxCurrentIndex - 1 + lightboxImageList.length) % lightboxImageList.length; currentRotation = 0; currentFlip = 1; updateLightboxUI(); };
+    window.nextImage = () => { if (lightboxImageList.length <= 1) return; lightboxCurrentIndex = (lightboxCurrentIndex + 1) % lightboxImageList.length; currentRotation = 0; currentFlip = 1; updateLightboxUI(); };
+    window.openResultLightbox = (id) => {
+        const data = resultsCache.get(id);
+        if (data) {
+            const images = [{src: data.main, label: '生成结果'}];
+            if (data.refs && data.refs.length > 0) data.refs.forEach((ref, idx) => images.push({src: ref, label: `参考图 ${idx + 1}`}));
+            window.openLightbox(images, 0);
+        }
+    };
+    window.openHistoryLightbox = (index) => {
+        const history = JSON.parse(localStorage.getItem('imageHistory') || '[]'); const item = history[index];
+        if (item) {
+            const images = [{src: item.image, label: '生成结果'}];
+            if (item.refs && item.refs.length > 0) item.refs.forEach((ref, idx) => images.push({src: ref, label: `参考图 ${idx + 1}`}));
+            window.openLightbox(images, 0);
+        }
+    }
+    document.getElementById('closeLightboxBtn').addEventListener('click', () => { lightbox.classList.add('hidden'); lightbox.classList.remove('flex'); lightboxImg.src = ''; });
+    lightbox.addEventListener('click', (e) => { if (e.target === lightbox) document.getElementById('closeLightboxBtn').click(); });
+    lbPrev.addEventListener('click', (e) => { e.stopPropagation(); window.prevImage(); }); lbNext.addEventListener('click', (e) => { e.stopPropagation(); window.nextImage(); });
+    document.addEventListener('keydown', (e) => { if (lightbox.classList.contains('hidden')) return; if (e.key === 'ArrowLeft') window.prevImage(); if (e.key === 'ArrowRight') window.nextImage(); if (e.key === 'Escape') document.getElementById('closeLightboxBtn').click(); });
+    window.rotateImage = () => { currentRotation -= 90; updateTransform(); }; window.flipImage = () => { currentFlip *= -1; updateTransform(); };
+    window.downloadLightboxImage = () => {
+        const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); const img = new Image(); img.crossOrigin = "anonymous";
+        img.onload = () => {
+            const rads = currentRotation * Math.PI / 180; const sin = Math.abs(Math.sin(rads)); const cos = Math.abs(Math.cos(rads)); canvas.width = img.width * cos + img.height * sin; canvas.height = img.width * sin + img.height * cos; ctx.translate(canvas.width/2, canvas.height/2); ctx.rotate(rads); ctx.scale(currentFlip, 1); ctx.drawImage(img, -img.width/2, -img.height/2);
+            const link = document.createElement('a'); link.download = `edited_${Date.now()}.png`; link.href = canvas.toDataURL(); link.click(); showToast('已保存', 'success');
+        }; img.src = lightboxImg.src;
+    };
+    function updateTransform() { lightboxImg.style.transform = `rotate(${currentRotation}deg) scaleX(${currentFlip})`; }
+
+    // === Global Helpers for Session ===
+    window.closeSession = (sessionId) => {
+        if(sessionControllers.has(sessionId)) {
+            sessionControllers.get(sessionId).abort();
+            sessionControllers.delete(sessionId);
+        }
+        const el = document.getElementById(sessionId);
+        if(el) el.remove();
+    };
+    
+    window.stopSession = (sessionId) => {
+        if(sessionControllers.has(sessionId)) {
+            sessionControllers.get(sessionId).abort();
+            showToast('已请求停止', 'info');
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Elements
+      const apiKeyStatusText = document.getElementById('apiKeyStatusText'), toggleApiBtn = document.getElementById('toggleApiBtn'), apiKeyPanel = document.getElementById('apiKeyPanel');
+      const profileForm = document.getElementById('profileForm'), profileList = document.getElementById('profileList'), profileCount = document.getElementById('profileCount'), formTitle = document.getElementById('formTitle'), resetFormBtn = document.getElementById('resetFormBtn');
+      const profileIdInput = document.getElementById('profileId'), profileNameInput = document.getElementById('profileName'), apiBaseUrlInput = document.getElementById('apiBaseUrl'), apiKeyInput = document.getElementById('apiKey'), authModeSelect = document.getElementById('authMode'), saveProfileBtn = document.getElementById('saveProfileBtn');
+      const promptInput = document.getElementById('prompt'), aspectSelect = document.getElementById('aspectRatio'), resolutionGroup = document.getElementById('resolutionGroup'), resolutionSelect = document.getElementById('resolution');
+      const actionBtnContainer = document.getElementById('actionBtnContainer'), resultContainer = document.getElementById('resultContainer'), emptyState = document.getElementById('emptyState');
+      const historySection = document.getElementById('historySection'), historyContainer = document.getElementById('historyContainer'), historySizeLabel = document.getElementById('historySize'), clearHistoryBtn = document.getElementById('clearHistoryBtn');
+      const imageUpload = document.getElementById('imageUpload'), dropZone = document.getElementById('dropZone'), selectedImagesContainer = document.getElementById('selectedImages');
+      const base64Input = document.getElementById('base64Input'), convertBase64Btn = document.getElementById('convertBase64Btn'), base64Result = document.getElementById('base64Result'), enhanceBtn = document.getElementById('enhanceBtn');
+
+      const selectedFiles = []; let apiProfiles = []; let activeProfileId = null;
+
+      // Profile Logic
+      function updateStatusDisplay() { const p = apiProfiles.find(p => p.id === activeProfileId); apiKeyStatusText.textContent = p ? `已配置: ${p.name}` : "API 未配置"; if(p){ apiKeyStatusText.classList.remove('text-slate-500'); apiKeyStatusText.classList.add('text-sakura-600'); } else { apiKeyStatusText.classList.remove('text-sakura-600'); apiKeyStatusText.classList.add('text-slate-500'); } }
+      function setActiveProfile(id) { if (activeProfileId === id) { apiKeyPanel.classList.add('hidden'); return; } activeProfileId = id; localStorage.setItem('activeProfileId', id); renderProfiles(); updateStatusDisplay(); const p = apiProfiles.find(p => p.id === id); if (p) showToast(`已切换至: ${p.name}`, 'info'); apiKeyPanel.classList.add('hidden'); }
+      function loadProfiles() { try { apiProfiles = JSON.parse(localStorage.getItem('apiProfiles') || '[]'); activeProfileId = localStorage.getItem('activeProfileId'); if (!activeProfileId && apiProfiles.length > 0) { activeProfileId = apiProfiles[0].id; localStorage.setItem('activeProfileId', activeProfileId); } renderProfiles(); updateStatusDisplay(); resetForm(); } catch(e) { console.error(e); apiProfiles = []; activeProfileId = null; } }
+      function renderProfiles() {
+          profileList.innerHTML = ''; profileCount.textContent = ` (${apiProfiles.length} 个)`; if (apiProfiles.length === 0) { profileList.innerHTML = `<div class="text-sm text-slate-400 p-4 bg-slate-50 rounded-lg text-center">暂无配置</div>`; return; }
+          apiProfiles.forEach(p => {
+              const isActive = p.id === activeProfileId; const div = document.createElement('div');
+              div.className = `p-3 rounded-xl cursor-pointer transition-all border ${isActive ? 'bg-sakura-100 border-sakura-400 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
+              div.innerHTML = `<div class="flex items-center justify-between"><div class="flex items-center gap-2 min-w-0"><span class="text-sm font-semibold truncate ${isActive ? 'text-sakura-700' : 'text-slate-700'}">${p.name}</span>${isActive ? '<i class="ph-fill ph-check-circle text-sakura-500 text-sm flex-shrink-0"></i>' : ''}</div><div class="flex gap-2 flex-shrink-0"><button type="button" class="text-xs text-slate-400 hover:text-blue-500 p-1" onclick="window.editProfile('${p.id}', event)"><i class="ph ph-pencil"></i></button><button type="button" class="text-xs text-slate-400 hover:text-red-500 p-1" onclick="window.deleteProfile('${p.id}', event)"><i class="ph ph-trash"></i></button></div></div><p class="text-xs text-slate-500 mt-1 truncate">${p.baseUrl.replace('https://', '')}</p>`;
+              div.addEventListener('click', () => setActiveProfile(p.id)); profileList.appendChild(div);
+          });
+      }
+      window.editProfile = (id, e) => { e.stopPropagation(); const p = apiProfiles.find(p => p.id === id); if (!p) return; profileIdInput.value = p.id; profileNameInput.value = p.name; apiBaseUrlInput.value = p.baseUrl; apiKeyInput.value = p.token; authModeSelect.value = p.authMode; formTitle.textContent = `编辑: ${p.name}`; saveProfileBtn.innerHTML = `<i class="ph ph-floppy-disk"></i> 更新`; resetFormBtn.classList.remove('hidden'); profileNameInput.focus(); };
+      window.deleteProfile = (id, e) => { e.stopPropagation(); const p = apiProfiles.find(p => p.id === id); if (!p) return; if (confirm(`删除 "${p.name}"?`)) { apiProfiles = apiProfiles.filter(i => i.id !== id); if (activeProfileId === id) activeProfileId = apiProfiles.length > 0 ? apiProfiles[0].id : null; localStorage.setItem('apiProfiles', JSON.stringify(apiProfiles)); localStorage.setItem('activeProfileId', activeProfileId); loadProfiles(); showToast('已删除', 'success'); resetForm(); } };
+      function resetForm() { profileIdInput.value = ''; profileForm.reset(); apiBaseUrlInput.value = 'https://yunwu.ai'; authModeSelect.value = 'bearer'; formTitle.textContent = '创建新配置'; saveProfileBtn.innerHTML = `<i class="ph ph-floppy-disk"></i> 保存配置`; resetFormBtn.classList.add('hidden'); }
+      toggleApiBtn.addEventListener('click', () => { apiKeyPanel.classList.toggle('hidden'); if (!apiKeyPanel.classList.contains('hidden')) { renderProfiles(); resetForm(); } });
+      profileForm.addEventListener('submit', (e) => { e.preventDefault(); const id = profileIdInput.value || crypto.randomUUID(); let url = apiBaseUrlInput.value.trim(); if (url.endsWith('/')) url = url.slice(0, -1); const newP = { id, name: profileNameInput.value.trim() || `配置 ${new Date().toLocaleTimeString('zh-CN')}`, baseUrl: url || 'https://yunwu.ai', token: apiKeyInput.value.trim(), authMode: authModeSelect.value }; if (!newP.token) return showToast('请输入 Token', 'error'); const idx = apiProfiles.findIndex(p => p.id === id); if (idx > -1) apiProfiles[idx] = newP; else { apiProfiles.push(newP); if (apiProfiles.length === 1 || !activeProfileId) activeProfileId = id; } localStorage.setItem('apiProfiles', JSON.stringify(apiProfiles)); localStorage.setItem('activeProfileId', activeProfileId); loadProfiles(); showToast('保存成功', 'success'); resetForm(); });
+      resetFormBtn.addEventListener('click', resetForm);
+
+      // Settings
+      const savedAspect = localStorage.getItem('savedAspectRatio'); if (savedAspect) aspectSelect.value = savedAspect;
+      const savedRes = localStorage.getItem('savedResolution'); if (savedRes) resolutionSelect.value = savedRes;
+      const savedModels = JSON.parse(localStorage.getItem('savedModels') || '[]');
+      if (savedModels.length > 0) document.querySelectorAll('input[name="model"]').forEach(cb => cb.checked = savedModels.includes(cb.value));
+      aspectSelect.addEventListener('change', () => localStorage.setItem('savedAspectRatio', aspectSelect.value));
+      resolutionSelect.addEventListener('change', () => localStorage.setItem('savedResolution', resolutionSelect.value));
+      const saveModelSelection = () => { const s = Array.from(document.querySelectorAll('input[name="model"]:checked')).map(cb => cb.value); localStorage.setItem('savedModels', JSON.stringify(s)); updateResolutionGroup(); };
+      document.querySelectorAll('input[name="model"]').forEach(cb => cb.addEventListener('change', saveModelSelection));
+      function updateResolutionGroup() { const checked = document.querySelector('input[name="model"][value="3"]').checked; resolutionGroup.classList.toggle('hidden', !checked); } updateResolutionGroup();
+      const savedPrompt = localStorage.getItem('cachedPrompt'); if (savedPrompt) promptInput.value = savedPrompt;
+      promptInput.addEventListener('input', (e) => localStorage.setItem('cachedPrompt', e.target.value));
+
+      // Image Upload
+      const handleFiles = (files) => { for (const f of files) if(f.type.startsWith('image/')) selectedFiles.push(f); renderSelectedImages(); };
+      const triggerUpload = (e) => { e.stopPropagation(); imageUpload.click(); };
+      document.getElementById('uploadIcon').addEventListener('click', triggerUpload); document.getElementById('uploadTextBtn').addEventListener('click', triggerUpload);
+      dropZone.addEventListener('click', () => dropZone.focus());
+      imageUpload.addEventListener('change', (e) => { handleFiles(e.target.files); imageUpload.value = ''; });
+      dropZone.addEventListener('paste', (e) => { e.preventDefault(); const items = (e.clipboardData || e.originalEvent.clipboardData).items; const files = []; for (const i of items) if (i.kind === 'file' && i.type.startsWith('image/')) files.push(i.getAsFile()); if (files.length > 0) { handleFiles(files); showToast(`粘贴 ${files.length} 张图片`, 'success'); } });
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => dropZone.addEventListener(e, (ev) => { ev.preventDefault(); ev.stopPropagation(); }, false));
+      dropZone.addEventListener('dragover', () => dropZone.classList.add('bg-sakura-50', 'border-sakura-400'));
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('bg-sakura-50', 'border-sakura-400'));
+      dropZone.addEventListener('drop', (e) => { dropZone.classList.remove('bg-sakura-50', 'border-sakura-400'); handleFiles(e.dataTransfer.files); });
+      function renderSelectedImages() { selectedImagesContainer.innerHTML = ''; selectedFiles.forEach((f, i) => { const u = URL.createObjectURL(f); const d = document.createElement('div'); d.className = 'relative group aspect-square rounded-lg overflow-hidden border border-slate-200'; d.innerHTML = `<img src="${u}" class="w-full h-full object-cover"><div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2"><button class="text-white hover:text-red-400" onclick="window.removeImg(${i})" title="删除"><i class="ph-bold ph-trash"></i></button></div>`; selectedImagesContainer.appendChild(d); }); }
+      window.removeImg = (i) => { selectedFiles.splice(i, 1); renderSelectedImages(); };
+
+      function fileToBase64(file) { return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file); }); }
+      function createThumbnail(base64, mimeType = 'image/png', maxWidth = 100) { return new Promise((resolve) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); let w = img.width, h = img.height; if (w > maxWidth) { h = Math.floor(h * (maxWidth / w)); w = maxWidth; } canvas.width = w; canvas.height = h; canvas.getContext('2d').drawImage(img, 0, 0, w, h); resolve(canvas.toDataURL(mimeType, 0.6)); }; img.onerror = () => resolve('data:' + mimeType + ';base64,' + base64); img.src = 'data:' + mimeType + ';base64,' + base64; }); }
+
+      // LLM Enhance
+      enhanceBtn.addEventListener('click', async () => {
+          const activeProfile = apiProfiles.find(p => p.id === activeProfileId);
+          if (!activeProfile) { apiKeyPanel.classList.remove('hidden'); return showToast('请先配置 API', 'error'); }
+          const userPrompt = promptInput.value.trim(); if (!userPrompt) return showToast('请输入描述', 'error');
+          const originalBtnContent = enhanceBtn.innerHTML; enhanceBtn.disabled = true; enhanceBtn.innerHTML = `<i class="ph-bold ph-spinner animate-spin"></i> 优化中...`;
+          const { token, baseUrl, authMode } = activeProfile;
+          const endpoint = `${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent`;
+          const systemPrompt = "You are an expert AI image generation prompt engineer. Output ONLY the enhanced prompt text in English.";
+          const body = { contents: [{ role: "user", parts: [{ text: "Enhance this description: " + userPrompt }] }], systemInstruction: { parts: [{ text: systemPrompt }] } };
+          const headers = { 'Content-Type': 'application/json' };
+          if (authMode === 'official') headers['x-goog-api-key'] = token; else headers['Authorization'] = 'Bearer ' + token;
+          try { const res = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) }); const data = await res.json(); if (data.candidates?.[0]?.content?.parts) { const t = data.candidates[0].content.parts[0].text; promptInput.value = t; localStorage.setItem('cachedPrompt', t); showToast('优化成功', 'success'); } else throw new Error('No content'); } catch (e) { showToast('优化失败', 'error'); } finally { enhanceBtn.disabled = false; enhanceBtn.innerHTML = originalBtnContent; }
+      });
+
+      // === Chat / Generation Logic ===
+      async function startGeneration() {
+        const activeProfile = apiProfiles.find(p => p.id === activeProfileId);
+        if (!activeProfile) { apiKeyPanel.classList.remove('hidden'); return showToast('请创建 API 配置', 'error'); }
+        const { token, baseUrl, authMode } = activeProfile;
+        const prompt = promptInput.value.trim(); if (!prompt) return showToast('请输入提示词', 'error');
+        const models = Array.from(document.querySelectorAll('input[name="model"]:checked')).map(cb => cb.value);
+        if (models.length === 0) return showToast('请选择模型', 'error');
+
+        emptyState.classList.add('hidden');
+
+        // Prepare Initial Files
+        let base64Files = []; let refImages = [];
+        if (selectedFiles.length > 0) {
+           try { for (const f of selectedFiles) { const b64 = await fileToBase64(f); base64Files.push({ type: f.type, data: b64 }); refImages.push(`data:${f.type};base64,${b64}`); } } catch(e) { showToast('图片读取失败', 'error'); return; }
+        }
+
+        const generateTask = async (model) => {
+            const controller = new AbortController();
+            const sessionId = 'session-' + Date.now() + Math.random().toString(36).substr(2, 5);
+            sessionControllers.set(sessionId, controller); // Use sessionId map logic
+
+            const modelName = model === '2.5' ? 'Gemini 2.5 Flash' : 'Gemini 3 Pro';
+            const endpoint = model === '2.5' ? `${baseUrl}/v1beta/models/gemini-2.5-flash-image:generateContent` : `${baseUrl}/v1beta/models/gemini-3-pro-image-preview:generateContent`;
+            
+            const initialParts = [{ text: prompt }];
+            base64Files.forEach(f => initialParts.push({ inlineData: { mimeType: f.type, data: f.data } }));
+            const contents = [{ role: 'user', parts: initialParts }];
+            sessionContents.set(sessionId, { contents, model, endpoint, headers: { 'Content-Type': 'application/json', ...(authMode === 'official' ? { 'x-goog-api-key': token } : { 'Authorization': 'Bearer ' + token }) }, params: { aspectRatio: aspectSelect.value, resolution: resolutionSelect.value }, refImages: [...refImages] });
+
+            // Chat Card
+            const chatCard = document.createElement('div');
+            chatCard.id = sessionId;
+            chatCard.className = "bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 flex flex-col w-full transition-all";
+            chatCard.innerHTML = `
+                <div class="bg-slate-50/50 border-b border-slate-100 p-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm font-bold text-white bg-gradient-to-r from-sakura-400 to-sakura-600 px-3 py-1 rounded-full shadow-sm shadow-sakura-200">${modelName}</span>
+                        <span class="text-xs text-slate-400 bg-white px-2 py-1 rounded border border-slate-100">${aspectSelect.value}</span>
+                    </div>
+                    <button onclick="window.closeSession('${sessionId}')" class="text-slate-300 hover:text-red-400 transition-colors" title="关闭会话"><i class="ph-bold ph-x"></i></button>
+                </div>
+                <div id="msg-${sessionId}" class="flex-1 p-4 space-y-4 max-h-[600px] overflow-y-auto bg-white relative min-h-[300px]">
+                    <div class="flex justify-end message-enter-active"><div class="bg-sakura-50 text-sakura-800 text-sm px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%] leading-relaxed">${prompt}</div></div>
+                    <div id="loading-${sessionId}" class="flex justify-start animate-pulse"><div class="bg-slate-50 text-slate-400 text-sm px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2"><i class="ph-bold ph-paint-brush-broad animate-bounce"></i> 正在绘制...</div></div>
+                </div>
+                <div class="p-3 border-t border-slate-100 bg-slate-50 flex gap-2">
+                    <input type="text" id="input-${sessionId}" class="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-sakura-400 transition-colors" placeholder="输入修改指令 (例如: 把背景改成夜晚)..." disabled>
+                    <button id="btn-${sessionId}" class="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl transition-colors" onclick="window.stopSession('${sessionId}')"><i class="ph-bold ph-stop-circle"></i></button>
+                </div>
+            `;
+            resultContainer.prepend(chatCard);
+
+            const sendApiRequest = async (currentContents) => {
+                const body = {
+                    contents: currentContents,
+                    generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: aspectSelect.value } }
+                };
+                if(model === '3') body.generationConfig.imageConfig.imageSize = resolutionSelect.value;
+
+                try {
+                    const res = await fetch(endpoint, { method: 'POST', headers: sessionContents.get(sessionId).headers, body: JSON.stringify(body), signal: controller.signal });
+                    const data = await res.json();
+                    
+                    const loadingEl = document.getElementById(`loading-${sessionId}`);
+                    if(loadingEl) loadingEl.remove();
+
+                    let imgData = null;
+                    const getImg = (parts) => { if(!parts) return null; for(let p of parts) { if(p.inlineData?.data) return p.inlineData.data; if(p.inline_data?.data) return p.inline_data.data; } return null; };
+                    if(data.candidates?.[0]?.content?.parts) imgData = getImg(data.candidates[0].content.parts); else if(data.content?.parts) imgData = getImg(data.content.parts);
+
+                    const container = document.getElementById(`msg-${sessionId}`);
+
+                    if (imgData) {
+                        playSound('success');
+                        const imgSrc = `data:image/png;base64,${imgData}`;
+                        const msgId = 'img-' + Date.now();
+                        const sessionData = sessionContents.get(sessionId);
+                        sessionData.refImages.unshift(imgSrc); 
+                        resultsCache.set(msgId, { main: imgSrc, refs: sessionData.refImages }); 
+
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = "flex justify-start message-enter";
+                        msgDiv.innerHTML = `<div class="relative group rounded-2xl rounded-tl-none overflow-hidden border border-slate-100 max-w-[85%] bg-slate-50"><img src="${imgSrc}" class="w-full h-auto object-contain max-h-[400px] cursor-zoom-in" onclick="window.openResultLightbox('${msgId}')"><div class="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.downloadImage('${imgSrc}', 'gen_${model}.png')" class="bg-white/90 hover:bg-white text-slate-700 p-1.5 rounded-lg shadow-sm text-xs backdrop-blur-md"><i class="ph-bold ph-download-simple"></i></button><button onclick="window.openResultLightbox('${msgId}')" class="bg-white/90 hover:bg-white text-slate-700 p-1.5 rounded-lg shadow-sm text-xs backdrop-blur-md"><i class="ph-bold ph-arrows-out-simple"></i></button></div></div>`;
+                        container.appendChild(msgDiv);
+                        container.scrollTop = container.scrollHeight;
+                        requestAnimationFrame(() => msgDiv.classList.add('message-enter-active'));
+
+                        sessionData.contents.push({ role: 'model', parts: [{ inlineData: { mimeType: 'image/png', data: imgData } }] });
+                        saveToHistory(model, prompt, aspectSelect.value, imgSrc, sessionData.refImages);
+
+                        updateSessionInputState(sessionId, false); // Switch to Send Mode
+
+                    } else { throw new Error('No image returned'); }
+                } catch (err) {
+                    const loadingEl = document.getElementById(`loading-${sessionId}`);
+                    if(loadingEl) loadingEl.remove();
+                    if (err.name !== 'AbortError') {
+                        playSound('error');
+                        const container = document.getElementById(`msg-${sessionId}`);
+                        const errDiv = document.createElement('div');
+                        errDiv.className = "flex justify-start message-enter";
+                        errDiv.innerHTML = `<div class="bg-red-50 text-red-600 text-xs px-4 py-3 rounded-2xl rounded-tl-none border border-red-100 max-w-[85%]">错误: ${err.message}</div>`;
+                        container.appendChild(errDiv);
+                        container.scrollTop = container.scrollHeight;
+                        requestAnimationFrame(() => errDiv.classList.add('message-enter-active'));
+                        updateSessionInputState(sessionId, false);
+                    }
+                }
+            };
+
+            await sendApiRequest(sessionContents.get(sessionId).contents);
+        };
+
+        const tasks = models.map(model => generateTask(model));
+        await Promise.allSettled(tasks);
+      }
+      
+      // Separate function to manage chat input state
+      window.updateSessionInputState = (sessionId, isGenerating) => {
+          const input = document.getElementById(`input-${sessionId}`);
+          const btn = document.getElementById(`btn-${sessionId}`);
+          if(!input || !btn) return;
+
+          if (isGenerating) {
+              btn.innerHTML = '<i class="ph-bold ph-stop-circle"></i>';
+              btn.className = "bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl transition-colors";
+              btn.onclick = () => window.stopSession(sessionId);
+              input.disabled = true;
+          } else {
+              btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i>';
+              btn.className = "bg-sakura-500 hover:bg-sakura-600 text-white px-4 py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+              btn.onclick = () => handleChatSubmit(sessionId);
+              input.disabled = false;
+              input.focus();
+              
+              // Bind Enter key
+              input.onkeydown = (e) => { if(e.key === 'Enter') handleChatSubmit(sessionId); };
+          }
+      };
+
+      window.handleChatSubmit = async (sessionId) => {
+          const input = document.getElementById(`input-${sessionId}`);
+          const text = input.value.trim();
+          if(!text) return;
+          
+          input.value = '';
+          updateSessionInputState(sessionId, true); // Switch to Stop Mode
+
+          const container = document.getElementById(`msg-${sessionId}`);
+          const userMsg = document.createElement('div');
+          userMsg.className = "flex justify-end message-enter";
+          userMsg.innerHTML = `<div class="bg-sakura-50 text-sakura-800 text-sm px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%] leading-relaxed">${text}</div>`;
+          container.appendChild(userMsg);
+          container.scrollTop = container.scrollHeight;
+          requestAnimationFrame(() => userMsg.classList.add('message-enter-active'));
+
+          const loadDiv = document.createElement('div');
+          loadDiv.id = `loading-${sessionId}`;
+          loadDiv.className = "flex justify-start animate-pulse";
+          loadDiv.innerHTML = `<div class="bg-slate-50 text-slate-400 text-sm px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2"><i class="ph-bold ph-magic-wand animate-spin"></i> 修改中...</div>`;
+          container.appendChild(loadDiv);
+          container.scrollTop = container.scrollHeight;
+
+          const sessionData = sessionContents.get(sessionId);
+          sessionData.contents.push({ role: 'user', parts: [{ text }] });
+          
+          // Re-create controller for new request
+          const controller = new AbortController();
+          sessionControllers.set(sessionId, controller);
+          
+          // Re-use logic (need to abstract logic or copy paste parts for brevity here, copying essential fetch part)
+          const body = {
+                contents: sessionData.contents,
+                generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: sessionData.params.aspectRatio } }
+          };
+          if(sessionData.model === '3') body.generationConfig.imageConfig.imageSize = sessionData.params.resolution;
+
+          try {
+                const res = await fetch(sessionData.endpoint, { method: 'POST', headers: sessionData.headers, body: JSON.stringify(body), signal: controller.signal });
+                const data = await res.json();
+                document.getElementById(`loading-${sessionId}`)?.remove();
+
+                let imgData = null;
+                const getImg = (parts) => { if(!parts) return null; for(let p of parts) { if(p.inlineData?.data) return p.inlineData.data; if(p.inline_data?.data) return p.inline_data.data; } return null; };
+                if(data.candidates?.[0]?.content?.parts) imgData = getImg(data.candidates[0].content.parts); else if(data.content?.parts) imgData = getImg(data.content.parts);
+
+                if (imgData) {
+                    playSound('success');
+                    const imgSrc = `data:image/png;base64,${imgData}`;
+                    const msgId = 'img-' + Date.now();
+                    sessionData.refImages.unshift(imgSrc); 
+                    resultsCache.set(msgId, { main: imgSrc, refs: sessionData.refImages }); 
+
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = "flex justify-start message-enter";
+                    msgDiv.innerHTML = `<div class="relative group rounded-2xl rounded-tl-none overflow-hidden border border-slate-100 max-w-[85%] bg-slate-50"><img src="${imgSrc}" class="w-full h-auto object-contain max-h-[400px] cursor-zoom-in" onclick="window.openResultLightbox('${msgId}')"><div class="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.downloadImage('${imgSrc}', 'gen_${sessionData.model}.png')" class="bg-white/90 hover:bg-white text-slate-700 p-1.5 rounded-lg shadow-sm text-xs backdrop-blur-md"><i class="ph-bold ph-download-simple"></i></button><button onclick="window.openResultLightbox('${msgId}')" class="bg-white/90 hover:bg-white text-slate-700 p-1.5 rounded-lg shadow-sm text-xs backdrop-blur-md"><i class="ph-bold ph-arrows-out-simple"></i></button></div></div>`;
+                    container.appendChild(msgDiv);
+                    container.scrollTop = container.scrollHeight;
+                    requestAnimationFrame(() => msgDiv.classList.add('message-enter-active'));
+
+                    sessionData.contents.push({ role: 'model', parts: [{ inlineData: { mimeType: 'image/png', data: imgData } }] });
+                    updateSessionInputState(sessionId, false);
+                } else { throw new Error('No image returned'); }
+          } catch (err) {
+                document.getElementById(`loading-${sessionId}`)?.remove();
+                if (err.name !== 'AbortError') {
+                    playSound('error');
+                    const errDiv = document.createElement('div');
+                    errDiv.className = "flex justify-start message-enter";
+                    errDiv.innerHTML = `<div class="bg-red-50 text-red-600 text-xs px-4 py-3 rounded-2xl rounded-tl-none border border-red-100 max-w-[85%]">错误: ${err.message}</div>`;
+                    container.appendChild(errDiv);
+                    container.scrollTop = container.scrollHeight;
+                    requestAnimationFrame(() => errDiv.classList.add('message-enter-active'));
+                    updateSessionInputState(sessionId, false);
+                }
+          }
+      };
+
+      document.getElementById('generateBtn').addEventListener('click', startGeneration);
+
+      // History & Base64 Logic
+      let history = JSON.parse(localStorage.getItem('imageHistory') || '[]');
+      function updateStorageSize() { const bytes = (localStorage.getItem('imageHistory') || '').length * 2; let sizeStr = bytes < 1024 ? bytes + ' B' : (bytes < 1024*1024 ? (bytes/1024).toFixed(1)+' KB' : (bytes/(1024*1024)).toFixed(2)+' MB'); historySizeLabel.textContent = sizeStr; }
+      async function saveToHistory(model, prompt, ratio, fullBase64, refImages = []) { try { const thumb = await createThumbnail(fullBase64.replace('data:image/png;base64,','')); let compressedRefs = []; if (refImages.length > 0) { for (let ref of refImages) { compressedRefs.push(await createThumbnail(ref.split(',')[1])); } } history.unshift({ id: Date.now(), model, prompt, ratio, image: thumb, refs: compressedRefs }); try { localStorage.setItem('imageHistory', JSON.stringify(history)); } catch (e) { if (e.name === 'QuotaExceededError') { showToast('本地存储满，未保存记录', 'error'); history.shift(); } } renderHistory(); } catch(e) { console.warn(e); } }
+      function renderHistory() { if(history.length > 0) { historySection.classList.remove('hidden'); historyContainer.innerHTML = ''; history.forEach((item, index) => { const div = document.createElement('div'); div.className = 'flex gap-3 p-2 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-100 group'; div.innerHTML = `<div class="w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden cursor-zoom-in relative border border-slate-200" onclick="window.openHistoryLightbox(${index})"><img src="${item.image}" class="w-full h-full object-cover"><div class="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div></div><div class="flex-1 min-w-0 flex flex-col justify-between py-0.5"><p class="text-xs text-slate-600 line-clamp-2 leading-relaxed" title="${item.prompt}">${item.prompt}</p><div class="flex items-center justify-between mt-1"><span class="text-[10px] text-slate-400 bg-white px-1.5 rounded border border-slate-100">${item.model==='2.5'?'Flash':'Pro'}</span><div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onclick="window.copyPrompt('${index}')" class="text-sakura-500 hover:text-sakura-600 text-[10px] flex items-center gap-1 font-medium"><i class="ph-bold ph-copy"></i> 复制</button><button onclick="window.deleteHistory(${index})" class="text-slate-400 hover:text-red-500 text-[10px]"><i class="ph-bold ph-trash"></i></button></div></div></div>`; historyContainer.appendChild(div); }); } else { historySection.classList.add('hidden'); } updateStorageSize(); }
+      window.copyPrompt = (i) => { const t = history[i].prompt; navigator.clipboard.writeText(t).then(() => { showToast('已复制', 'success'); promptInput.value = t; promptInput.focus(); }); };
+      window.downloadImage = (s, n) => { const a = document.createElement('a'); a.href = s; a.download = n; a.click(); };
+      window.deleteHistory = (i) => { history.splice(i, 1); localStorage.setItem('imageHistory', JSON.stringify(history)); renderHistory(); };
+      clearHistoryBtn.addEventListener('click', () => { if(confirm('清空?')) { history = []; localStorage.removeItem('imageHistory'); renderHistory(); } });
+      convertBase64Btn.addEventListener('click', () => { const r = base64Input.value.trim(); if(!r) return; const s = r.startsWith('data:') ? r : 'data:image/png;base64,' + r; base64Result.classList.remove('hidden'); base64Result.innerHTML = `<img src="${s}" class="max-h-48 mx-auto rounded border border-slate-200 cursor-zoom-in" onclick="window.openLightbox([{src: '${s}', label: 'Base64'}])">`; });
+      
+      loadProfiles(); renderHistory();
+    });
+  </script>
+</body>
+</html>

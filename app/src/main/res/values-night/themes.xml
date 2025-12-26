@@ -11,7 +11,8 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <!-- 深色模式下使用浅色状态栏图标 -->
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <style name="ActivitySlideAnimation" parent="@android:style/Animation.Activity">
@@ -21,7 +22,7 @@
         <item name="android:activityCloseExitAnimation">@anim/slide_out_right</item>
     </style>
 
-    <!-- 从左侧滑入的Activity主题 -->
+    <!-- 从左侧滑入的Activity主题 - 深色模式 -->
     <style name="Theme.LiveWallpaper.SlideFromLeft" parent="Theme.LiveWallpaper">
         <item name="android:windowAnimationStyle">@style/ActivitySlideFromLeftAnimation</item>
     </style>
@@ -34,4 +35,5 @@
         <item name="android:activityCloseEnterAnimation">@anim/slide_in_right</item>
         <item name="android:activityCloseExitAnimation">@anim/slide_out_left</item>
     </style>
+
 </resources>

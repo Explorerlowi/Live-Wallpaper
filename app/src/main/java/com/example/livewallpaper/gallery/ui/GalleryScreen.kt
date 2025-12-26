@@ -80,6 +80,7 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.size.Size
 import com.example.livewallpaper.R
+import com.example.livewallpaper.ui.components.ImagePreviewDialogFromUris
 import com.example.livewallpaper.gallery.model.Album
 import com.example.livewallpaper.gallery.model.MediaItem
 import com.example.livewallpaper.gallery.viewmodel.GalleryPage
@@ -250,7 +251,7 @@ fun GalleryScreen(
     
     // 预览对话框（预览所有选中图片）
     if (showPreview && uiState.selectedImages.isNotEmpty()) {
-        ImagePreviewDialog(
+        ImagePreviewDialogFromUris(
             imageUris = uiState.selectedImages.toList(),
             initialIndex = 0,
             onDismiss = { showPreview = false }
@@ -261,7 +262,7 @@ fun GalleryScreen(
     previewImageIndex?.let { index ->
         val selectedList = uiState.selectedImages.toList()
         if (index in selectedList.indices) {
-            ImagePreviewDialog(
+            ImagePreviewDialogFromUris(
                 imageUris = selectedList,
                 initialIndex = index,
                 onDismiss = { previewImageIndex = null }
@@ -662,96 +663,6 @@ private fun ConfirmSelectionBar(
                 Text(
                     text = stringResource(R.string.gallery_confirm),
                     fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-/**
- * 图片预览对话框
- * 支持左右滑动查看选中的图片
- * @param imageUris 图片 URI 列表
- * @param initialIndex 初始显示的图片索引
- * @param onDismiss 关闭回调
- */
-@Composable
-private fun ImagePreviewDialog(
-    imageUris: List<Uri>,
-    initialIndex: Int = 0,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, (imageUris.size - 1).coerceAtLeast(0)),
-        pageCount = { imageUris.size }
-    )
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // 图片翻页器
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 1 // 预加载相邻页面
-        ) { page ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                // 限制最大尺寸，防止超大图片导致 Canvas 崩溃
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUris[page])
-                        .size(Size(2560, 2560))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-        
-        // 关闭按钮（放在最上层，使用 zIndex 确保可点击）
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .zIndex(10f)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = stringResource(R.string.close),
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-        
-        // 页码指示器
-        if (imageUris.size > 1) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .zIndex(10f),
-                color = Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text(
-                    text = "${pagerState.currentPage + 1} / ${imageUris.size}",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }

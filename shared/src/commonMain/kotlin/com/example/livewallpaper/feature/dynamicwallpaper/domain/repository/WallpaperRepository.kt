@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 interface WallpaperRepository {
     fun getConfig(): Flow<WallpaperConfig>
+    /** 同步获取当前配置，用于初始化 UI 状态 */
+    fun getConfigSync(): WallpaperConfig
     suspend fun updateConfig(config: WallpaperConfig)
     suspend fun addImages(uris: List<String>)
     suspend fun removeImage(uri: String)

@@ -125,5 +125,9 @@ class WallpaperRepositoryImpl(
     private fun getCurrentConfig(): WallpaperConfig {
         return parseConfig(settings.getString(key, ""))
     }
+
+    override fun getConfigSync(): WallpaperConfig {
+        return getCurrentConfig()
+    }
 }
 

@@ -26,7 +26,7 @@ class SettingsViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SettingsUiState()
+        initialValue = SettingsUiState(config = repository.getConfigSync())
     )
 
     fun onEvent(event: SettingsEvent) {

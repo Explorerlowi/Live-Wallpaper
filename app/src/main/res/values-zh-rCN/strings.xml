@@ -5,7 +5,7 @@
     
     <!-- 顶部栏 -->
     <string name="settings">设置</string>
-    <string name="draw">绘图</string>
+    <string name="draw">AI绘画</string>
     
     <!-- 图片操作 -->
     <string name="add_image">添加图片</string>
@@ -100,5 +100,53 @@
     <string name="exit_confirm_message">您有未保存的更改，是否要在退出前保存？</string>
     <string name="save_and_exit">保存</string>
     <string name="discard_and_exit">放弃</string>
+    
+    <!-- AI绘画 -->
+    <string name="paint_title">AI绘画</string>
+    <string name="paint_empty_title">开始创作</string>
+    <string name="paint_empty_subtitle">输入描述，让AI为你绘制图像</string>
+    <string name="paint_prompt_hint">描述你想要的画面...</string>
+    <string name="paint_enhance">优化</string>
+    <string name="paint_generating">正在绘制...</string>
+    <string name="paint_generating_time">正在生成中... %1$s</string>
+    <string name="paint_stop">停止</string>
+    <string name="paint_send">发送</string>
+    <string name="paint_sessions">会话列表</string>
+    <string name="paint_new_session">新建会话</string>
+    <string name="paint_no_sessions">暂无会话</string>
+    <string name="paint_no_sessions_hint">点击右上角创建新会话</string>
+    <string name="paint_api_settings">API配置</string>
+    <string name="paint_no_api">未配置API</string>
+    <string name="paint_select_model">选择模型</string>
+    <string name="paint_select_ratio">选择比例</string>
+    <string name="paint_select_resolution">选择分辨率</string>
+    <string name="paint_delete_session_title">删除会话</string>
+    <string name="paint_delete_session_message">确定要删除会话「%1$s」吗？此操作无法撤销。</string>
+    <string name="paint_delete">删除</string>
+    <string name="paint_auth_mode">鉴权方式</string>
+    <string name="paint_no_config">暂无配置</string>
+    <string name="paint_delete_config_title">删除配置</string>
+    <string name="paint_delete_config_message">确定要删除配置「%1$s」吗？</string>
+    <string name="paint_image_load_failed">图片加载失败</string>
+    <string name="paint_please_config_api">请先配置API</string>
+    <string name="paint_generate_success">生成成功</string>
+    <string name="paint_generate_failed">生成失败</string>
+    <string name="paint_stopped">已停止生成</string>
+    <string name="paint_save_success">保存成功</string>
+    <string name="paint_deleted">已删除</string>
+    <string name="paint_enhance_success">优化成功</string>
+    <string name="paint_enhance_failed">优化失败</string>
+    <string name="paint_status_pending">排队中</string>
+    <string name="paint_status_done">已完成</string>
+    <string name="paint_status_failed">生成失败</string>
+    <string name="paint_status_time">%1$s · %2$s</string>
+    <string name="paint_time_format_seconds">%1$d秒</string>
+    <string name="paint_time_format_minutes">%1$d分%2$d秒</string>
+    
+    <!-- 消息操作 -->
+    <string name="message_copy">复制</string>
+    <string name="message_delete">删除</string>
+    <string name="message_delete_title">删除消息</string>
+    <string name="message_delete_confirm">确定要删除这条消息吗？</string>
+    <string name="message_copied">已复制到剪贴板</string>
 </resources>
-

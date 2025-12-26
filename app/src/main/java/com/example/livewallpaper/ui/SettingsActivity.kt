@@ -5,7 +5,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -76,7 +75,7 @@ class SettingsActivity : ComponentActivity() {
         // 保持屏幕常亮，防止息屏
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
-        enableEdgeToEdge()
+        // Edge-to-Edge 已在 themes.xml 中配置
         
         // 获取传入的参数
         val currentInterval = intent.getLongExtra("interval", 5000L)
