@@ -12,11 +12,17 @@
 
 Live Wallpaper is a modern Android application built with Kotlin Multiplatform (KMP) and developed using Cursor IDE. It allows users to create dynamic wallpapers by cycling through multiple images with customizable settings. The app features a clean architecture, supporting both Chinese and English languages, and provides an intuitive interface for managing and customizing wallpaper collections.
 
+**Latest Update:** The app now integrates AI painting functionality powered by Google Gemini models. Users can generate beautiful images through text descriptions and reference images, with support for multiple models, parameter adjustments, and session management. Additionally, theme switching has been added with support for light, dark, and system-follow modes.
+
 **中文:**
 
 Live Wallpaper 是一款使用 Kotlin Multiplatform (KMP) 技术栈开发、通过 Cursor IDE 构建的现代化 Android 动态壁纸应用。用户可以通过轮播多张图片来创建个性化动态壁纸，并支持丰富的自定义设置。应用采用清晰的架构设计，支持中英文双语，提供直观的界面用于管理和自定义壁纸集合。
 
+**最新更新：** 应用现已集成 AI 绘画功能，基于 Google Gemini 模型，用户可以通过文本描述和参考图生成精美图片，支持多模型选择、参数调整和会话管理等高级功能。同时新增了主题切换功能，支持浅色、深色和跟随系统三种模式。
+
 ## ✨ 功能特性
+
+### 动态壁纸功能
 
 - 🖼️ **多图片轮播**：支持添加多张图片，自动轮播显示
 - 🎨 **图片裁剪**：支持对每张图片进行裁剪和位置调整
@@ -26,8 +32,25 @@ Live Wallpaper 是一款使用 Kotlin Multiplatform (KMP) 技术栈开发、通�
 - ⏱️ **自定义间隔**：可设置图片切换间隔时间（1-60秒）
 - 📐 **缩放模式**：提供填充（CENTER_CROP）和适应（FIT_CENTER）两种缩放模式
 - 🎲 **播放模式**：支持顺序播放和随机播放两种模式
+
+### AI 绘画功能 ✨ NEW
+
+- 🤖 **AI 图片生成**：基于 Google Gemini 模型，通过文本描述生成图片
+- 🖼️ **参考图支持**：支持上传参考图片，辅助 AI 生成更精准的结果
+- 💬 **会话管理**：支持创建、切换和删除多个绘画会话
+- 🎯 **多模型选择**：支持 Gemini 2.5 Flash 和 Gemini 3 Pro 两种模型
+- 📐 **灵活配置**：可自定义宽高比（1:1、16:9、9:16）和分辨率
+- ✨ **提示词优化**：自动优化用户输入的提示词，提升生成效果
+- 📝 **历史记录**：保存所有生成记录，支持查看和管理
+- 💾 **图片保存**：支持将生成的图片保存到本地相册
+- 🔄 **图片编辑**：支持旋转、镜像等基础编辑功能
+
+### 应用设置
+
+- 🎨 **主题切换**：支持浅色、深色和跟随系统三种主题模式
 - 🌐 **多语言支持**：内置中英文（简体中文/英文）切换，所有 UI 文案均通过统一国际化资源管理
-- 💾 **配置持久化**：壁纸配置自动保存，重启后恢复
+- 💾 **配置持久化**：所有配置自动保存，重启后恢复
+- 🎬 **流畅动画**：Activity 切换支持滑动动画效果
 
 ## 🏗️ 技术架构
 
@@ -42,6 +65,8 @@ Live Wallpaper 是一款使用 Kotlin Multiplatform (KMP) 技术栈开发、通�
 - **媒体处理**：Media3 Effect
 - **数据存储**：Multiplatform Settings
 - **序列化**：kotlinx.serialization
+- **网络请求**：Ktor Client
+- **AI 模型**：Google Gemini API
 
 ### 项目结构
 
@@ -84,6 +109,7 @@ Live Wallpaper/
   - `minSdk`：24
   - `targetSdk`：36
 - **Gradle**：8.13.1（已包含 Gradle Wrapper）
+- **Gemini API Key**：使用 AI 绘画功能需要（可选）
 
 ### 克隆项目
 
@@ -170,6 +196,40 @@ cd "Live Wallpaper"
 4. **设置为壁纸**：
    - 点击底部的"设置为动态壁纸"按钮
    - 确认设置
+
+### 使用 AI 绘画功能
+
+1. **配置 API**：
+   - 首次使用需要配置 Gemini API Key
+   - 在 AI 绘画界面点击设置按钮
+   - 输入你的 API Key 和 API URL（可选）
+
+2. **创建会话**：
+   - 点击左上角菜单图标
+   - 选择"新建会话"创建新的绘画会话
+   - 可以为会话命名以便管理
+
+3. **生成图片**：
+   - 在输入框中输入描述文字
+   - 可选：点击图片图标上传参考图
+   - 选择模型、宽高比和分辨率
+   - 点击发送按钮开始生成
+
+4. **管理结果**：
+   - 长按消息可以复制或删除
+   - 点击生成的图片可以预览、编辑和保存
+   - 支持旋转、镜像等基础编辑功能
+
+### 应用设置
+
+1. **主题切换**：
+   - 点击主界面右上角的设置图标
+   - 选择"主题模式"
+   - 可选择浅色、深色或跟随系统
+
+2. **语言切换**：
+   - 在设置界面选择"语言"
+   - 支持简体中文和英文
 
 ### 管理图片
 
