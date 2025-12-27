@@ -90,6 +90,7 @@ class SettingsActivity : ComponentActivity() {
             intent.getStringExtra("themeMode") ?: ThemeMode.SYSTEM.name
         )
         
+        // 立即设置内容，减少启动延迟
         setContent {
             // 使用 remember 和 mutableStateOf 来响应主题变化
             var themeMode by remember { mutableStateOf(currentThemeMode) }

@@ -51,7 +51,9 @@
             android:exported="false"
             android:label="@string/settings_title"
             android:theme="@style/Theme.LiveWallpaper"
-            android:keepScreenOn="true">
+            android:keepScreenOn="true"
+            android:launchMode="singleTop"
+            android:hardwareAccelerated="true">
         </activity>
 
         <activity
@@ -60,7 +62,9 @@
             android:label="@string/draw"
             android:theme="@style/Theme.LiveWallpaper.SlideFromLeft"
             android:windowSoftInputMode="adjustResize"
-            android:keepScreenOn="true">
+            android:keepScreenOn="true"
+            android:launchMode="singleTop"
+            android:hardwareAccelerated="true">
         </activity>
     </application>
 

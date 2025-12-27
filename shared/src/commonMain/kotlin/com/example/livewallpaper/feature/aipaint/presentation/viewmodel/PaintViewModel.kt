@@ -67,10 +67,27 @@ class PaintViewModel(
                     0
                 }
                 
+                // 计算每个版本组的最新版本位置
+                val latestVersionPositions = sortedMessages
+                    .filter { it.versionGroup != null }
+                    .groupBy { it.versionGroup!! }
+                    .mapValues { (_, msgs) -> msgs.size - 1 }
+                
+                // 合并现有的 activeVersions，确保索引不超出范围
+                val mergedVersions = latestVersionPositions.mapValues { (group, latestPos) ->
+                    val existingPos = currentState.activeVersions[group]
+                    if (existingPos != null && existingPos <= latestPos) {
+                        existingPos
+                    } else {
+                        latestPos
+                    }
+                }
+                
                 _uiState.update { 
                     it.copy(
                         messages = sortedMessages,
-                        newMessageCount = newCount
+                        newMessageCount = newCount,
+                        activeVersions = mergedVersions
                     ) 
                 }
             }
@@ -86,6 +103,7 @@ class PaintViewModel(
             is PaintEvent.StopGeneration -> stopGeneration()
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
+            is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
@@ -101,6 +119,8 @@ class PaintViewModel(
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
             is PaintEvent.ClearError -> clearError()
+            is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
+            is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
         }
     }
 
@@ -118,6 +138,9 @@ class PaintViewModel(
     }
 
     private fun selectSession(sessionId: String) {
+        // 如果选择的是当前会话，不需要重新加载
+        if (_uiState.value.currentSession?.id == sessionId) return
+        
         viewModelScope.launch {
             repository.getSession(sessionId).first()?.let { session ->
                 _uiState.update { 
@@ -290,7 +313,45 @@ class PaintViewModel(
 
     private fun deleteMessage(messageId: String) {
         viewModelScope.launch {
+            val state = _uiState.value
+            val message = state.messages.find { it.id == messageId }
+            val versionGroup = message?.versionGroup
+            
+            // 如果是有版本组的消息，删除后需要切换到其他版本
+            if (versionGroup != null) {
+                val versionsInGroup = state.messages
+                    .filter { it.versionGroup == versionGroup }
+                    .sortedBy { it.versionIndex }
+                
+                if (versionsInGroup.size > 1) {
+                    val currentPosition = versionsInGroup.indexOfFirst { it.id == messageId }
+                    val activeIndex = state.activeVersions[versionGroup] ?: currentPosition
+                    
+                    val newPosition = when {
+                        currentPosition < activeIndex -> activeIndex - 1
+                        currentPosition == activeIndex && currentPosition > 0 -> currentPosition - 1
+                        currentPosition == activeIndex -> 0
+                        else -> activeIndex
+                    }
+                    _uiState.update { it.copy(activeVersions = it.activeVersions + (versionGroup to newPosition)) }
+                } else {
+                    _uiState.update { it.copy(activeVersions = it.activeVersions - versionGroup) }
+                }
+            }
+            
             repository.deleteMessage(messageId)
+        }
+    }
+    
+    private fun deleteMessageVersion(versionGroup: String) {
+        viewModelScope.launch {
+            val messages = _uiState.value.messages.filter { it.versionGroup == versionGroup }
+            messages.forEach { message ->
+                repository.deleteMessage(message.id)
+            }
+            _uiState.update { state ->
+                state.copy(activeVersions = state.activeVersions - versionGroup)
+            }
         }
     }
 
@@ -401,6 +462,17 @@ class PaintViewModel(
 
     private fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    private fun regenerateMessage(messageId: String) {
+        // 实际实现在 Android 端的 AndroidPaintViewModel 中
+        // 这里只是占位
+    }
+
+    private fun switchMessageVersion(versionGroup: String, targetIndex: Int) {
+        _uiState.update { 
+            it.copy(activeVersions = it.activeVersions + (versionGroup to targetIndex))
+        }
     }
 
     private fun generateId(): String = 

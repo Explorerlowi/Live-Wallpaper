@@ -1,6 +1,7 @@
 package com.example.livewallpaper.paint.viewmodel
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import androidx.lifecycle.ViewModel
@@ -41,8 +42,8 @@ class AndroidPaintViewModel(
     private var generationJob: Job? = null
     private var currentSessionId: String? = null
 
-    private val _scrollToBottomEvent = MutableSharedFlow<Unit>()
-    val scrollToBottomEvent: SharedFlow<Unit> = _scrollToBottomEvent.asSharedFlow()
+    private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
+    val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
 
     private val _toastEvent = MutableSharedFlow<PaintToastMessage>()
     val toastEvent: SharedFlow<PaintToastMessage> = _toastEvent.asSharedFlow()
@@ -86,10 +87,28 @@ class AndroidPaintViewModel(
                     0
                 }
                 
+                // 计算每个版本组的最新版本位置（列表长度 - 1），默认显示最新版本
+                val latestVersionPositions = sortedMessages
+                    .filter { it.versionGroup != null }
+                    .groupBy { it.versionGroup!! }
+                    .mapValues { (_, msgs) -> msgs.size - 1 }
+                
+                // 合并现有的 activeVersions，保留用户手动切换的版本
+                // 同时确保索引不超出范围
+                val mergedVersions = latestVersionPositions.mapValues { (group, latestPos) ->
+                    val existingPos = currentState.activeVersions[group]
+                    if (existingPos != null && existingPos <= latestPos) {
+                        existingPos
+                    } else {
+                        latestPos
+                    }
+                }
+                
                 _uiState.update { 
                     it.copy(
                         messages = sortedMessages,
-                        newMessageCount = newCount
+                        newMessageCount = newCount,
+                        activeVersions = mergedVersions
                     ) 
                 }
             }
@@ -106,6 +125,7 @@ class AndroidPaintViewModel(
             is PaintEvent.StopGeneration -> stopGeneration()
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
+            is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
@@ -121,6 +141,8 @@ class AndroidPaintViewModel(
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
             is PaintEvent.ClearError -> clearError()
+            is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
+            is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
         }
     }
 
@@ -154,6 +176,9 @@ class AndroidPaintViewModel(
     }
 
     private fun selectSession(sessionId: String) {
+        // 如果选择的是当前会话，不需要重新加载
+        if (_uiState.value.currentSession?.id == sessionId) return
+        
         viewModelScope.launch {
             sessionDrafts[currentDraftKey()] = snapshotCurrentDraft()
             repository.getSession(sessionId).first()?.let { session ->
@@ -242,20 +267,28 @@ class AndroidPaintViewModel(
                 messageType = if (userImagesForMessage.isNotEmpty()) MessageType.IMAGE else MessageType.TEXT,
                 images = userImagesForMessage
             )
+            
+            // 为AI消息生成版本组ID
+            val versionGroupId = generateId()
             val assistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,
-                status = MessageStatus.GENERATING
+                status = MessageStatus.GENERATING,
+                parentUserMessageId = userMessage.id,
+                versionGroup = versionGroupId,
+                versionIndex = 0
             )
             
             val startTime = System.currentTimeMillis()
             sessionDrafts[session.id] = SessionDraft()
             sessionDrafts.remove(newSessionDraftKey)
+            
+            // 先只显示用户消息
             _uiState.update { current ->
-                val nextMessages = (current.messages + userMessage + assistantMessage).sortedBy { it.createdAt }
+                val nextMessages = (current.messages + userMessage).sortedBy { it.createdAt }
                 current.copy(
                     messages = nextMessages,
                     promptText = "",
@@ -267,9 +300,18 @@ class AndroidPaintViewModel(
                 )
             }
             
-            _scrollToBottomEvent.emit(Unit)
-            
+            _scrollToBottomEvent.emit(true) // 发送新消息时使用动画
             repository.addMessage(userMessage)
+            
+            // 延迟后添加 AI 消息，提升体验
+            delay(500)
+            
+            _uiState.update { current ->
+                val nextMessages = (current.messages + assistantMessage).sortedBy { it.createdAt }
+                current.copy(messages = nextMessages)
+            }
+            
+            _scrollToBottomEvent.emit(true) // 发送新消息时使用动画
             repository.addMessage(assistantMessage)
             
             // 保存当前生成的会话ID和消息ID，用于后续更新
@@ -292,7 +334,7 @@ class AndroidPaintViewModel(
                     )
                     
                     result.onSuccess { base64Data ->
-                        val imagePath = saveGeneratedImage(
+                        val imageInfo = saveGeneratedImage(
                             sessionId = generatingSessionId,
                             messageId = generatingMessageId,
                             base64Data = base64Data
@@ -302,8 +344,10 @@ class AndroidPaintViewModel(
                             images = listOf(
                                 PaintImage(
                                     id = generateId(),
-                                    localPath = imagePath,
-                                    mimeType = "image/png"
+                                    localPath = imageInfo?.first,
+                                    mimeType = "image/png",
+                                    width = imageInfo?.second ?: 0,
+                                    height = imageInfo?.third ?: 0
                                 )
                             ),
                             status = MessageStatus.SUCCESS,
@@ -357,22 +401,34 @@ class AndroidPaintViewModel(
         }
     }
 
+    /**
+     * 保存生成的图片并返回路径和尺寸信息
+     * @return Triple<路径, 宽度, 高度>，失败返回 null
+     */
     private fun saveGeneratedImage(
         sessionId: String,
         messageId: String,
         base64Data: String
-    ): String? {
+    ): Triple<String, Int, Int>? {
         val bytes = try {
             Base64.decode(base64Data, Base64.DEFAULT)
         } catch (_: IllegalArgumentException) {
             return null
         }
 
+        // 解码获取图片尺寸
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        val width = options.outWidth
+        val height = options.outHeight
+
         val dir = File(appContext.filesDir, "aipaint/$sessionId").apply { mkdirs() }
         val file = File(dir, "$messageId.png")
         return try {
             file.writeBytes(bytes)
-            file.absolutePath
+            Triple(file.absolutePath, width, height)
         } catch (_: IOException) {
             null
         }
@@ -414,7 +470,53 @@ class AndroidPaintViewModel(
 
     private fun deleteMessage(messageId: String) {
         viewModelScope.launch {
+            val state = _uiState.value
+            val message = state.messages.find { it.id == messageId }
+            val versionGroup = message?.versionGroup
+            
+            // 如果是有版本组的消息，删除后需要切换到其他版本
+            if (versionGroup != null) {
+                val versionsInGroup = state.messages
+                    .filter { it.versionGroup == versionGroup }
+                    .sortedBy { it.versionIndex }
+                
+                if (versionsInGroup.size > 1) {
+                    // 找到当前消息在版本列表中的位置
+                    val currentPosition = versionsInGroup.indexOfFirst { it.id == messageId }
+                    val activeIndex = state.activeVersions[versionGroup] ?: currentPosition
+                    
+                    // 计算删除后应该显示的版本位置
+                    val newPosition = when {
+                        currentPosition < activeIndex -> activeIndex - 1  // 删除的在当前显示之前，索引减1
+                        currentPosition == activeIndex && currentPosition > 0 -> currentPosition - 1  // 删除当前显示的，切换到上一个
+                        currentPosition == activeIndex -> 0  // 删除的是第一个且是当前显示的
+                        else -> activeIndex  // 删除的在当前显示之后，索引不变
+                    }
+                    _uiState.update { it.copy(activeVersions = it.activeVersions + (versionGroup to newPosition)) }
+                } else {
+                    // 只剩一个版本，删除后清理 activeVersions
+                    _uiState.update { it.copy(activeVersions = it.activeVersions - versionGroup) }
+                }
+            }
+            
             repository.deleteMessage(messageId)
+            _toastEvent.emit(PaintToastMessage.Deleted)
+        }
+    }
+    
+    /**
+     * 删除整个版本组的所有消息
+     */
+    private fun deleteMessageVersion(versionGroup: String) {
+        viewModelScope.launch {
+            val messages = _uiState.value.messages.filter { it.versionGroup == versionGroup }
+            messages.forEach { message ->
+                repository.deleteMessage(message.id)
+            }
+            // 清理 activeVersions 中的记录
+            _uiState.update { state ->
+                state.copy(activeVersions = state.activeVersions - versionGroup)
+            }
             _toastEvent.emit(PaintToastMessage.Deleted)
         }
     }
@@ -540,7 +642,7 @@ class AndroidPaintViewModel(
 
     private fun scrollToBottom() {
         viewModelScope.launch {
-            _scrollToBottomEvent.emit(Unit)
+            _scrollToBottomEvent.emit(false) // 用户点击按钮时瞬间到达
             _uiState.update { it.copy(newMessageCount = 0, isAtBottom = true) }
         }
     }
@@ -551,6 +653,209 @@ class AndroidPaintViewModel(
 
     private fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * 重新生成消息
+     * 基于关联的用户消息重新生成AI回复，创建新版本
+     */
+    private fun regenerateMessage(messageId: String) {
+        val state = _uiState.value
+        val profile = state.activeProfile
+        if (profile == null) {
+            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.PleaseConfigApi) }
+            return
+        }
+        
+        // 如果正在生成中，不允许重新生成
+        if (state.isGenerating) {
+            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.GeneratingInProgress) }
+            return
+        }
+
+        viewModelScope.launch {
+            // 获取当前消息
+            val currentMessage = repository.getMessage(messageId) ?: return@launch
+            
+            // 只有AI消息才能重新生成
+            if (currentMessage.senderIdentity != SenderIdentity.ASSISTANT) return@launch
+            
+            val sessionId = currentMessage.sessionId
+            val session = repository.getSession(sessionId).first() ?: return@launch
+            
+            // 找到关联的用户消息
+            val userMessage = findParentUserMessage(currentMessage) ?: return@launch
+            
+            // 计算新版本索引
+            val versionGroup = currentMessage.versionGroup ?: generateId()
+            val existingVersions = if (currentMessage.versionGroup != null) {
+                repository.getVersionCount(sessionId, versionGroup)
+            } else {
+                // 旧消息没有版本组，需要先为其创建版本组
+                val updatedOldMessage = currentMessage.copy(
+                    versionGroup = versionGroup,
+                    versionIndex = 0,
+                    parentUserMessageId = userMessage.id
+                )
+                repository.updateMessage(updatedOldMessage)
+                1
+            }
+            val newVersionIndex = existingVersions
+            
+            // 创建新的AI消息（占位符）
+            val newAssistantMessage = PaintMessage(
+                id = generateId(),
+                sessionId = sessionId,
+                senderIdentity = SenderIdentity.ASSISTANT,
+                messageContent = "",
+                messageType = MessageType.IMAGE,
+                status = MessageStatus.GENERATING,
+                parentUserMessageId = userMessage.id,
+                versionGroup = versionGroup,
+                versionIndex = newVersionIndex
+            )
+            
+            repository.addMessage(newAssistantMessage)
+            
+            // 更新当前显示版本为新版本（使用列表位置，即版本数量 - 1 + 1 = 版本数量，因为新消息还没加入列表）
+            // 新消息添加后，它在列表中的位置就是 existingVersions（0-based）
+            _uiState.update { 
+                it.copy(
+                    activeVersions = it.activeVersions + (versionGroup to existingVersions),
+                    isGenerating = true,
+                    generatingSessionId = sessionId,
+                    generationStartTime = System.currentTimeMillis()
+                )
+            }
+            
+            // 加载用户消息中的参考图片
+            val userImagesForApi = userMessage.images
+                .filter { it.isReference && it.localPath != null }
+                .mapNotNull { img ->
+                    val uri = runCatching { Uri.parse(img.localPath) }.getOrNull() ?: return@mapNotNull null
+                    val bytes = try {
+                        appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (_: Exception) {
+                        null
+                    } ?: return@mapNotNull null
+                    PaintImage(
+                        id = generateId(),
+                        base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                        mimeType = img.mimeType,
+                        isReference = true
+                    )
+                }
+            
+            val generatingMessageId = newAssistantMessage.id
+            
+            // 使用独立的协程作用域进行生成
+            generationJob = generationScope.launch {
+                try {
+                    val result = repository.generateImage(
+                        profile = profile,
+                        model = session.model,
+                        prompt = userMessage.messageContent,
+                        images = userImagesForApi,
+                        aspectRatio = session.aspectRatio,
+                        resolution = session.resolution
+                    )
+                    
+                    result.onSuccess { base64Data ->
+                        val imageInfo = saveGeneratedImage(
+                            sessionId = sessionId,
+                            messageId = generatingMessageId,
+                            base64Data = base64Data
+                        )
+                        val updatedMessage = newAssistantMessage.copy(
+                            messageContent = "",
+                            images = listOf(
+                                PaintImage(
+                                    id = generateId(),
+                                    localPath = imageInfo?.first,
+                                    mimeType = "image/png",
+                                    width = imageInfo?.second ?: 0,
+                                    height = imageInfo?.third ?: 0
+                                )
+                            ),
+                            status = MessageStatus.SUCCESS,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(updatedMessage)
+                        repository.getSession(sessionId).first()?.let { sess ->
+                            repository.updateSession(sess)
+                        }
+                        withContext(Dispatchers.Main) {
+                            _toastEvent.emit(PaintToastMessage.GenerateSuccess)
+                        }
+                    }.onError { error ->
+                        val errorMessage = newAssistantMessage.copy(
+                            messageContent = error.message ?: "生成失败",
+                            status = MessageStatus.ERROR,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(errorMessage)
+                        withContext(Dispatchers.Main) {
+                            _toastEvent.emit(PaintToastMessage.GenerateFailed(error.message))
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val errorMessage = newAssistantMessage.copy(
+                        messageContent = e.message ?: "生成失败",
+                        status = MessageStatus.ERROR,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    repository.updateMessage(errorMessage)
+                    withContext(Dispatchers.Main) {
+                        _toastEvent.emit(PaintToastMessage.GenerateFailed(e.message))
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { 
+                            it.copy(
+                                isGenerating = false,
+                                generatingSessionId = null,
+                                generationStartTime = 0L
+                            ) 
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 查找AI消息关联的用户消息
+     */
+    private suspend fun findParentUserMessage(aiMessage: PaintMessage): PaintMessage? {
+        // 如果有明确的父消息ID，直接查找
+        aiMessage.parentUserMessageId?.let { parentId ->
+            return repository.getMessage(parentId)
+        }
+        
+        // 否则，查找该AI消息之前最近的用户消息
+        val allMessages = _uiState.value.messages.sortedBy { it.createdAt }
+        val aiIndex = allMessages.indexOfFirst { it.id == aiMessage.id }
+        if (aiIndex <= 0) return null
+        
+        // 向前查找最近的用户消息
+        for (i in (aiIndex - 1) downTo 0) {
+            val msg = allMessages[i]
+            if (msg.senderIdentity == SenderIdentity.USER) {
+                return msg
+            }
+        }
+        return null
+    }
+
+    /**
+     * 切换消息版本
+     */
+    private fun switchMessageVersion(versionGroup: String, targetIndex: Int) {
+        _uiState.update { 
+            it.copy(activeVersions = it.activeVersions + (versionGroup to targetIndex))
+        }
     }
 
     private fun generateId(): String = 

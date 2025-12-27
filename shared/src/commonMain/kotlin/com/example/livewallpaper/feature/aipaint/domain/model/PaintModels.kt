@@ -17,7 +17,12 @@ data class PaintMessage(
     val images: List<PaintImage> = emptyList(),
     val createdAt: Long = TimeProvider.currentTimeMillis(),
     val updatedAt: Long = TimeProvider.currentTimeMillis(),
-    val status: MessageStatus = MessageStatus.SUCCESS
+    val status: MessageStatus = MessageStatus.SUCCESS,
+    
+    // 版本管理字段（用于重新生成功能）
+    val parentUserMessageId: String? = null,  // 关联的用户消息ID（仅AI消息有）
+    val versionGroup: String? = null,         // 版本组ID（同一组的消息共享此ID）
+    val versionIndex: Int = 0                 // 当前版本索引（从0开始）
 )
 
 @Serializable

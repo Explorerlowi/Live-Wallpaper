@@ -32,7 +32,10 @@ data class PaintUiState(
     
     // 新消息提示
     val newMessageCount: Int = 0,
-    val isAtBottom: Boolean = true
+    val isAtBottom: Boolean = true,
+    
+    // 版本管理：当前显示的版本映射 (versionGroup -> 当前显示的versionIndex)
+    val activeVersions: Map<String, Int> = emptyMap()
 )
 
 /**

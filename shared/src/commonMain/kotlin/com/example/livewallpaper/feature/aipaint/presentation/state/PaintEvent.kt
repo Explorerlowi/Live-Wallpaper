@@ -13,6 +13,11 @@ sealed class PaintEvent {
     data object StopGeneration : PaintEvent()
     data object LoadMoreMessages : PaintEvent()
     data class DeleteMessage(val messageId: String) : PaintEvent()
+    data class DeleteMessageVersion(val versionGroup: String) : PaintEvent()  // 删除整个版本组
+    
+    // 重新生成与版本切换
+    data class RegenerateMessage(val messageId: String) : PaintEvent()
+    data class SwitchMessageVersion(val versionGroup: String, val targetIndex: Int) : PaintEvent()
     
     // 输入操作
     data class UpdatePrompt(val text: String) : PaintEvent()

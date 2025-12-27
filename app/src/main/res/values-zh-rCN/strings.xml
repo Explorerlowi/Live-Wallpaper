@@ -148,5 +148,15 @@
     <string name="message_delete">删除</string>
     <string name="message_delete_title">删除消息</string>
     <string name="message_delete_confirm">确定要删除这条消息吗？</string>
+    <string name="message_delete_version_hint">此消息有多个版本，请选择删除方式</string>
+    <string name="message_delete_current_version">删除当前版本</string>
+    <string name="message_delete_all_versions">删除全部版本</string>
     <string name="message_copied">已复制到剪贴板</string>
+    <string name="message_regenerate">重新生成</string>
+    <string name="message_download">下载</string>
+    <string name="message_version_previous">上一版本</string>
+    <string name="message_version_next">下一版本</string>
+    <string name="paint_generating_in_progress">正在生成中，请稍候</string>
+    <string name="paint_download_success">已保存到相册</string>
+    <string name="paint_download_failed">保存失败</string>
 </resources>

@@ -19,6 +19,11 @@ interface PaintRepository {
     suspend fun updateMessage(message: PaintMessage)
     suspend fun deleteMessage(messageId: String)
     suspend fun getMessageCount(sessionId: String): Int
+    suspend fun getMessage(messageId: String): PaintMessage?
+    
+    // 版本管理
+    suspend fun getMessagesByVersionGroup(sessionId: String, versionGroup: String): List<PaintMessage>
+    suspend fun getVersionCount(sessionId: String, versionGroup: String): Int
     
     // API配置管理
     fun getApiProfiles(): Flow<List<ApiProfile>>

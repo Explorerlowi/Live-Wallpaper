@@ -189,6 +189,30 @@ class PaintRepositoryImpl(
             getCurrentMessageIds(sessionId).size
         }
 
+    override suspend fun getMessage(messageId: String): PaintMessage? =
+        withContext(Dispatchers.Default) {
+            val jsonString = settings.getString(KEY_MESSAGE_PREFIX + messageId, "")
+            if (jsonString.isBlank()) return@withContext null
+            try {
+                json.decodeFromString<PaintMessage>(jsonString)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    override suspend fun getMessagesByVersionGroup(sessionId: String, versionGroup: String): List<PaintMessage> =
+        withContext(Dispatchers.Default) {
+            migrateLegacyMessagesIfNeeded(sessionId)
+            loadMessagesByIds(sessionId).filter { it.versionGroup == versionGroup }
+                .sortedBy { it.versionIndex }
+        }
+
+    override suspend fun getVersionCount(sessionId: String, versionGroup: String): Int =
+        withContext(Dispatchers.Default) {
+            migrateLegacyMessagesIfNeeded(sessionId)
+            loadMessagesByIds(sessionId).count { it.versionGroup == versionGroup }
+        }
+
     // ========== API配置管理 ==========
     
     override fun getApiProfiles(): Flow<List<ApiProfile>> = callbackFlow {

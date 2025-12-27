@@ -15,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -30,8 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -39,12 +42,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -240,10 +239,17 @@ fun PaintScreen(
 
     // 监听滚动到底部事件（reverseLayout=true 时，index 0 是底部）
     LaunchedEffect(Unit) {
-        viewModel.scrollToBottomEvent.collectLatest {
-            withFrameNanos { }
+        viewModel.scrollToBottomEvent.collectLatest { shouldAnimate ->
+            // 等待 Compose 完成重组和布局
+            delay(50)
             if (listState.layoutInfo.totalItemsCount > 0) {
-                listState.scrollToItem(0)
+                if (shouldAnimate) {
+                    // 发送新消息时使用动画
+                    listState.animateScrollToItem(0)
+                } else {
+                    // 点击按钮时瞬间到达
+                    listState.scrollToItem(0)
+                }
             }
         }
     }
@@ -260,6 +266,9 @@ fun PaintScreen(
                 is PaintToastMessage.Deleted -> context.getString(R.string.paint_deleted)
                 is PaintToastMessage.EnhanceSuccess -> context.getString(R.string.paint_enhance_success)
                 is PaintToastMessage.EnhanceFailed -> context.getString(R.string.paint_enhance_failed) + (message.error?.let { ": $it" } ?: "")
+                is PaintToastMessage.GeneratingInProgress -> context.getString(R.string.paint_generating_in_progress)
+                is PaintToastMessage.DownloadSuccess -> context.getString(R.string.paint_download_success)
+                is PaintToastMessage.DownloadFailed -> context.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
             }
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
@@ -342,9 +351,42 @@ fun PaintScreen(
                     // 空状态
                     EmptyState()
                 } else {
-                    // 预先计算反转列表，避免每次重组都创建新列表
-                    val reversedMessages = remember(uiState.messages) {
-                        uiState.messages.asReversed()
+                    // 预先过滤消息列表：只保留应该显示的消息
+                    // 对于版本组，使用关联的用户消息的 createdAt 来保持位置稳定
+                    val filteredMessages = remember(uiState.messages, uiState.activeVersions) {
+                        // 构建用户消息 ID -> createdAt 的映射
+                        val userMessageTimes = uiState.messages
+                            .filter { it.senderIdentity == SenderIdentity.USER }
+                            .associate { it.id to it.createdAt }
+                        
+                        uiState.messages.filter { message ->
+                            if (message.senderIdentity == SenderIdentity.USER) {
+                                true
+                            } else {
+                                val versionGroup = message.versionGroup
+                                if (versionGroup == null) {
+                                    true // 旧消息没有版本组，始终显示
+                                } else {
+                                    // 获取该版本组的所有消息，按 versionIndex 排序
+                                    val versionsInGroup = uiState.messages
+                                        .filter { it.versionGroup == versionGroup }
+                                        .sortedBy { it.versionIndex }
+                                    // activeVersions 存储的是列表位置
+                                    val activePosition = uiState.activeVersions[versionGroup] 
+                                        ?: (versionsInGroup.size - 1)
+                                    val safePosition = activePosition.coerceIn(0, (versionsInGroup.size - 1).coerceAtLeast(0))
+                                    // 检查当前消息是否是应该显示的那个
+                                    versionsInGroup.getOrNull(safePosition)?.id == message.id
+                                }
+                            }
+                        }.sortedBy { msg ->
+                            // 对于 AI 消息，使用关联的用户消息时间排序，保持位置稳定
+                            if (msg.senderIdentity == SenderIdentity.ASSISTANT && msg.parentUserMessageId != null) {
+                                userMessageTimes[msg.parentUserMessageId] ?: msg.createdAt
+                            } else {
+                                msg.createdAt
+                            }
+                        }.asReversed()
                     }
                     
                     // 消息列表
@@ -356,12 +398,15 @@ fun PaintScreen(
                         reverseLayout = true
                     ) {
                         items(
-                            items = reversedMessages,
+                            items = filteredMessages,
                             key = { it.id },
                             contentType = { it.messageType }
                         ) { message ->
                             MessageItem(
                                 message = message,
+                                allMessages = uiState.messages,
+                                activeVersions = uiState.activeVersions,
+                                selectedAspectRatio = uiState.selectedAspectRatio,
                                 onImageClick = { source ->
                                     previewImageSource = source
                                 },
@@ -373,6 +418,29 @@ fun PaintScreen(
                                 },
                                 onDeleteMessage = { messageId ->
                                     viewModel.onEvent(PaintEvent.DeleteMessage(messageId))
+                                },
+                                onDeleteVersionGroup = { versionGroup ->
+                                    viewModel.onEvent(PaintEvent.DeleteMessageVersion(versionGroup))
+                                },
+                                onRegenerate = { messageId ->
+                                    viewModel.onEvent(PaintEvent.RegenerateMessage(messageId))
+                                },
+                                onSwitchVersion = { versionGroup, targetIndex ->
+                                    viewModel.onEvent(PaintEvent.SwitchMessageVersion(versionGroup, targetIndex))
+                                },
+                                onDownloadImage = { image ->
+                                    // 下载图片逻辑
+                                    scope.launch {
+                                        try {
+                                            val imagePath = image.localPath
+                                            if (imagePath != null) {
+                                                saveImageToGallery(context, imagePath)
+                                                Toast.makeText(context, context.getString(R.string.paint_download_success), Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, context.getString(R.string.paint_download_failed), Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -555,23 +623,41 @@ private fun EmptyState() {
 @OptIn(ExperimentalFoundationApi::class)
 private fun MessageItem(
     message: PaintMessage,
+    allMessages: List<PaintMessage> = emptyList(),
+    activeVersions: Map<String, Int> = emptyMap(),
+    selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     onImageClick: (ImageSource) -> Unit = {},
     onCopyText: (String) -> Unit = {},
-    onDeleteMessage: (String) -> Unit = {}
+    onDeleteMessage: (String) -> Unit = {},
+    onDeleteVersionGroup: (String) -> Unit = {},
+    onRegenerate: (String) -> Unit = {},
+    onSwitchVersion: (String, Int) -> Unit = { _, _ -> },
+    onDownloadImage: (PaintImage) -> Unit = {}
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val isAssistant = !isUser
     
-    // 长按菜单状态
-    var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    // 记录长按位置
-    var pressOffset by remember { mutableStateOf(DpOffset.Zero) }
-    val density = LocalDensity.current
+    var showDeleteOptions by remember { mutableStateOf(false) }
+
+    // 计算版本信息 - 基于列表位置而非 versionIndex
+    val versionGroup = message.versionGroup
+    val versionInfo = remember(versionGroup, allMessages, activeVersions) {
+        if (versionGroup != null && isAssistant) {
+            val versions = allMessages.filter { it.versionGroup == versionGroup }
+                .sortedBy { it.versionIndex }
+            val totalVersions = versions.size
+            // activeVersions 存储的是列表位置（0-based）
+            val currentPosition = (activeVersions[versionGroup] ?: (totalVersions - 1))
+                .coerceIn(0, (totalVersions - 1).coerceAtLeast(0))
+            Triple(currentPosition, totalVersions, versions)
+        } else {
+            Triple(0, 1, emptyList())
+        }
+    }
+    val (currentVersionIndex, totalVersions, _) = versionInfo
 
     // 计算生成时长
-    // 对于已完成的消息，直接使用 updatedAt - createdAt
-    // 对于正在生成的消息，实时更新当前时间
     val durationMillis = if (message.status == MessageStatus.GENERATING) {
         val nowMillis by produceState(
             initialValue = System.currentTimeMillis(),
@@ -584,12 +670,10 @@ private fun MessageItem(
         }
         (nowMillis - message.createdAt).coerceAtLeast(0L)
     } else {
-        // 已完成的消息，使用固定的时长
         (message.updatedAt - message.createdAt).coerceAtLeast(0L)
     }
     val durationText = formatDuration(durationMillis)
     
-    // 预先计算不变的值，避免重组时重复计算
     val bubbleShape = remember(isUser) {
         RoundedCornerShape(
             topStart = 16.dp,
@@ -599,7 +683,7 @@ private fun MessageItem(
         )
     }
     
-    // 删除确认对话框
+    // 删除确认对话框（用户消息或单版本AI消息）
     if (showDeleteConfirm) {
         ConfirmDialog(
             title = stringResource(R.string.message_delete_title),
@@ -612,165 +696,344 @@ private fun MessageItem(
         )
     }
     
-    Box {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    // AI消息多版本删除选项对话框
+    if (showDeleteOptions) {
+        AlertDialog(
+            onDismissRequest = { showDeleteOptions = false },
+            title = { Text(stringResource(R.string.message_delete_title)) },
+            text = { Text(stringResource(R.string.message_delete_version_hint)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteOptions = false
+                        versionGroup?.let { onDeleteVersionGroup(it) }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(stringResource(R.string.message_delete_all_versions))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteOptions = false
+                        onDeleteMessage(message.id)
+                    }
+                ) {
+                    Text(stringResource(R.string.message_delete_current_version))
+                }
+            }
+        )
+    }
+    
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+    ) {
+        // 消息气泡
+        Surface(
+            shape = bubbleShape,
+            color = if (isUser) Teal300.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Surface(
-                shape = bubbleShape,
-                color = if (isUser) Teal300.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onLongPress = { offset ->
-                                with(density) {
-                                    pressOffset = DpOffset(offset.x.toDp(), offset.y.toDp())
-                                }
-                                showMenu = true
-                            }
+            Column(modifier = Modifier.padding(12.dp)) {
+                // 文本内容
+                if (message.messageContent.isNotEmpty()) {
+                    Text(
+                        text = message.messageContent,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (message.status == MessageStatus.ERROR) 
+                            MaterialTheme.colorScheme.error 
+                        else 
+                            MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                
+                // 图片
+                message.images.forEach { image ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    image.localPath?.let { path ->
+                        MessageLocalImage(
+                            path = path,
+                            width = image.width,
+                            height = image.height,
+                            onClick = { onImageClick(ImageSource.StringSource(path)) },
+                            onLongClick = { }
                         )
                     }
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    // 文本内容
-                    if (message.messageContent.isNotEmpty()) {
-                        Text(
-                            text = message.messageContent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (message.status == MessageStatus.ERROR) 
-                                MaterialTheme.colorScheme.error 
-                            else 
-                                MaterialTheme.colorScheme.onSurface
+                    image.base64Data?.let { base64 ->
+                        MessageImage(
+                            imageId = image.id,
+                            base64 = base64,
+                            width = image.width,
+                            height = image.height,
+                            onClick = { onImageClick(ImageSource.Base64Source(base64, image.mimeType)) },
+                            onLongClick = { }
                         )
                     }
-                    
-                    // 图片 - 使用 image.id 作为 key 而不是整个 base64
-                    message.images.forEach { image ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        image.localPath?.let { path ->
-                            MessageLocalImage(
-                                path = path,
-                                onClick = { onImageClick(ImageSource.StringSource(path)) },
-                                onLongClick = { showMenu = true }
-                            )
-                        }
-                        image.base64Data?.let { base64 ->
-                            MessageImage(
-                                imageId = image.id,
-                                base64 = base64,
-                                onClick = { onImageClick(ImageSource.Base64Source(base64, image.mimeType)) },
-                                onLongClick = { showMenu = true }
-                            )
-                        }
-                    }
-                    
-                    // 生成中状态
-                    if (isAssistant && message.status == MessageStatus.GENERATING) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = Teal300
-                            )
-                            Text(
-                                text = stringResource(R.string.paint_generating_time, durationText),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
+                }
+                
+                // 生成中状态 - 显示呼吸动画占位图
+                if (isAssistant && message.status == MessageStatus.GENERATING) {
+                    GeneratingPlaceholder(
+                        aspectRatio = selectedAspectRatio
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.paint_generating_time, durationText),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
 
-                    if (isAssistant && message.status != MessageStatus.GENERATING) {
-                        val statusText = when (message.status) {
-                            MessageStatus.SUCCESS -> stringResource(R.string.paint_status_done)
-                            MessageStatus.ERROR -> stringResource(R.string.paint_status_failed)
-                            MessageStatus.PENDING -> stringResource(R.string.paint_status_pending)
-                            MessageStatus.GENERATING -> ""
-                        }
-                        val metaText = stringResource(R.string.paint_status_time, statusText, durationText)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = metaText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (message.status == MessageStatus.ERROR) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            }
-                        )
+                // 完成状态
+                if (isAssistant && message.status != MessageStatus.GENERATING) {
+                    val statusText = when (message.status) {
+                        MessageStatus.SUCCESS -> stringResource(R.string.paint_status_done)
+                        MessageStatus.ERROR -> stringResource(R.string.paint_status_failed)
+                        MessageStatus.PENDING -> stringResource(R.string.paint_status_pending)
+                        MessageStatus.GENERATING -> ""
                     }
+                    val metaText = stringResource(R.string.paint_status_time, statusText, durationText)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = metaText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (message.status == MessageStatus.ERROR) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        }
+                    )
                 }
             }
         }
         
-        // 长按菜单 - 在长按位置显示，使用主题样式
-        MaterialTheme(
-            shapes = MaterialTheme.shapes.copy(
-                extraSmall = RoundedCornerShape(12.dp)
-            )
-        ) {
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false },
-                offset = pressOffset,
-                modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                // 复制选项（仅当有文本内容时显示）
-                if (message.messageContent.isNotEmpty()) {
-                    DropdownMenuItem(
-                        text = { 
-                            Text(
-                                stringResource(R.string.message_copy),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ) 
-                        },
-                        onClick = {
-                            onCopyText(message.messageContent)
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.ContentCopy, 
-                                contentDescription = null,
-                                tint = Teal300,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-                }
-                // 删除选项
-                DropdownMenuItem(
-                    text = { 
-                        Text(
-                            stringResource(R.string.message_delete),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
-                        ) 
-                    },
-                    onClick = {
-                        showMenu = false
+        // AI消息的固定操作栏
+        if (isAssistant && message.status != MessageStatus.GENERATING) {
+            Spacer(modifier = Modifier.height(4.dp))
+            MessageActionBar(
+                message = message,
+                totalVersions = totalVersions,
+                currentVersionIndex = currentVersionIndex,
+                hasImages = message.images.isNotEmpty(),
+                onCopy = { onCopyText(message.messageContent) },
+                onRegenerate = { onRegenerate(message.id) },
+                onPreviousVersion = {
+                    if (versionGroup != null && currentVersionIndex > 0) {
+                        onSwitchVersion(versionGroup, currentVersionIndex - 1)
+                    }
+                },
+                onNextVersion = {
+                    if (versionGroup != null && currentVersionIndex < totalVersions - 1) {
+                        onSwitchVersion(versionGroup, currentVersionIndex + 1)
+                    }
+                },
+                onDelete = {
+                    // 多版本时显示选项，单版本直接确认删除
+                    if (totalVersions > 1) {
+                        showDeleteOptions = true
+                    } else {
                         showDeleteConfirm = true
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Delete, 
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
+                    }
+                },
+                onDownload = {
+                    message.images.firstOrNull()?.let { onDownloadImage(it) }
+                }
+            )
         }
+        
+        // 用户消息的简化操作栏（仅复制和删除）
+        if (isUser) {
+            Spacer(modifier = Modifier.height(4.dp))
+            UserMessageActionBar(
+                message = message,
+                onCopy = { onCopyText(message.messageContent) },
+                onDelete = { showDeleteConfirm = true }
+            )
+        }
+    }
+}
+
+/**
+ * AI消息操作栏
+ */
+@Composable
+private fun MessageActionBar(
+    message: PaintMessage,
+    totalVersions: Int,
+    currentVersionIndex: Int,
+    hasImages: Boolean,
+    onCopy: () -> Unit,
+    onRegenerate: () -> Unit,
+    onPreviousVersion: () -> Unit,
+    onNextVersion: () -> Unit,
+    onDelete: () -> Unit,
+    onDownload: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        // 版本切换器（仅多版本时显示）
+        if (totalVersions > 1) {
+            VersionSwitcher(
+                current = currentVersionIndex + 1,
+                total = totalVersions,
+                onPrevious = onPreviousVersion,
+                onNext = onNextVersion
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        
+        // 复制按钮（仅有文本时显示）
+        if (message.messageContent.isNotEmpty()) {
+            ActionIconButton(
+                icon = Icons.Default.ContentCopy,
+                contentDescription = stringResource(R.string.message_copy),
+                onClick = onCopy
+            )
+        }
+        
+        // 重新生成按钮
+        ActionIconButton(
+            icon = Icons.Default.Refresh,
+            contentDescription = stringResource(R.string.message_regenerate),
+            onClick = onRegenerate
+        )
+        
+        // 下载按钮（仅有图片时显示）
+        if (hasImages) {
+            ActionIconButton(
+                icon = Icons.Default.Download,
+                contentDescription = stringResource(R.string.message_download),
+                onClick = onDownload
+            )
+        }
+        
+        // 删除按钮
+        ActionIconButton(
+            icon = Icons.Default.Delete,
+            contentDescription = stringResource(R.string.message_delete),
+            onClick = onDelete,
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+        )
+    }
+}
+
+/**
+ * 用户消息操作栏（简化版）
+ */
+@Composable
+private fun UserMessageActionBar(
+    message: PaintMessage,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        // 复制按钮（仅有文本时显示）
+        if (message.messageContent.isNotEmpty()) {
+            ActionIconButton(
+                icon = Icons.Default.ContentCopy,
+                contentDescription = stringResource(R.string.message_copy),
+                onClick = onCopy
+            )
+        }
+        
+        // 删除按钮
+        ActionIconButton(
+            icon = Icons.Default.Delete,
+            contentDescription = stringResource(R.string.message_delete),
+            onClick = onDelete,
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+        )
+    }
+}
+
+/**
+ * 版本切换器
+ */
+@Composable
+private fun VersionSwitcher(
+    current: Int,
+    total: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 2.dp)
+    ) {
+        IconButton(
+            onClick = onPrevious,
+            enabled = current > 1,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Icon(
+                Icons.Default.ChevronLeft,
+                contentDescription = stringResource(R.string.message_version_previous),
+                modifier = Modifier.size(16.dp),
+                tint = if (current > 1) 
+                    MaterialTheme.colorScheme.onSurface 
+                else 
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            )
+        }
+        
+        Text(
+            text = "$current / $total",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
+        
+        IconButton(
+            onClick = onNext,
+            enabled = current < total,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = stringResource(R.string.message_version_next),
+                modifier = Modifier.size(16.dp),
+                tint = if (current < total) 
+                    MaterialTheme.colorScheme.onSurface 
+                else 
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            )
+        }
+    }
+}
+
+/**
+ * 操作栏图标按钮
+ */
+@Composable
+private fun ActionIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+            tint = tint
+        )
     }
 }
 
@@ -794,35 +1057,45 @@ private fun formatDuration(durationMillis: Long): String {
 private fun MessageImage(
     imageId: String,
     base64: String,
+    width: Int = 0,
+    height: Int = 0,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
     val bitmap = rememberDecodedBitmap(imageId, base64)
     val shape = remember { RoundedCornerShape(8.dp) }
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val maxWidth = screenWidth / 2
     
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                ),
-            contentScale = ContentScale.FillWidth
-        )
-    } else {
-        // 加载占位符
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
+    // 优先使用预设宽高，否则从解码后的 bitmap 获取
+    val aspectRatio = when {
+        width > 0 && height > 0 -> width.toFloat() / height.toFloat()
+        bitmap != null -> bitmap.width.toFloat() / bitmap.height.toFloat()
+        else -> 1f // 默认 1:1 占位
+    }
+    
+    Box(
+        modifier = Modifier
+            .widthIn(max = maxWidth)
+            .aspectRatio(aspectRatio)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    ),
+                contentScale = ContentScale.Fit
+            )
+        } else {
+            // 加载占位符
             CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.dp,
@@ -836,22 +1109,78 @@ private fun MessageImage(
 @Composable
 private fun MessageLocalImage(
     path: String,
+    width: Int = 0,
+    height: Int = 0,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
     val shape = remember { RoundedCornerShape(8.dp) }
-    AsyncImage(
-        model = path,
-        contentDescription = null,
-        modifier = Modifier
-            .fillMaxWidth()
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val maxWidth = screenWidth / 2
+    
+    // 如果有预设宽高，直接使用；否则等待图片加载后获取
+    val presetAspectRatio = if (width > 0 && height > 0) {
+        width.toFloat() / height.toFloat()
+    } else {
+        null
+    }
+    var loadedAspectRatio by remember { mutableStateOf<Float?>(null) }
+    val aspectRatio = presetAspectRatio ?: loadedAspectRatio
+    
+    // 计算占位图尺寸
+    val placeholderModifier = if (aspectRatio != null) {
+        Modifier
+            .widthIn(max = maxWidth)
+            .aspectRatio(aspectRatio)
+    } else {
+        // 没有宽高信息时使用默认 1:1 占位
+        Modifier
+            .width(maxWidth)
+            .aspectRatio(1f)
+    }
+    
+    var isLoading by remember { mutableStateOf(true) }
+    
+    Box(
+        modifier = placeholderModifier
             .clip(shape)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        contentScale = ContentScale.FillWidth
-    )
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = path,
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                ),
+            contentScale = ContentScale.Fit,
+            onSuccess = { state ->
+                isLoading = false
+                // 如果没有预设宽高，从加载结果获取
+                if (presetAspectRatio == null) {
+                    val painter = state.painter
+                    val intrinsicSize = painter.intrinsicSize
+                    if (intrinsicSize.width > 0 && intrinsicSize.height > 0) {
+                        loadedAspectRatio = intrinsicSize.width / intrinsicSize.height
+                    }
+                }
+            },
+            onLoading = { isLoading = true },
+            onError = { isLoading = false }
+        )
+        
+        // 加载中显示进度指示器
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp,
+                color = Teal300
+            )
+        }
+    }
 }
 
 @Composable
@@ -919,5 +1248,123 @@ private fun checkPhotoPermissionStatus(context: android.content.Context): Pair<B
             Manifest.permission.READ_EXTERNAL_STORAGE
         ) == PackageManager.PERMISSION_GRANTED
         Pair(hasFullAccess, false)
+    }
+}
+
+/**
+ * 保存图片到相册
+ */
+private suspend fun saveImageToGallery(context: Context, imagePath: String) {
+    withContext(Dispatchers.IO) {
+        val sourceFile = java.io.File(imagePath)
+        if (!sourceFile.exists()) {
+            throw java.io.IOException("源文件不存在")
+        }
+        
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "AI_Paint_${System.currentTimeMillis()}.png")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/AIPaint")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw java.io.IOException("无法创建媒体文件")
+        
+        try {
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                sourceFile.inputStream().use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, contentValues, null, null)
+            }
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+    }
+}
+
+/**
+ * 生成中占位图 - 骨架屏光效动画
+ * 灰底 + 图片图标 + 从左到右循环的淡白色光效
+ */
+@Composable
+private fun GeneratingPlaceholder(
+    aspectRatio: AspectRatio,
+    modifier: Modifier = Modifier
+) {
+    // 计算宽高比
+    val ratio = when (aspectRatio) {
+        AspectRatio.RATIO_1_1 -> 1f
+        AspectRatio.RATIO_2_3 -> 2f / 3f
+        AspectRatio.RATIO_3_2 -> 3f / 2f
+        AspectRatio.RATIO_3_4 -> 3f / 4f
+        AspectRatio.RATIO_4_3 -> 4f / 3f
+        AspectRatio.RATIO_16_9 -> 16f / 9f
+        AspectRatio.RATIO_9_16 -> 9f / 16f
+    }
+    
+    // 与真实图片一致的宽度
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val maxWidth = screenWidth / 2
+    
+    // 灰色背景
+    val backgroundColor = Color(0xFFE0E0E0)
+    
+    // 从左到右循环的光效动画
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+    
+    // 固定外框容器
+    Box(
+        modifier = modifier
+            .widthIn(max = maxWidth)
+            .aspectRatio(ratio)
+            .clip(RoundedCornerShape(8.dp))
+            .background(backgroundColor)
+            .drawBehind {
+                // 绘制从左到右的光效
+                val shimmerWidth = size.width * 0.4f
+                val startX = size.width * shimmerOffset
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.4f),
+                            Color.White.copy(alpha = 0.6f),
+                            Color.White.copy(alpha = 0.4f),
+                            Color.Transparent
+                        ),
+                        startX = startX,
+                        endX = startX + shimmerWidth
+                    )
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // 中心图片图标
+        Icon(
+            imageVector = Icons.Default.Image,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+            tint = Color(0xFFBDBDBD)
+        )
     }
 }

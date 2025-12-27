@@ -28,6 +28,7 @@ class PaintActivity : ComponentActivity() {
             try { ThemeMode.valueOf(it) } catch (e: Exception) { ThemeMode.SYSTEM }
         } ?: ThemeMode.SYSTEM
         
+        // 立即设置内容，减少启动延迟
         setContent {
             val settingsViewModel: SettingsViewModel = koinViewModel()
             val settingsState by settingsViewModel.uiState.collectAsState()
