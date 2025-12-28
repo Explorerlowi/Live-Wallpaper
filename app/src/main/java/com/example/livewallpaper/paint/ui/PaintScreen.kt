@@ -57,7 +57,6 @@ import com.example.livewallpaper.gallery.ui.GalleryScreen
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
 import com.example.livewallpaper.paint.viewmodel.AndroidPaintViewModel
 import com.example.livewallpaper.paint.viewmodel.PaintToastMessage
-import com.example.livewallpaper.ui.theme.Teal300
 import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
 import com.example.livewallpaper.ui.components.ImageSource
@@ -735,7 +734,7 @@ private fun MessageItem(
         // 消息气泡
         Surface(
             shape = bubbleShape,
-            color = if (isUser) Teal300.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
+            color = if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -1096,10 +1095,11 @@ private fun MessageImage(
             )
         } else {
             // 加载占位符
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp,
-                color = Teal300
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             )
         }
     }
@@ -1172,12 +1172,13 @@ private fun MessageLocalImage(
             onError = { isLoading = false }
         )
         
-        // 加载中显示进度指示器
+        // 加载中显示图片图标
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp,
-                color = Teal300
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             )
         }
     }
@@ -1191,7 +1192,7 @@ private fun ScrollToBottomButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = if (newMessageCount > 0) Teal300 else MaterialTheme.colorScheme.surface,
+        color = if (newMessageCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
         shadowElevation = 4.dp
     ) {
         Row(

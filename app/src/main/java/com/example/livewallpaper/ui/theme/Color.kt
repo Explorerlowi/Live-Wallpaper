@@ -40,3 +40,20 @@ val DeleteRedDark = Color(0xFFD32F2F)
 val DarkBackground = Color(0xFF1A2E26)
 val DarkSurface = Color(0xFF243D33)
 val DarkPrimary = Color(0xFF80CBC4)
+
+// ========== 星尘之海主题 (Sea of Stardust) ==========
+// 主色调
+val CosmicInk = Color(0xFF0B1838)        // 宇宙墨 - 最深的背景色
+val TwilightPlum = Color(0xFF4D4177)     // 暮光紫 - 紫色强调
+val DeepSky = Color(0xFF3A60A0)          // 深空蓝 - 主要蓝色
+val MilkyGlow = Color(0xFF88A5E0)        // 银河辉 - 浅蓝色
+val StarMist = Color(0xFFC8DDF5)         // 星雾 - 最浅的蓝白色
+
+// 星尘主题扩展色
+val StardustPrimary = Color(0xFF88A5E0)       // 主色 - 银河辉
+val StardustPrimaryDark = Color(0xFF6B8AC8)   // 主色深色变体
+val StardustSecondary = Color(0xFF4D4177)     // 次要色 - 暮光紫
+val StardustSurface = Color(0xFF0F2044)       // 表面色 - 比背景稍亮
+val StardustSurfaceVariant = Color(0xFF1A2E5A) // 表面变体
+val StardustOnSurface = Color(0xFFE8F0FF)     // 表面上的文字
+val StardustOutline = Color(0xFF3A60A0)       // 边框色

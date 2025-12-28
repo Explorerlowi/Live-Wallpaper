@@ -118,9 +118,6 @@ import com.example.livewallpaper.ui.theme.ButtonPrimary
 import com.example.livewallpaper.ui.theme.MintGreen100
 import com.example.livewallpaper.ui.theme.MintGreen200
 import com.example.livewallpaper.ui.theme.MintGreen300
-import com.example.livewallpaper.ui.theme.Teal200
-import com.example.livewallpaper.ui.theme.Teal300
-import com.example.livewallpaper.ui.theme.Teal400
 import com.example.livewallpaper.ui.theme.TextPrimary
 import com.example.livewallpaper.ui.theme.TextSecondary
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
@@ -668,7 +665,7 @@ private fun TopBar(
             ) {
                 Text(
                     text = stringResource(R.string.select_all),
-                    color = if (selectedCount < totalCount) Teal300 else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (selectedCount < totalCount) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             
@@ -698,7 +695,7 @@ private fun TopBar(
                     onClick = onDrawClick,
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = Color.Transparent,
-                        contentColor = Teal300
+                        contentColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .size(44.dp)
@@ -730,7 +727,7 @@ private fun TopBar(
                         enabled = isReorderEnabled,
                         colors = IconButtonDefaults.iconButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = if (isReorderEnabled) Teal300 else MaterialTheme.colorScheme.onSurfaceVariant
+                            contentColor = if (isReorderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         ),
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -746,7 +743,7 @@ private fun TopBar(
                         onClick = onSettingsClick,
                         colors = IconButtonDefaults.iconButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = Teal300
+                            contentColor = MaterialTheme.colorScheme.primary
                         ),
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -899,7 +896,7 @@ private fun ReorderImagesSheet(
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Teal300)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text(text = stringResource(R.string.confirm))
                 }
@@ -965,7 +962,7 @@ private fun ReorderRow(
         Icon(
             imageVector = Icons.Default.Reorder,
             contentDescription = null,
-            tint = Teal300,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp)
         )
     }
@@ -1045,9 +1042,10 @@ private fun PhotoCard(
     }.value
     
     // 边框颜色：多选模式且选中时显示选中边框，否则显示裁剪参数边框
+    val primaryColor = MaterialTheme.colorScheme.primary
     val borderModifier = when {
-        isMultiSelectMode && isSelected -> Modifier.border(3.dp, Teal300, RoundedCornerShape(16.dp))
-        hasCropParams && !isMultiSelectMode -> Modifier.border(3.dp, Teal300, RoundedCornerShape(16.dp))
+        isMultiSelectMode && isSelected -> Modifier.border(3.dp, primaryColor, RoundedCornerShape(16.dp))
+        hasCropParams && !isMultiSelectMode -> Modifier.border(3.dp, primaryColor, RoundedCornerShape(16.dp))
         else -> Modifier
     }
 
@@ -1096,7 +1094,7 @@ private fun PhotoCard(
                         .padding(8.dp)
                         .size(28.dp)
                         .background(
-                            color = if (isSelected) Teal300 else Color.White.copy(alpha = 0.8f),
+                            color = if (isSelected) primaryColor else Color.White.copy(alpha = 0.8f),
                             shape = CircleShape
                         )
                         .then(
@@ -1323,7 +1321,10 @@ private fun PartialAccessPermissionDialog(
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Teal200, Teal400)
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                MaterialTheme.colorScheme.primary
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -1370,7 +1371,7 @@ private fun PartialAccessPermissionDialog(
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Teal300
+                        containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
                     Text(
@@ -1388,9 +1389,9 @@ private fun PartialAccessPermissionDialog(
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Teal400
+                        contentColor = MaterialTheme.colorScheme.primary
                     ),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Teal300.copy(alpha = 0.5f))
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 ) {
                     Text(
                         text = stringResource(R.string.permission_full_access),
@@ -1407,9 +1408,9 @@ private fun PartialAccessPermissionDialog(
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Teal400
+                        contentColor = MaterialTheme.colorScheme.primary
                     ),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Teal300.copy(alpha = 0.5f))
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 ) {
                     Text(
                         text = stringResource(R.string.permission_use_file_picker),

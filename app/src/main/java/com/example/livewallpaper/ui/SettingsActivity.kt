@@ -64,7 +64,6 @@ import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.ui.theme.LiveWallpaperTheme
 import com.example.livewallpaper.ui.theme.MintGreen100
 import com.example.livewallpaper.ui.theme.MintGreen200
-import com.example.livewallpaper.ui.theme.Teal300
 import com.example.livewallpaper.ui.LanguageOption
 import java.util.Locale
 
@@ -230,8 +229,8 @@ fun SettingsScreen(
                     valueRange = 1000f..60000f,
                     modifier = Modifier.weight(1f),
                     colors = SliderDefaults.colors(
-                        thumbColor = Teal300,
-                        activeTrackColor = Teal300
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
                     )
                 )
                 
@@ -241,12 +240,12 @@ fun SettingsScreen(
                     modifier = Modifier
                         .clickable { showIntervalInputDialog = true }
                         .clip(RoundedCornerShape(8.dp)),
-                    color = Teal300.copy(alpha = 0.1f)
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                 ) {
                     Text(
                         text = stringResource(R.string.interval_seconds, intervalValue / 1000f),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Teal300,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier
                             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -282,7 +281,7 @@ fun SettingsScreen(
                         onClick = { selectedScaleMode = mode },
                         label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Teal300,
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                         )
                     )
@@ -315,7 +314,7 @@ fun SettingsScreen(
                         onClick = { selectedPlayMode = mode },
                         label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Teal300,
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                         )
                     )
@@ -342,6 +341,7 @@ fun SettingsScreen(
                         ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
                         ThemeMode.LIGHT -> stringResource(R.string.theme_light)
                         ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                        ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
                     }
 
                     FilterChip(
@@ -353,7 +353,7 @@ fun SettingsScreen(
                         },
                         label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Teal300,
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                         )
                     )
@@ -381,7 +381,7 @@ fun SettingsScreen(
                         onClick = { selectedLanguage = option },
                         label = { Text(stringResource(option.labelRes)) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Teal300,
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                         )
                     )
@@ -485,8 +485,8 @@ private fun IntervalInputDialog(
                         }
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Teal300,
-                        cursorColor = Teal300
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -514,7 +514,7 @@ private fun IntervalInputDialog(
             ) {
                 Text(
                     text = stringResource(R.string.confirm),
-                    color = Teal300
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         },
@@ -556,7 +556,7 @@ private fun ExitConfirmDialog(
             TextButton(onClick = onSaveAndExit) {
                 Text(
                     text = stringResource(R.string.save_and_exit),
-                    color = Teal300,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
             }

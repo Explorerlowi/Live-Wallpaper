@@ -29,7 +29,6 @@ import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.ui.components.ImageSource
-import com.example.livewallpaper.ui.theme.Teal300
 
 @Composable
 fun PaintBottomBar(
@@ -104,7 +103,7 @@ fun PaintBottomBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Teal300.copy(alpha = 0.1f))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -112,13 +111,13 @@ fun PaintBottomBar(
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
-                        color = Teal300
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = stringResource(R.string.paint_generating_time, formatElapsedTime(context, elapsedSeconds)),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Teal300
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -187,7 +186,7 @@ fun PaintBottomBar(
                         Icon(
                             Icons.Default.AutoFixHigh,
                             contentDescription = stringResource(R.string.paint_enhance),
-                            tint = if (promptText.isNotEmpty()) Teal300 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                            tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                         )
                     }
                 }
@@ -212,7 +211,7 @@ fun PaintBottomBar(
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
-                            cursorBrush = SolidColor(Teal300),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             decorationBox = { innerTextField ->
                                 Box {
                                     if (promptText.isEmpty()) {
@@ -247,7 +246,7 @@ fun PaintBottomBar(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = if (isGenerating) MaterialTheme.colorScheme.error else Teal300
+                        color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                     ) {
                         Icon(
                             if (isGenerating) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,

@@ -41,7 +41,6 @@ import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.SelectOption
 import com.example.livewallpaper.ui.components.SimpleSelectDialog
-import com.example.livewallpaper.ui.theme.Teal300
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.random.Random
@@ -86,7 +85,7 @@ fun SessionDrawerContent(
                     Icon(
                         Icons.Outlined.ChatBubbleOutline,
                         contentDescription = null,
-                        tint = Teal300,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -99,13 +98,13 @@ fun SessionDrawerContent(
                 FilledTonalIconButton(
                     onClick = onCreateSession,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = Teal300.copy(alpha = 0.15f)
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     )
                 ) {
                     Icon(
                         Icons.Default.Add,
                         contentDescription = stringResource(R.string.paint_new_session),
-                        tint = Teal300
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -202,7 +201,7 @@ private fun SessionItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) Teal300.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
         Column(
             modifier = Modifier
@@ -219,7 +218,7 @@ private fun SessionItem(
                     text = session.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (isSelected) Teal300 else MaterialTheme.colorScheme.onSurface,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -248,12 +247,12 @@ private fun SessionItem(
                 // 模型标签
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = if (isSelected) Teal300.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
+                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
                 ) {
                     Text(
                         text = session.model.displayName,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) Teal300 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                     )
                 }
@@ -355,7 +354,7 @@ fun ApiSettingsDialog(
                             Icon(
                                 if (showForm) Icons.Default.Close else Icons.Default.Add,
                                 contentDescription = null,
-                                tint = Teal300
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -518,8 +517,8 @@ private fun ApiProfileItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        color = if (isActive) Teal300.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = if (isActive) androidx.compose.foundation.BorderStroke(1.dp, Teal300) else null
+        color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = if (isActive) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Row(
             modifier = Modifier
@@ -540,7 +539,7 @@ private fun ApiProfileItem(
                         Icon(
                             Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Teal300,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
                     }

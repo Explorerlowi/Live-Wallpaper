@@ -12,5 +12,7 @@ enum class ThemeMode {
     /** 浅色模式 */
     LIGHT,
     /** 深色模式 */
-    DARK
+    DARK,
+    /** 星尘之海主题 */
+    STARDUST
 }

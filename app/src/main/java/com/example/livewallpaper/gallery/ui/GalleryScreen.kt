@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.zIndex
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.rememberAsyncImagePainter
@@ -85,7 +86,6 @@ import com.example.livewallpaper.gallery.model.Album
 import com.example.livewallpaper.gallery.model.MediaItem
 import com.example.livewallpaper.gallery.viewmodel.GalleryPage
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
-import com.example.livewallpaper.ui.theme.Teal300
 import com.example.livewallpaper.ui.theme.TextPrimary
 
 // 图库背景色（纯白色，不透明）
@@ -322,7 +322,7 @@ private fun GalleryTopBar(
                 Text(
                     text = stringResource(R.string.gallery_selected_count, selectedCount),
                     fontSize = 14.sp,
-                    color = Teal300,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -339,7 +339,7 @@ private fun GalleryTopBar(
                         } else {
                             stringResource(R.string.gallery_select_all)
                         },
-                        color = Teal300
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -525,6 +525,7 @@ private fun ImageGridItem(
     onClick: () -> Unit,
     onPreviewClick: (() -> Unit)?
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -532,7 +533,7 @@ private fun ImageGridItem(
             .clickable(onClick = onClick)
             .then(
                 if (isSelected) {
-                    Modifier.border(3.dp, Teal300, RoundedCornerShape(4.dp))
+                    Modifier.border(3.dp, primaryColor, RoundedCornerShape(4.dp))
                 } else {
                     Modifier
                 }
@@ -594,7 +595,7 @@ private fun ImageGridItem(
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
                         .size(24.dp)
-                        .background(Teal300, CircleShape),
+                        .background(primaryColor, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -641,7 +642,7 @@ private fun ConfirmSelectionBar(
             TextButton(onClick = onPreview) {
                 Text(
                     text = stringResource(R.string.gallery_preview),
-                    color = Teal300,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -651,7 +652,7 @@ private fun ConfirmSelectionBar(
             // 确认按钮
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = Teal300),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Icon(
@@ -697,7 +698,7 @@ private fun ErrorContent(
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = Teal300)
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text(stringResource(R.string.gallery_retry))
         }

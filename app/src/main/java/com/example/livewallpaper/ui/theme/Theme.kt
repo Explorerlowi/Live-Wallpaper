@@ -67,6 +67,33 @@ private val DarkColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6)
 )
 
+// 星尘之海主题 (Sea of Stardust)
+private val StardustColorScheme = darkColorScheme(
+    primary = MilkyGlow,                      // 银河辉作为主色
+    onPrimary = CosmicInk,                    // 深色文字
+    primaryContainer = DeepSky,               // 深空蓝容器
+    onPrimaryContainer = StarMist,            // 星雾色文字
+    secondary = TwilightPlum,                 // 暮光紫作为次要色
+    onSecondary = StarMist,                   // 浅色文字
+    secondaryContainer = Color(0xFF3D3566),   // 暮光紫深色变体
+    onSecondaryContainer = StarMist,
+    tertiary = DeepSky,                       // 深空蓝作为第三色
+    onTertiary = StarMist,
+    tertiaryContainer = Color(0xFF2A4A80),
+    onTertiaryContainer = StarMist,
+    background = CosmicInk,                   // 宇宙墨背景
+    onBackground = StarMist,                  // 星雾色文字
+    surface = StardustSurface,                // 表面色
+    onSurface = StarMist,                     // 星雾色文字
+    surfaceVariant = StardustSurfaceVariant,  // 表面变体
+    onSurfaceVariant = MilkyGlow,             // 银河辉文字
+    outline = DeepSky,                        // 深空蓝边框
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6)
+)
+
 /**
  * 根据 ThemeMode 判断是否使用深色主题
  */
@@ -76,6 +103,7 @@ fun shouldUseDarkTheme(themeMode: ThemeMode): Boolean {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+        ThemeMode.STARDUST -> true  // 星尘主题是深色系
     }
 }
 
@@ -85,7 +113,10 @@ fun LiveWallpaperTheme(
     content: @Composable () -> Unit
 ) {
     val darkTheme = shouldUseDarkTheme(themeMode)
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = when (themeMode) {
+        ThemeMode.STARDUST -> StardustColorScheme
+        else -> if (darkTheme) DarkColorScheme else LightColorScheme
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
