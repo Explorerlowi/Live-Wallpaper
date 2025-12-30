@@ -247,6 +247,10 @@ class PaintRepositoryImpl(
         }
     }
 
+    override fun getApiProfilesSync(): List<ApiProfile> = getCurrentProfiles()
+
+    override fun getActiveProfileSync(): ApiProfile? = findActiveProfile()
+
     override suspend fun saveApiProfile(profile: ApiProfile) {
         withContext(Dispatchers.Default) {
             val profiles = getCurrentProfiles().toMutableList()

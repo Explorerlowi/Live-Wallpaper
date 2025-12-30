@@ -121,6 +121,9 @@ class PaintViewModel(
             is PaintEvent.ClearError -> clearError()
             is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
             is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
+            is PaintEvent.UpdateImageDimensions -> updateImageDimensions(
+                event.messageId, event.imageId, event.width, event.height
+            )
         }
     }
 
@@ -472,6 +475,26 @@ class PaintViewModel(
     private fun switchMessageVersion(versionGroup: String, targetIndex: Int) {
         _uiState.update { 
             it.copy(activeVersions = it.activeVersions + (versionGroup to targetIndex))
+        }
+    }
+
+    /**
+     * 更新消息中图片的尺寸信息
+     */
+    private fun updateImageDimensions(messageId: String, imageId: String, width: Int, height: Int) {
+        viewModelScope.launch {
+            val message = _uiState.value.messages.find { it.id == messageId } ?: return@launch
+            val updatedImages = message.images.map { img ->
+                if (img.id == imageId && img.width == 0 && img.height == 0) {
+                    img.copy(width = width, height = height)
+                } else {
+                    img
+                }
+            }
+            if (updatedImages != message.images) {
+                val updatedMessage = message.copy(images = updatedImages)
+                repository.updateMessage(updatedMessage)
+            }
         }
     }
 

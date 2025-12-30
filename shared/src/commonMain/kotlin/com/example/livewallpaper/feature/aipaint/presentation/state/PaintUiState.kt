@@ -24,6 +24,7 @@ data class PaintUiState(
     // API配置
     val apiProfiles: List<ApiProfile> = emptyList(),
     val activeProfile: ApiProfile? = null,
+    val isApiProfileLoaded: Boolean = true, // 默认为 true，因为同步获取
     
     // 分页状态
     val hasMoreMessages: Boolean = true,
@@ -44,5 +45,7 @@ data class PaintUiState(
 data class SelectedImage(
     val id: String,
     val uri: String,
-    val mimeType: String = "image/png"
+    val mimeType: String = "image/png",
+    val width: Int = 0,
+    val height: Int = 0
 )

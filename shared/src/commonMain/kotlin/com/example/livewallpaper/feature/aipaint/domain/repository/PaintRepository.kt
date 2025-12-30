@@ -28,6 +28,8 @@ interface PaintRepository {
     // API配置管理
     fun getApiProfiles(): Flow<List<ApiProfile>>
     fun getActiveProfile(): Flow<ApiProfile?>
+    fun getApiProfilesSync(): List<ApiProfile>
+    fun getActiveProfileSync(): ApiProfile?
     suspend fun saveApiProfile(profile: ApiProfile)
     suspend fun deleteApiProfile(profileId: String)
     suspend fun setActiveProfile(profileId: String)

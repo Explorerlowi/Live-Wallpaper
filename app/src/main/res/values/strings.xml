@@ -116,6 +116,7 @@
     <string name="paint_no_sessions_hint">Tap top right to create a new session</string>
     <string name="paint_api_settings">API Settings</string>
     <string name="paint_no_api">No API configured</string>
+    <string name="paint_api_loading">Loading…</string>
     <string name="paint_select_model">Select Model</string>
     <string name="paint_select_ratio">Select Ratio</string>
     <string name="paint_select_resolution">Select Resolution</string>
@@ -155,7 +156,21 @@
     <string name="message_download">Download</string>
     <string name="message_version_previous">Previous version</string>
     <string name="message_version_next">Next version</string>
+    <string name="message_add_to_selected">Add to selected</string>
     <string name="paint_generating_in_progress">Generation in progress, please wait</string>
     <string name="paint_download_success">Saved to gallery</string>
     <string name="paint_download_failed">Save failed</string>
+    
+    <!-- 描述选择器 -->
+    <string name="desc_add_description">Add Tags</string>
+    <string name="desc_add">Add</string>
+    <string name="desc_category_camera">Camera Angle</string>
+    <string name="desc_category_light">Lighting</string>
+    <string name="desc_category_landscape">Landscape</string>
+    <string name="desc_category_portrait">Portrait</string>
+    
+    <!-- 会话时间分组 -->
+    <string name="session_group_today">Today</string>
+    <string name="session_group_7_days">Last 7 Days</string>
+    <string name="session_group_30_days">Last 30 Days</string>
 </resources>

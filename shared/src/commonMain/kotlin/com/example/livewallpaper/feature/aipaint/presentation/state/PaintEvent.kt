@@ -14,6 +14,12 @@ sealed class PaintEvent {
     data object LoadMoreMessages : PaintEvent()
     data class DeleteMessage(val messageId: String) : PaintEvent()
     data class DeleteMessageVersion(val versionGroup: String) : PaintEvent()  // 删除整个版本组
+    data class UpdateImageDimensions(
+        val messageId: String,
+        val imageId: String,
+        val width: Int,
+        val height: Int
+    ) : PaintEvent()
     
     // 重新生成与版本切换
     data class RegenerateMessage(val messageId: String) : PaintEvent()

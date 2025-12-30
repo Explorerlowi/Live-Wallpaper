@@ -59,8 +59,8 @@ import com.example.livewallpaper.paint.viewmodel.AndroidPaintViewModel
 import com.example.livewallpaper.paint.viewmodel.PaintToastMessage
 import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
+import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import com.example.livewallpaper.ui.components.ImageSource
-import com.example.livewallpaper.ui.components.SingleImagePreviewDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -142,8 +142,9 @@ fun PaintScreen(
     var showResolutionSelector by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
     
-    // 图片预览状态
-    var previewImageSource by remember { mutableStateOf<ImageSource?>(null) }
+    // 图片预览状态（支持多图预览）
+    var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
+    var previewInitialIndex by remember { mutableIntStateOf(0) }
     
     // 图库 ViewModel
     val mediaStoreRepository: MediaStoreRepository = koinInject()
@@ -171,12 +172,28 @@ fun PaintScreen(
         uris.forEach { uri ->
             try {
                 val mimeType = context.contentResolver.getType(uri) ?: "image/png"
+                
+                // 获取图片尺寸
+                val (width, height) = try {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val options = BitmapFactory.Options().apply {
+                            inJustDecodeBounds = true
+                        }
+                        BitmapFactory.decodeStream(inputStream, null, options)
+                        Pair(options.outWidth, options.outHeight)
+                    } ?: Pair(0, 0)
+                } catch (e: Exception) {
+                    Pair(0, 0)
+                }
+                
                 viewModel.onEvent(
                     PaintEvent.AddImage(
                         SelectedImage(
                             id = "${System.currentTimeMillis()}-${Random.nextInt(1000)}",
                             uri = uri.toString(),
-                            mimeType = mimeType
+                            mimeType = mimeType,
+                            width = width,
+                            height = height
                         )
                     )
                 )
@@ -324,6 +341,7 @@ fun PaintScreen(
                     selectedRatio = uiState.selectedAspectRatio,
                     selectedResolution = uiState.selectedResolution,
                     activeProfile = uiState.activeProfile,
+                    isApiProfileLoaded = uiState.isApiProfileLoaded,
                     onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
                     onSend = { viewModel.onEvent(PaintEvent.SendMessage) },
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
@@ -335,7 +353,11 @@ fun PaintScreen(
                     onRatioClick = { showRatioSelector = true },
                     onResolutionClick = { showResolutionSelector = true },
                     onImagePreview = { source ->
-                        previewImageSource = source
+                        previewImages = listOf(source)
+                        previewInitialIndex = 0
+                    },
+                    onApplyRatio = { ratio ->
+                        viewModel.onEvent(PaintEvent.SelectAspectRatio(ratio))
                     }
                 )
             },
@@ -346,7 +368,10 @@ fun PaintScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (uiState.messages.isEmpty() && uiState.currentSession == null) {
+                if (uiState.isLoading) {
+                    // 切换会话时的空屏过渡
+                    Box(modifier = Modifier.fillMaxSize())
+                } else if (uiState.messages.isEmpty() && uiState.currentSession == null) {
                     // 空状态
                     EmptyState()
                 } else {
@@ -406,8 +431,9 @@ fun PaintScreen(
                                 allMessages = uiState.messages,
                                 activeVersions = uiState.activeVersions,
                                 selectedAspectRatio = uiState.selectedAspectRatio,
-                                onImageClick = { source ->
-                                    previewImageSource = source
+                                onImageClick = { images, index ->
+                                    previewImages = images
+                                    previewInitialIndex = index
                                 },
                                 onCopyText = { text ->
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -440,6 +466,28 @@ fun PaintScreen(
                                             Toast.makeText(context, context.getString(R.string.paint_download_failed), Toast.LENGTH_SHORT).show()
                                         }
                                     }
+                                },
+                                onAddImages = { images ->
+                                    // 将图片添加到选中列表
+                                    images.forEach { image ->
+                                        val path = image.localPath ?: return@forEach
+                                        viewModel.onEvent(
+                                            PaintEvent.AddImage(
+                                                SelectedImage(
+                                                    id = "${System.currentTimeMillis()}-${Random.nextInt(1000)}",
+                                                    uri = path,
+                                                    mimeType = image.mimeType,
+                                                    width = image.width,
+                                                    height = image.height
+                                                )
+                                            )
+                                        )
+                                    }
+                                },
+                                onUpdateImageDimensions = { messageId, imageId, width, height ->
+                                    viewModel.onEvent(
+                                        PaintEvent.UpdateImageDimensions(messageId, imageId, width, height)
+                                    )
                                 }
                             )
                         }
@@ -526,16 +574,20 @@ fun PaintScreen(
         )
     }
     
-    // 图片预览对话框
-    previewImageSource?.let { source ->
-        SingleImagePreviewDialog(
-            image = source,
+    // 图片预览对话框（支持多图左右滑动）
+    if (previewImages.isNotEmpty()) {
+        ImagePreviewDialog(
+            images = previewImages,
+            initialIndex = previewInitialIndex,
             config = ImagePreviewConfig(
                 showRotateButton = true,
                 showFlipButton = true,
                 showDownloadButton = true
             ),
-            onDismiss = { previewImageSource = null }
+            onDismiss = { 
+                previewImages = emptyList()
+                previewInitialIndex = 0
+            }
         )
     }
 }
@@ -625,13 +677,15 @@ private fun MessageItem(
     allMessages: List<PaintMessage> = emptyList(),
     activeVersions: Map<String, Int> = emptyMap(),
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
-    onImageClick: (ImageSource) -> Unit = {},
+    onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
     onCopyText: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onDeleteVersionGroup: (String) -> Unit = {},
     onRegenerate: (String) -> Unit = {},
     onSwitchVersion: (String, Int) -> Unit = { _, _ -> },
-    onDownloadImage: (PaintImage) -> Unit = {}
+    onDownloadImage: (PaintImage) -> Unit = {},
+    onAddImages: (List<PaintImage>) -> Unit = {},
+    onUpdateImageDimensions: (String, String, Int, Int) -> Unit = { _, _, _, _ -> }
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val isAssistant = !isUser
@@ -750,16 +804,29 @@ private fun MessageItem(
                     )
                 }
                 
-                // 图片
-                message.images.forEach { image ->
+                // 图片 - 支持多图预览
+                val imageSources = remember(message.images) {
+                    message.images.mapNotNull { image ->
+                        image.localPath?.let { ImageSource.StringSource(it) }
+                            ?: image.base64Data?.let { ImageSource.Base64Source(it, image.mimeType) }
+                    }
+                }
+                
+                message.images.forEachIndexed { index, image ->
                     Spacer(modifier = Modifier.height(8.dp))
                     image.localPath?.let { path ->
                         MessageLocalImage(
                             path = path,
                             width = image.width,
                             height = image.height,
-                            onClick = { onImageClick(ImageSource.StringSource(path)) },
-                            onLongClick = { }
+                            onClick = { onImageClick(imageSources, index) },
+                            onLongClick = { },
+                            onDimensionsLoaded = { w, h ->
+                                // 如果原始图片没有宽高信息，回填更新
+                                if (image.width == 0 || image.height == 0) {
+                                    onUpdateImageDimensions(message.id, image.id, w, h)
+                                }
+                            }
                         )
                     }
                     image.base64Data?.let { base64 ->
@@ -768,8 +835,13 @@ private fun MessageItem(
                             base64 = base64,
                             width = image.width,
                             height = image.height,
-                            onClick = { onImageClick(ImageSource.Base64Source(base64, image.mimeType)) },
-                            onLongClick = { }
+                            onClick = { onImageClick(imageSources, index) },
+                            onLongClick = { },
+                            onDimensionsLoaded = { w, h ->
+                                if (image.width == 0 || image.height == 0) {
+                                    onUpdateImageDimensions(message.id, image.id, w, h)
+                                }
+                            }
                         )
                     }
                 }
@@ -810,14 +882,15 @@ private fun MessageItem(
             }
         }
         
-        // AI消息的固定操作栏
-        if (isAssistant && message.status != MessageStatus.GENERATING) {
+        // AI消息的固定操作栏（包括正在生成状态，以便用户可以处理卡住的消息）
+        if (isAssistant) {
             Spacer(modifier = Modifier.height(4.dp))
             MessageActionBar(
                 message = message,
                 totalVersions = totalVersions,
                 currentVersionIndex = currentVersionIndex,
                 hasImages = message.images.isNotEmpty(),
+                onAddImages = { onAddImages(message.images) },
                 onCopy = { onCopyText(message.messageContent) },
                 onRegenerate = { onRegenerate(message.id) },
                 onPreviousVersion = {
@@ -865,6 +938,7 @@ private fun MessageActionBar(
     totalVersions: Int,
     currentVersionIndex: Int,
     hasImages: Boolean,
+    onAddImages: () -> Unit,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
     onPreviousVersion: () -> Unit,
@@ -878,6 +952,26 @@ private fun MessageActionBar(
     ) {
         // 版本切换器（仅多版本时显示）
         if (totalVersions > 1) {
+            VersionSwitcher(
+                current = currentVersionIndex + 1,
+                total = totalVersions,
+                onPrevious = onPreviousVersion,
+                onNext = onNextVersion
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        
+        // 添加图片按钮（仅有图片时显示，放在版本切换器右边）
+        if (hasImages) {
+            ActionIconButton(
+                icon = Icons.Default.Add,
+                contentDescription = stringResource(R.string.message_add_to_selected),
+                onClick = onAddImages
+            )
+        }
+        
+        // 复制按钮（仅有文本时显示）
+        if (message.messageContent.isNotEmpty()) {
             VersionSwitcher(
                 current = currentVersionIndex + 1,
                 total = totalVersions,
@@ -1059,7 +1153,8 @@ private fun MessageImage(
     width: Int = 0,
     height: Int = 0,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    onDimensionsLoaded: ((Int, Int) -> Unit)? = null
 ) {
     val bitmap = rememberDecodedBitmap(imageId, base64)
     val shape = remember { RoundedCornerShape(8.dp) }
@@ -1071,6 +1166,13 @@ private fun MessageImage(
         width > 0 && height > 0 -> width.toFloat() / height.toFloat()
         bitmap != null -> bitmap.width.toFloat() / bitmap.height.toFloat()
         else -> 1f // 默认 1:1 占位
+    }
+    
+    // 如果没有预设宽高且 bitmap 已加载，回调通知
+    LaunchedEffect(bitmap, width, height) {
+        if (bitmap != null && (width == 0 || height == 0)) {
+            onDimensionsLoaded?.invoke(bitmap.width, bitmap.height)
+        }
     }
     
     Box(
@@ -1112,7 +1214,8 @@ private fun MessageLocalImage(
     width: Int = 0,
     height: Int = 0,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    onDimensionsLoaded: ((Int, Int) -> Unit)? = null
 ) {
     val shape = remember { RoundedCornerShape(8.dp) }
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -1159,12 +1262,16 @@ private fun MessageLocalImage(
             contentScale = ContentScale.Fit,
             onSuccess = { state ->
                 isLoading = false
-                // 如果没有预设宽高，从加载结果获取
+                // 如果没有预设宽高，从加载结果获取并回调
                 if (presetAspectRatio == null) {
                     val painter = state.painter
                     val intrinsicSize = painter.intrinsicSize
                     if (intrinsicSize.width > 0 && intrinsicSize.height > 0) {
                         loadedAspectRatio = intrinsicSize.width / intrinsicSize.height
+                        onDimensionsLoaded?.invoke(
+                            intrinsicSize.width.toInt(),
+                            intrinsicSize.height.toInt()
+                        )
                     }
                 }
             },

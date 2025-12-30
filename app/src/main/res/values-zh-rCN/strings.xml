@@ -118,6 +118,7 @@
     <string name="paint_no_sessions_hint">点击右上角创建新会话</string>
     <string name="paint_api_settings">API配置</string>
     <string name="paint_no_api">未配置API</string>
+    <string name="paint_api_loading">加载中…</string>
     <string name="paint_select_model">选择模型</string>
     <string name="paint_select_ratio">选择比例</string>
     <string name="paint_select_resolution">选择分辨率</string>
@@ -157,7 +158,21 @@
     <string name="message_download">下载</string>
     <string name="message_version_previous">上一版本</string>
     <string name="message_version_next">下一版本</string>
+    <string name="message_add_to_selected">添加到已选</string>
     <string name="paint_generating_in_progress">正在生成中，请稍候</string>
     <string name="paint_download_success">已保存到相册</string>
     <string name="paint_download_failed">保存失败</string>
+    
+    <!-- 描述选择器 -->
+    <string name="desc_add_description">添加描述</string>
+    <string name="desc_add">添加</string>
+    <string name="desc_category_camera">镜头视角</string>
+    <string name="desc_category_light">光线</string>
+    <string name="desc_category_landscape">风景</string>
+    <string name="desc_category_portrait">人像</string>
+    
+    <!-- 会话时间分组 -->
+    <string name="session_group_today">今天</string>
+    <string name="session_group_7_days">7天内</string>
+    <string name="session_group_30_days">30天内</string>
 </resources>

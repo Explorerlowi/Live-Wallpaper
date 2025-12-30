@@ -1,5 +1,6 @@
 package com.example.livewallpaper.paint.ui
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -29,6 +30,8 @@ import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.ui.components.ImageSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PaintBottomBar(
@@ -41,6 +44,7 @@ fun PaintBottomBar(
     selectedRatio: AspectRatio,
     selectedResolution: Resolution,
     activeProfile: ApiProfile?,
+    isApiProfileLoaded: Boolean = true,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -51,11 +55,15 @@ fun PaintBottomBar(
     onModelClick: () -> Unit,
     onRatioClick: () -> Unit,
     onResolutionClick: () -> Unit,
-    onImagePreview: ((ImageSource) -> Unit)? = null
+    onImagePreview: ((ImageSource) -> Unit)? = null,
+    onApplyRatio: ((AspectRatio) -> Unit)? = null
 ) {
     // 实时计时器
     var elapsedSeconds by remember { mutableStateOf(0L) }
     val context = LocalContext.current
+    
+    // 描述选择器状态
+    var showDescriptionPicker by remember { mutableStateOf(false) }
     
     LaunchedEffect(isGenerating, generationStartTime) {
         if (isGenerating && generationStartTime > 0) {
@@ -86,11 +94,23 @@ fun PaintBottomBar(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     selectedImages.forEach { image ->
+                        // 计算该图片的推荐比例
+                        val imageRatio = remember(image.width, image.height) {
+                            if (image.width > 0 && image.height > 0) {
+                                AspectRatio.findClosest(image.width, image.height)
+                            } else null
+                        }
+                        
                         SelectedImagePreview(
                             image = image,
+                            recommendedRatio = imageRatio,
+                            isRatioSelected = imageRatio == selectedRatio,
                             onRemove = { onRemoveImage(image.id) },
                             onClick = { 
                                 onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                            },
+                            onRatioClick = {
+                                imageRatio?.let { onApplyRatio?.invoke(it) }
                             }
                         )
                     }
@@ -133,8 +153,12 @@ fun PaintBottomBar(
                 // API设置
                 QuickActionChip(
                     icon = Icons.Default.Settings,
-                    label = activeProfile?.name ?: stringResource(R.string.paint_no_api),
-                    isHighlighted = activeProfile == null,
+                    label = when {
+                        !isApiProfileLoaded -> stringResource(R.string.paint_api_loading)
+                        activeProfile != null -> activeProfile.name
+                        else -> stringResource(R.string.paint_no_api)
+                    },
+                    isHighlighted = isApiProfileLoaded && activeProfile == null,
                     onClick = onSettingsClick
                 )
                 
@@ -160,6 +184,13 @@ fun PaintBottomBar(
                         onClick = onResolutionClick
                     )
                 }
+                
+                // 添加描述
+                QuickActionChip(
+                    icon = Icons.Default.Add,
+                    label = stringResource(R.string.desc_add_description),
+                    onClick = { showDescriptionPicker = true }
+                )
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -259,6 +290,24 @@ fun PaintBottomBar(
             }
         }
     }
+    
+    // 描述选择器底部抽屉
+    if (showDescriptionPicker) {
+        DescriptionPickerSheet(
+            onDismiss = { showDescriptionPicker = false },
+            onConfirm = { selectedDescriptions ->
+                if (selectedDescriptions.isNotEmpty()) {
+                    val descriptionsText = selectedDescriptions.joinToString(", ")
+                    val newPrompt = if (promptText.isEmpty()) {
+                        descriptionsText
+                    } else {
+                        "$promptText, $descriptionsText"
+                    }
+                    onPromptChange(newPrompt)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -305,40 +354,61 @@ private fun QuickActionChip(
 @Composable
 private fun SelectedImagePreview(
     image: SelectedImage,
+    recommendedRatio: AspectRatio? = null,
+    isRatioSelected: Boolean = false,
     onRemove: () -> Unit,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onRatioClick: () -> Unit = {}
 ) {
-    Box(
-        modifier = Modifier
-            .size(64.dp)
-            .clickable(onClick = onClick)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AsyncImage(
-            model = image.uri,
-            contentDescription = null,
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop
-        )
-        
-        // 删除按钮
-        Surface(
-            onClick = onRemove,
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.6f),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(2.dp)
-                .size(20.dp)
+                .size(64.dp)
+                .clickable(onClick = onClick)
         ) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = stringResource(R.string.delete_image),
-                tint = Color.White,
+            AsyncImage(
+                model = image.uri,
+                contentDescription = null,
                 modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+            
+            // 删除按钮
+            Surface(
+                onClick = onRemove,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
                     .padding(2.dp)
-                    .size(16.dp)
+                    .size(20.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.delete_image),
+                    tint = Color.White,
+                    modifier = Modifier
+                        .padding(2.dp)
+                        .size(16.dp)
+                )
+            }
+        }
+        
+        // 推荐比例标签
+        if (recommendedRatio != null) {
+            Text(
+                text = recommendedRatio.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isRatioSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                },
+                modifier = Modifier.clickable(onClick = onRatioClick)
             )
         }
     }

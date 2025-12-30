@@ -49,6 +49,18 @@ class AndroidPaintViewModel(
     val toastEvent: SharedFlow<PaintToastMessage> = _toastEvent.asSharedFlow()
 
     init {
+        // 同步获取 API 配置初始值，避免界面闪烁
+        val initialProfiles = repository.getApiProfilesSync()
+        val initialActiveProfile = repository.getActiveProfileSync()
+        _uiState.update { 
+            it.copy(
+                apiProfiles = initialProfiles,
+                activeProfile = initialActiveProfile,
+                isApiProfileLoaded = true
+            )
+        }
+        
+        // 继续监听后续变化
         loadApiProfiles()
         loadSessions()
     }
@@ -61,7 +73,12 @@ class AndroidPaintViewModel(
             ) { profiles, active ->
                 Pair(profiles, active)
             }.collect { (profiles, active) ->
-                _uiState.update { it.copy(apiProfiles = profiles, activeProfile = active) }
+                _uiState.update { 
+                    it.copy(
+                        apiProfiles = profiles, 
+                        activeProfile = active
+                    ) 
+                }
             }
         }
     }
@@ -143,6 +160,9 @@ class AndroidPaintViewModel(
             is PaintEvent.ClearError -> clearError()
             is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
             is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
+            is PaintEvent.UpdateImageDimensions -> updateImageDimensions(
+                event.messageId, event.imageId, event.width, event.height
+            )
         }
     }
 
@@ -183,6 +203,7 @@ class AndroidPaintViewModel(
             sessionDrafts[currentDraftKey()] = snapshotCurrentDraft()
             repository.getSession(sessionId).first()?.let { session ->
                 val draft = restoreDraft(session.id)
+                // 先清空消息并显示加载状态
                 _uiState.update { 
                     it.copy(
                         currentSession = session,
@@ -195,10 +216,14 @@ class AndroidPaintViewModel(
                         currentPage = 0,
                         hasMoreMessages = true,
                         newMessageCount = 0,
-                        isAtBottom = true
+                        isAtBottom = true,
+                        isLoading = true
                     ) 
                 }
+                // 短暂延迟，让空屏过渡更自然
+                delay(200)
                 loadMessages(sessionId)
+                _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -251,10 +276,14 @@ class AndroidPaintViewModel(
             val selectedImagesSnapshot = state.selectedImages
 
             val userImagesForMessage = selectedImagesSnapshot.map { img ->
+                // 获取图片尺寸
+                val (width, height) = getImageDimensions(img.uri)
                 PaintImage(
                     id = generateId(),
                     mimeType = img.mimeType,
                     localPath = img.uri,
+                    width = width,
+                    height = height,
                     isReference = true
                 )
             }
@@ -437,9 +466,21 @@ class AndroidPaintViewModel(
     private fun loadReferenceImagesForApi(images: List<SelectedImage>): List<PaintImage> {
         if (images.isEmpty()) return emptyList()
         return images.mapNotNull { selected ->
-            val uri = runCatching { Uri.parse(selected.uri) }.getOrNull() ?: return@mapNotNull null
             val bytes = try {
-                appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val uriString = selected.uri
+                if (uriString.startsWith("/") || uriString.startsWith("file://")) {
+                    // 本地文件路径
+                    val filePath = if (uriString.startsWith("file://")) {
+                        uriString.removePrefix("file://")
+                    } else {
+                        uriString
+                    }
+                    File(filePath).readBytes()
+                } else {
+                    // content:// URI
+                    val uri = Uri.parse(uriString)
+                    appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }
             } catch (_: Exception) {
                 null
             } ?: return@mapNotNull null
@@ -473,6 +514,18 @@ class AndroidPaintViewModel(
             val state = _uiState.value
             val message = state.messages.find { it.id == messageId }
             val versionGroup = message?.versionGroup
+            
+            // 如果删除的是正在生成的消息，先取消生成任务
+            if (message?.status == MessageStatus.GENERATING) {
+                generationJob?.cancel()
+                _uiState.update { 
+                    it.copy(
+                        isGenerating = false,
+                        generatingSessionId = null,
+                        generationStartTime = 0L
+                    ) 
+                }
+            }
             
             // 如果是有版本组的消息，删除后需要切换到其他版本
             if (versionGroup != null) {
@@ -732,9 +785,21 @@ class AndroidPaintViewModel(
             val userImagesForApi = userMessage.images
                 .filter { it.isReference && it.localPath != null }
                 .mapNotNull { img ->
-                    val uri = runCatching { Uri.parse(img.localPath) }.getOrNull() ?: return@mapNotNull null
+                    val path = img.localPath ?: return@mapNotNull null
                     val bytes = try {
-                        appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        if (path.startsWith("/") || path.startsWith("file://")) {
+                            // 本地文件路径
+                            val filePath = if (path.startsWith("file://")) {
+                                path.removePrefix("file://")
+                            } else {
+                                path
+                            }
+                            File(filePath).readBytes()
+                        } else {
+                            // content:// URI
+                            val uri = Uri.parse(path)
+                            appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        }
                     } catch (_: Exception) {
                         null
                     } ?: return@mapNotNull null
@@ -860,6 +925,46 @@ class AndroidPaintViewModel(
 
     private fun generateId(): String = 
         "${System.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
+    
+    /**
+     * 获取图片尺寸
+     * 使用 BitmapFactory.Options 仅解码边界信息，不加载完整图片
+     */
+    private fun getImageDimensions(uriString: String): Pair<Int, Int> {
+        return try {
+            val uri = Uri.parse(uriString)
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            appContext.contentResolver.openInputStream(uri)?.use { inputStream ->
+                BitmapFactory.decodeStream(inputStream, null, options)
+            }
+            Pair(options.outWidth.coerceAtLeast(0), options.outHeight.coerceAtLeast(0))
+        } catch (e: Exception) {
+            Pair(0, 0)
+        }
+    }
+    
+    /**
+     * 更新消息中图片的尺寸信息
+     * 用于回填旧数据中缺失的宽高信息
+     */
+    private fun updateImageDimensions(messageId: String, imageId: String, width: Int, height: Int) {
+        viewModelScope.launch {
+            val message = _uiState.value.messages.find { it.id == messageId } ?: return@launch
+            val updatedImages = message.images.map { img ->
+                if (img.id == imageId && img.width == 0 && img.height == 0) {
+                    img.copy(width = width, height = height)
+                } else {
+                    img
+                }
+            }
+            if (updatedImages != message.images) {
+                val updatedMessage = message.copy(images = updatedImages)
+                repository.updateMessage(updatedMessage)
+            }
+        }
+    }
     
     override fun onCleared() {
         super.onCleared()

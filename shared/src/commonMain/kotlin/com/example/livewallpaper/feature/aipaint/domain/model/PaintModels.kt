@@ -92,7 +92,35 @@ enum class AspectRatio(
     RATIO_3_4("3:4", "3:4", "标准竖版"),
     RATIO_4_3("4:3", "4:3", "标准横版"),
     RATIO_16_9("16:9", "16:9", "宽屏"),
-    RATIO_9_16("9:16", "9:16", "手机竖屏")
+    RATIO_9_16("9:16", "9:16", "手机竖屏");
+    
+    /**
+     * 获取数值比例
+     */
+    fun toFloat(): Float {
+        val parts = value.split(":")
+        val w = parts[0].toFloatOrNull() ?: 1f
+        val h = parts[1].toFloatOrNull() ?: 1f
+        return w / h
+    }
+    
+    companion object {
+        /**
+         * 根据图片宽高计算最接近的比例
+         * @param width 图片宽度
+         * @param height 图片高度
+         * @return 最接近的 AspectRatio，如果无法计算则返回 null
+         */
+        fun findClosest(width: Int, height: Int): AspectRatio? {
+            if (width <= 0 || height <= 0) return null
+            
+            val imageRatio = width.toFloat() / height.toFloat()
+            
+            return entries.minByOrNull { ratio ->
+                kotlin.math.abs(ratio.toFloat() - imageRatio)
+            }
+        }
+    }
 }
 
 /**

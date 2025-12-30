@@ -46,6 +46,24 @@ import java.util.*
 import kotlin.random.Random
 
 /**
+ * 会话时间分组类型
+ */
+private enum class SessionTimeGroup {
+    TODAY,
+    LAST_7_DAYS,
+    LAST_30_DAYS,
+    OLDER  // 按年月分组
+}
+
+/**
+ * 分组后的会话数据
+ */
+private data class GroupedSessions(
+    val label: String,
+    val sessions: List<PaintSession>
+)
+
+/**
  * 会话抽屉内容组件（用于 ModalNavigationDrawer）
  */
 @Composable
@@ -61,6 +79,16 @@ fun SessionDrawerContent(
     
     // 删除确认对话框状态
     var sessionToDelete by remember { mutableStateOf<PaintSession?>(null) }
+    
+    // 时间分组标签
+    val todayLabel = stringResource(R.string.session_group_today)
+    val last7DaysLabel = stringResource(R.string.session_group_7_days)
+    val last30DaysLabel = stringResource(R.string.session_group_30_days)
+    
+    // 按时间分组会话
+    val groupedSessions = remember(sessions) {
+        groupSessionsByTime(sessions, todayLabel, last7DaysLabel, last30DaysLabel)
+    }
     
     ModalDrawerSheet(
         modifier = Modifier.width(drawerWidth),
@@ -160,15 +188,22 @@ fun SessionDrawerContent(
                         top = 8.dp,
                         bottom = 8.dp + navigationBarPadding.calculateBottomPadding()
                     ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(sessions, key = { it.id }) { session ->
-                        SessionItem(
-                            session = session,
-                            isSelected = session.id == currentSessionId,
-                            onClick = { onSelectSession(session.id) },
-                            onDelete = { sessionToDelete = session }
-                        )
+                    groupedSessions.forEach { group ->
+                        // 分组标题
+                        item(key = "header_${group.label}") {
+                            SessionGroupHeader(label = group.label)
+                        }
+                        // 分组内的会话
+                        items(group.sessions, key = { it.id }) { session ->
+                            SessionItem(
+                                session = session,
+                                isSelected = session.id == currentSessionId,
+                                onClick = { onSelectSession(session.id) },
+                                onDelete = { sessionToDelete = session }
+                            )
+                        }
                     }
                 }
             }
@@ -189,6 +224,98 @@ fun SessionDrawerContent(
     }
 }
 
+/**
+ * 按时间分组会话
+ */
+private fun groupSessionsByTime(
+    sessions: List<PaintSession>,
+    todayLabel: String,
+    last7DaysLabel: String,
+    last30DaysLabel: String
+): List<GroupedSessions> {
+    if (sessions.isEmpty()) return emptyList()
+    
+    val now = System.currentTimeMillis()
+    val calendar = Calendar.getInstance()
+    
+    // 计算今天开始时间
+    calendar.timeInMillis = now
+    calendar.set(Calendar.HOUR_OF_DAY, 0)
+    calendar.set(Calendar.MINUTE, 0)
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    val todayStart = calendar.timeInMillis
+    
+    // 计算7天前开始时间
+    calendar.add(Calendar.DAY_OF_YEAR, -7)
+    val sevenDaysAgo = calendar.timeInMillis
+    
+    // 计算30天前开始时间
+    calendar.timeInMillis = todayStart
+    calendar.add(Calendar.DAY_OF_YEAR, -30)
+    val thirtyDaysAgo = calendar.timeInMillis
+    
+    // 年月格式化
+    val yearMonthFormat = SimpleDateFormat("yyyy年M月", Locale.getDefault())
+    
+    // 按更新时间降序排序
+    val sortedSessions = sessions.sortedByDescending { it.updatedAt }
+    
+    // 分组
+    val todaySessions = mutableListOf<PaintSession>()
+    val last7DaysSessions = mutableListOf<PaintSession>()
+    val last30DaysSessions = mutableListOf<PaintSession>()
+    val olderSessionsMap = mutableMapOf<String, MutableList<PaintSession>>()
+    
+    sortedSessions.forEach { session ->
+        when {
+            session.updatedAt >= todayStart -> todaySessions.add(session)
+            session.updatedAt >= sevenDaysAgo -> last7DaysSessions.add(session)
+            session.updatedAt >= thirtyDaysAgo -> last30DaysSessions.add(session)
+            else -> {
+                val yearMonth = yearMonthFormat.format(Date(session.updatedAt))
+                olderSessionsMap.getOrPut(yearMonth) { mutableListOf() }.add(session)
+            }
+        }
+    }
+    
+    // 构建结果列表
+    val result = mutableListOf<GroupedSessions>()
+    
+    if (todaySessions.isNotEmpty()) {
+        result.add(GroupedSessions(todayLabel, todaySessions))
+    }
+    if (last7DaysSessions.isNotEmpty()) {
+        result.add(GroupedSessions(last7DaysLabel, last7DaysSessions))
+    }
+    if (last30DaysSessions.isNotEmpty()) {
+        result.add(GroupedSessions(last30DaysLabel, last30DaysSessions))
+    }
+    
+    // 按年月降序添加更早的会话
+    olderSessionsMap.entries
+        .sortedByDescending { it.value.firstOrNull()?.updatedAt ?: 0L }
+        .forEach { (yearMonth, sessionList) ->
+            result.add(GroupedSessions(yearMonth, sessionList))
+        }
+    
+    return result
+}
+
+/**
+ * 分组标题组件
+ */
+@Composable
+private fun SessionGroupHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp)
+    )
+}
+
 @Composable
 private fun SessionItem(
     session: PaintSession,
@@ -201,7 +328,8 @@ private fun SessionItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 2.dp)
     ) {
         Column(
             modifier = Modifier
