@@ -13,6 +13,9 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
 import kotlin.random.Random
@@ -29,18 +32,45 @@ class AndroidPaintViewModel(
     private val _uiState = MutableStateFlow(PaintUiState())
     val uiState: StateFlow<PaintUiState> = _uiState.asStateFlow()
 
+    /**
+     * 会话草稿数据类（可序列化）
+     */
+    @Serializable
     private data class SessionDraft(
         val promptText: String = "",
-        val selectedImages: List<SelectedImage> = emptyList()
+        val selectedImages: List<SerializableSelectedImage> = emptyList()
     )
+    
+    /**
+     * 可序列化的选中图片数据
+     */
+    @Serializable
+    private data class SerializableSelectedImage(
+        val id: String,
+        val uri: String,
+        val mimeType: String,
+        val width: Int = 0,
+        val height: Int = 0
+    )
+    
+    private fun SelectedImage.toSerializable() = SerializableSelectedImage(id, uri, mimeType, width, height)
+    private fun SerializableSelectedImage.toSelectedImage() = SelectedImage(id, uri, mimeType, width, height)
 
+    // 草稿存储的 SharedPreferences
+    private val draftPrefs = appContext.getSharedPreferences("paint_drafts", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
+    
+    // 内存中的草稿缓存
     private val sessionDrafts = mutableMapOf<String, SessionDraft>()
-    private val newSessionDraftKey = "__new_session__"
+    private val tempDraftKey = "__temp_draft__"  // 临时缓存区的 key
 
     // 使用独立的协程作用域，确保请求不会因为切换会话而中断
     private val generationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var generationJob: Job? = null
     private var currentSessionId: String? = null
+    
+    // 消息监听的协程，切换会话时需要取消旧的监听
+    private var messagesCollectJob: Job? = null
 
     private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
     val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
@@ -52,17 +82,56 @@ class AndroidPaintViewModel(
         // 同步获取 API 配置初始值，避免界面闪烁
         val initialProfiles = repository.getApiProfilesSync()
         val initialActiveProfile = repository.getActiveProfileSync()
+        
+        // 恢复临时缓存区的草稿（初始进入未选择会话时）
+        val tempDraft = loadDraft(tempDraftKey)
+        
         _uiState.update { 
             it.copy(
                 apiProfiles = initialProfiles,
                 activeProfile = initialActiveProfile,
-                isApiProfileLoaded = true
+                isApiProfileLoaded = true,
+                promptText = tempDraft?.promptText ?: "",
+                selectedImages = tempDraft?.selectedImages?.map { img -> img.toSelectedImage() } ?: emptyList()
             )
         }
         
         // 继续监听后续变化
         loadApiProfiles()
         loadSessions()
+    }
+    
+    /**
+     * 从 SharedPreferences 加载草稿
+     */
+    private fun loadDraft(key: String): SessionDraft? {
+        return try {
+            val jsonStr = draftPrefs.getString(key, null) ?: return null
+            json.decodeFromString<SessionDraft>(jsonStr)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * 保存草稿到 SharedPreferences
+     */
+    private fun saveDraft(key: String, draft: SessionDraft) {
+        try {
+            val jsonStr = json.encodeToString(draft)
+            draftPrefs.edit().putString(key, jsonStr).apply()
+            sessionDrafts[key] = draft
+        } catch (e: Exception) {
+            // 忽略序列化错误
+        }
+    }
+    
+    /**
+     * 删除草稿
+     */
+    private fun removeDraft(key: String) {
+        draftPrefs.edit().remove(key).apply()
+        sessionDrafts.remove(key)
     }
 
     private fun loadApiProfiles() {
@@ -93,8 +162,13 @@ class AndroidPaintViewModel(
 
     private fun loadMessages(sessionId: String) {
         currentSessionId = sessionId
-        viewModelScope.launch {
+        // 取消旧的消息监听，避免切换会话后旧会话的消息更新影响当前UI
+        messagesCollectJob?.cancel()
+        messagesCollectJob = viewModelScope.launch {
             repository.getMessages(sessionId).collect { messages ->
+                // 再次检查是否仍是当前会话，防止竞态条件
+                if (currentSessionId != sessionId) return@collect
+                
                 val sortedMessages = messages.sortedBy { it.createdAt }
                 val currentState = _uiState.value
                 
@@ -138,11 +212,13 @@ class AndroidPaintViewModel(
             is PaintEvent.CreateSession -> createSession(event.model)
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
             is PaintEvent.DeleteSession -> deleteSession(event.sessionId)
+            is PaintEvent.RenameSession -> renameSession(event.sessionId, event.newTitle)
             is PaintEvent.SendMessage -> sendMessage()
             is PaintEvent.StopGeneration -> stopGeneration()
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.EditUserMessage -> editUserMessage(event.messageId)
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
@@ -167,16 +243,16 @@ class AndroidPaintViewModel(
     }
 
     private fun currentDraftKey(): String =
-        _uiState.value.currentSession?.id ?: newSessionDraftKey
+        _uiState.value.currentSession?.id ?: tempDraftKey
 
     private fun snapshotCurrentDraft(): SessionDraft =
         SessionDraft(
             promptText = _uiState.value.promptText,
-            selectedImages = _uiState.value.selectedImages
+            selectedImages = _uiState.value.selectedImages.map { it.toSerializable() }
         )
 
     private fun restoreDraft(key: String): SessionDraft =
-        sessionDrafts[key] ?: SessionDraft()
+        sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
 
     private fun createSession(model: PaintModel) {
         viewModelScope.launch {
@@ -188,8 +264,10 @@ class AndroidPaintViewModel(
             )
             repository.createSession(session)
             if (_uiState.value.currentSession == null) {
-                sessionDrafts[session.id] = sessionDrafts[newSessionDraftKey] ?: snapshotCurrentDraft()
-                sessionDrafts.remove(newSessionDraftKey)
+                // 将临时缓存区的内容转移到新会话
+                val tempDraft = restoreDraft(tempDraftKey)
+                saveDraft(session.id, tempDraft)
+                removeDraft(tempDraftKey)
             }
             selectSession(session.id)
         }
@@ -200,7 +278,9 @@ class AndroidPaintViewModel(
         if (_uiState.value.currentSession?.id == sessionId) return
         
         viewModelScope.launch {
-            sessionDrafts[currentDraftKey()] = snapshotCurrentDraft()
+            // 保存当前草稿
+            saveDraft(currentDraftKey(), snapshotCurrentDraft())
+            
             repository.getSession(sessionId).first()?.let { session ->
                 val draft = restoreDraft(session.id)
                 // 先清空消息并显示加载状态
@@ -212,7 +292,7 @@ class AndroidPaintViewModel(
                         selectedResolution = session.resolution,
                         messages = emptyList(),
                         promptText = draft.promptText,
-                        selectedImages = draft.selectedImages,
+                        selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() },
                         currentPage = 0,
                         hasMoreMessages = true,
                         newMessageCount = 0,
@@ -231,18 +311,31 @@ class AndroidPaintViewModel(
     private fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             repository.deleteSession(sessionId)
-            sessionDrafts.remove(sessionId)
+            removeDraft(sessionId)
             if (_uiState.value.currentSession?.id == sessionId) {
-                val draft = restoreDraft(newSessionDraftKey)
+                val draft = restoreDraft(tempDraftKey)
                 _uiState.update { 
                     it.copy(
                         currentSession = null,
                         messages = emptyList(),
                         promptText = draft.promptText,
-                        selectedImages = draft.selectedImages
+                        selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() }
                     ) 
                 }
                 currentSessionId = null
+            }
+        }
+    }
+
+    private fun renameSession(sessionId: String, newTitle: String) {
+        viewModelScope.launch {
+            repository.getSession(sessionId).first()?.let { session ->
+                val updatedSession = session.copy(title = newTitle)
+                repository.updateSession(updatedSession)
+                // 如果是当前会话，同步更新 UI 状态
+                if (_uiState.value.currentSession?.id == sessionId) {
+                    _uiState.update { it.copy(currentSession = updatedSession) }
+                }
             }
         }
     }
@@ -312,8 +405,9 @@ class AndroidPaintViewModel(
             )
             
             val startTime = System.currentTimeMillis()
-            sessionDrafts[session.id] = SessionDraft()
-            sessionDrafts.remove(newSessionDraftKey)
+            // 发送消息后清空该会话的草稿
+            saveDraft(session.id, SessionDraft())
+            removeDraft(tempDraftKey)
             
             // 先只显示用户消息
             _uiState.update { current ->
@@ -575,35 +669,77 @@ class AndroidPaintViewModel(
     }
 
     private fun updatePrompt(text: String) {
-        val key = currentDraftKey()
-        val current = sessionDrafts[key]
-        sessionDrafts[key] = (current ?: snapshotCurrentDraft()).copy(promptText = text)
         _uiState.update { it.copy(promptText = text) }
+        // 保存草稿
+        val key = currentDraftKey()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        saveDraft(key, current.copy(promptText = text))
     }
 
     private fun addImage(image: SelectedImage) {
-        val key = currentDraftKey()
-        val base = sessionDrafts[key] ?: snapshotCurrentDraft()
-        val next = base.selectedImages + image
-        sessionDrafts[key] = base.copy(selectedImages = next)
         _uiState.update { it.copy(selectedImages = it.selectedImages + image) }
+        // 保存草稿
+        val key = currentDraftKey()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        saveDraft(key, current.copy(selectedImages = current.selectedImages + image.toSerializable()))
     }
 
     private fun removeImage(imageId: String) {
-        val key = currentDraftKey()
-        val base = sessionDrafts[key] ?: snapshotCurrentDraft()
-        val next = base.selectedImages.filter { img -> img.id != imageId }
-        sessionDrafts[key] = base.copy(selectedImages = next)
         _uiState.update { 
             it.copy(selectedImages = it.selectedImages.filter { img -> img.id != imageId }) 
         }
+        // 保存草稿
+        val key = currentDraftKey()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        saveDraft(key, current.copy(selectedImages = current.selectedImages.filter { img -> img.id != imageId }))
     }
 
     private fun clearImages() {
-        val key = currentDraftKey()
-        val base = sessionDrafts[key] ?: snapshotCurrentDraft()
-        sessionDrafts[key] = base.copy(selectedImages = emptyList())
         _uiState.update { it.copy(selectedImages = emptyList()) }
+        // 保存草稿
+        val key = currentDraftKey()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        saveDraft(key, current.copy(selectedImages = emptyList()))
+    }
+
+    /**
+     * 编辑用户消息
+     * 将消息内容和图片回填到输入框，用户可以修改后作为新消息发送
+     */
+    private fun editUserMessage(messageId: String) {
+        viewModelScope.launch {
+            val message = _uiState.value.messages.find { it.id == messageId } ?: return@launch
+            
+            // 只能编辑用户消息
+            if (message.senderIdentity != SenderIdentity.USER) return@launch
+            
+            // 将消息内容回填到输入框
+            val promptText = message.messageContent
+            
+            // 将消息中的参考图片转换为 SelectedImage
+            val selectedImages = message.images
+                .filter { it.isReference && it.localPath != null }
+                .map { img ->
+                    SelectedImage(
+                        id = generateId(),
+                        uri = img.localPath!!,
+                        mimeType = img.mimeType
+                    )
+                }
+            
+            // 更新草稿和 UI 状态
+            val key = currentDraftKey()
+            saveDraft(key, SessionDraft(
+                promptText = promptText, 
+                selectedImages = selectedImages.map { it.toSerializable() }
+            ))
+            _uiState.update { 
+                it.copy(
+                    promptText = promptText,
+                    selectedImages = selectedImages
+                ) 
+            }
+        }
     }
 
 
@@ -737,7 +873,11 @@ class AndroidPaintViewModel(
             val session = repository.getSession(sessionId).first() ?: return@launch
             
             // 找到关联的用户消息
-            val userMessage = findParentUserMessage(currentMessage) ?: return@launch
+            val userMessage = findParentUserMessage(currentMessage)
+            if (userMessage == null) {
+                _toastEvent.emit(PaintToastMessage.CannotRegenerate)
+                return@launch
+            }
             
             // 计算新版本索引
             val versionGroup = currentMessage.versionGroup ?: generateId()

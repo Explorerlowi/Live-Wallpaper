@@ -110,6 +110,8 @@
     <string name="paint_generating_time">Generating... %1$s</string>
     <string name="paint_stop">Stop</string>
     <string name="paint_send">Send</string>
+    <string name="paint_expand_input">Expand input</string>
+    <string name="paint_image">Image</string>
     <string name="paint_sessions">Sessions</string>
     <string name="paint_new_session">New Session</string>
     <string name="paint_no_sessions">No sessions</string>
@@ -122,6 +124,8 @@
     <string name="paint_select_resolution">Select Resolution</string>
     <string name="paint_delete_session_title">Delete Session</string>
     <string name="paint_delete_session_message">Are you sure you want to delete session \"%1$s\"? This action cannot be undone.</string>
+    <string name="paint_rename_session">Rename Session</string>
+    <string name="paint_session_name_hint">Enter session name</string>
     <string name="paint_delete">Delete</string>
     <string name="paint_auth_mode">Auth Mode</string>
     <string name="paint_no_config">No configuration</string>
@@ -145,6 +149,7 @@
     
     <!-- 消息操作 -->
     <string name="message_copy">Copy</string>
+    <string name="message_edit">Edit</string>
     <string name="message_delete">Delete</string>
     <string name="message_delete_title">Delete Message</string>
     <string name="message_delete_confirm">Are you sure you want to delete this message?</string>
@@ -158,6 +163,7 @@
     <string name="message_version_next">Next version</string>
     <string name="message_add_to_selected">Add to selected</string>
     <string name="paint_generating_in_progress">Generation in progress, please wait</string>
+    <string name="paint_cannot_regenerate">Cannot regenerate, original message deleted</string>
     <string name="paint_download_success">Saved to gallery</string>
     <string name="paint_download_failed">Save failed</string>
     

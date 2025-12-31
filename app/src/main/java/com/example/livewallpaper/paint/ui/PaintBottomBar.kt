@@ -1,6 +1,7 @@
 package com.example.livewallpaper.paint.ui
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -9,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -17,14 +19,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
@@ -65,6 +74,12 @@ fun PaintBottomBar(
     // 描述选择器状态
     var showDescriptionPicker by remember { mutableStateOf(false) }
     
+    // 全屏输入状态
+    var showFullScreenInput by remember { mutableStateOf(false) }
+    
+    // 输入框行数
+    var lineCount by remember { mutableIntStateOf(1) }
+    
     LaunchedEffect(isGenerating, generationStartTime) {
         if (isGenerating && generationStartTime > 0) {
             while (true) {
@@ -79,216 +94,289 @@ fun PaintBottomBar(
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 8.dp
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-        ) {
-            // 选中的图片预览
-            if (selectedImages.isNotEmpty()) {
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+            ) {
+                // 选中的图片预览
+                if (selectedImages.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        selectedImages.forEach { image ->
+                            // 计算该图片的推荐比例
+                            val imageRatio = remember(image.width, image.height) {
+                                if (image.width > 0 && image.height > 0) {
+                                    AspectRatio.findClosest(image.width, image.height)
+                                } else null
+                            }
+                            
+                            SelectedImagePreview(
+                                image = image,
+                                recommendedRatio = imageRatio,
+                                isRatioSelected = imageRatio == selectedRatio,
+                                onRemove = { onRemoveImage(image.id) },
+                                onClick = { 
+                                    onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                                },
+                                onRatioClick = {
+                                    imageRatio?.let { onApplyRatio?.invoke(it) }
+                                }
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+
+                // 生成中状态显示
+                if (isGenerating && elapsedSeconds > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.paint_generating_time, formatElapsedTime(context, elapsedSeconds)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // 快捷按钮栏
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    selectedImages.forEach { image ->
-                        // 计算该图片的推荐比例
-                        val imageRatio = remember(image.width, image.height) {
-                            if (image.width > 0 && image.height > 0) {
-                                AspectRatio.findClosest(image.width, image.height)
-                            } else null
-                        }
-                        
-                        SelectedImagePreview(
-                            image = image,
-                            recommendedRatio = imageRatio,
-                            isRatioSelected = imageRatio == selectedRatio,
-                            onRemove = { onRemoveImage(image.id) },
-                            onClick = { 
-                                onImagePreview?.invoke(ImageSource.StringSource(image.uri))
-                            },
-                            onRatioClick = {
-                                imageRatio?.let { onApplyRatio?.invoke(it) }
-                            }
-                        )
-                    }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            }
-
-            // 生成中状态显示
-            if (isGenerating && elapsedSeconds > 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.paint_generating_time, formatElapsedTime(context, elapsedSeconds)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // 快捷按钮栏
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // API设置
-                QuickActionChip(
-                    icon = Icons.Default.Settings,
-                    label = when {
-                        !isApiProfileLoaded -> stringResource(R.string.paint_api_loading)
-                        activeProfile != null -> activeProfile.name
-                        else -> stringResource(R.string.paint_no_api)
-                    },
-                    isHighlighted = isApiProfileLoaded && activeProfile == null,
-                    onClick = onSettingsClick
-                )
-                
-                // 模型选择
-                QuickActionChip(
-                    icon = Icons.Default.AutoAwesome,
-                    label = selectedModel.displayName,
-                    onClick = onModelClick
-                )
-                
-                // 比例选择
-                QuickActionChip(
-                    icon = Icons.Default.AspectRatio,
-                    label = selectedRatio.displayName,
-                    onClick = onRatioClick
-                )
-                
-                // 分辨率选择 (仅Pro模型)
-                if (selectedModel == PaintModel.GEMINI_3_PRO) {
+                    // API设置
                     QuickActionChip(
-                        icon = Icons.Default.HighQuality,
-                        label = selectedResolution.displayName,
-                        onClick = onResolutionClick
+                        icon = Icons.Default.Settings,
+                        label = when {
+                            !isApiProfileLoaded -> stringResource(R.string.paint_api_loading)
+                            activeProfile != null -> activeProfile.name
+                            else -> stringResource(R.string.paint_no_api)
+                        },
+                        isHighlighted = isApiProfileLoaded && activeProfile == null,
+                        onClick = onSettingsClick
                     )
+                    
+                    // 模型选择
+                    QuickActionChip(
+                        icon = Icons.Default.AutoAwesome,
+                        label = selectedModel.displayName,
+                        onClick = onModelClick
+                    )
+                    
+                    // 比例选择
+                    QuickActionChip(
+                        icon = Icons.Default.AspectRatio,
+                        label = selectedRatio.displayName,
+                        onClick = onRatioClick
+                    )
+                    
+                    // 分辨率选择 (仅Pro模型)
+                    if (selectedModel == PaintModel.GEMINI_3_PRO) {
+                        QuickActionChip(
+                            icon = Icons.Default.HighQuality,
+                            label = selectedResolution.displayName,
+                            onClick = onResolutionClick
+                        )
+                    }
+                    
+                    // 添加描述
+                    QuickActionChip(
+                        icon = Icons.Default.Add,
+                        label = stringResource(R.string.desc_add_description),
+                        onClick = { showDescriptionPicker = true }
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // 输入栏容器 - 包含展开按钮
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 优化按钮
+                        IconButton(
+                            onClick = onEnhance,
+                            enabled = promptText.isNotEmpty() && !isLoading && !isGenerating
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.AutoFixHigh,
+                                    contentDescription = stringResource(R.string.paint_enhance),
+                                    tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+                        }
+
+                        // 输入框
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(24.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BasicTextField(
+                                    value = promptText,
+                                    onValueChange = onPromptChange,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 24.dp, max = 120.dp),
+                                    textStyle = TextStyle(
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    onTextLayout = { textLayoutResult ->
+                                        lineCount = textLayoutResult.lineCount
+                                    },
+                                    decorationBox = { innerTextField ->
+                                        Box {
+                                            if (promptText.isEmpty()) {
+                                                Text(
+                                                    text = stringResource(R.string.paint_prompt_hint),
+                                                    style = TextStyle(
+                                                        fontSize = 16.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                                    )
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
+                                )
+                            }
+                    }
+
+                    // 图片按钮
+                    IconButton(onClick = onPickImage) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = stringResource(R.string.add_image),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+
+                    // 发送/停止按钮 - 圆角矩形，显示文字
+                    if (isGenerating) {
+                        Surface(
+                            onClick = onStop,
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.error
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Stop,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.paint_stop),
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+                    } else {
+                        val canSend = promptText.isNotEmpty() || selectedImages.isNotEmpty()
+                        Surface(
+                            onClick = { if (canSend) onSend() },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.paint_send),
+                                color = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
                 }
                 
-                // 添加描述
-                QuickActionChip(
-                    icon = Icons.Default.Add,
-                    label = stringResource(R.string.desc_add_description),
-                    onClick = { showDescriptionPicker = true }
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-            // 输入栏
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // 优化按钮
-                IconButton(
-                    onClick = onEnhance,
-                    enabled = promptText.isNotEmpty() && !isLoading && !isGenerating
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.AutoFixHigh,
-                            contentDescription = stringResource(R.string.paint_enhance),
-                            tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        )
-                    }
-                }
-
-                // 输入框
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // 展开按钮 - 放在输入栏右上角，当文本达到4行时显示
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = lineCount >= 4,
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut(),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 8.dp)
                     ) {
-                        BasicTextField(
-                            value = promptText,
-                            onValueChange = onPromptChange,
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 24.dp, max = 120.dp),
-                            textStyle = TextStyle(
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            decorationBox = { innerTextField ->
-                                Box {
-                                    if (promptText.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.paint_prompt_hint),
-                                            style = TextStyle(
-                                                fontSize = 16.sp,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                            )
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            }
-                        )
-                    }
-                }
-
-                // 图片按钮
-                IconButton(onClick = onPickImage) {
-                    Icon(
-                        Icons.Default.Image,
-                        contentDescription = stringResource(R.string.add_image),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-
-                // 发送/停止按钮
-                IconButton(
-                    onClick = if (isGenerating) onStop else onSend,
-                    enabled = isGenerating || promptText.isNotEmpty() || selectedImages.isNotEmpty()
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    ) {
-                        Icon(
-                            if (isGenerating) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
-                            contentDescription = if (isGenerating) stringResource(R.string.paint_stop) else stringResource(R.string.paint_send),
-                            tint = Color.White,
-                            modifier = Modifier.padding(8.dp)
-                        )
+                        IconButton(
+                            onClick = { showFullScreenInput = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.OpenInFull,
+                                contentDescription = stringResource(R.string.paint_expand_input),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+    
+    // 全屏输入对话框
+    if (showFullScreenInput) {
+        FullScreenInputDialog(
+            promptText = promptText,
+            selectedImages = selectedImages,
+            isGenerating = isGenerating,
+            isLoading = isLoading,
+            onPromptChange = onPromptChange,
+            onSend = {
+                onSend()
+                showFullScreenInput = false
+            },
+            onStop = onStop,
+            onEnhance = onEnhance,
+            onPickImage = onPickImage,
+            onRemoveImage = onRemoveImage,
+            onImagePreview = onImagePreview,
+            onDismiss = { showFullScreenInput = false }
+        )
     }
     
     // 描述选择器底部抽屉
@@ -424,5 +512,262 @@ private fun formatElapsedTime(context: android.content.Context, seconds: Long): 
         context.getString(R.string.paint_time_format_minutes, minutes, secs)
     } else {
         context.getString(R.string.paint_time_format_seconds, secs)
+    }
+}
+
+/**
+ * 全屏输入对话框
+ */
+@Composable
+private fun FullScreenInputDialog(
+    promptText: String,
+    selectedImages: List<SelectedImage>,
+    isGenerating: Boolean,
+    isLoading: Boolean,
+    onPromptChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onEnhance: () -> Unit,
+    onPickImage: () -> Unit,
+    onRemoveImage: (String) -> Unit,
+    onImagePreview: ((ImageSource) -> Unit)?,
+    onDismiss: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    
+    // 自动聚焦输入框
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+    
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.ime)
+            ) {
+                // 顶部栏 - 关闭按钮
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = stringResource(R.string.close),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    // 如果有图片，显示图片数量
+                    if (selectedImages.isNotEmpty()) {
+                        Text(
+                            text = "${selectedImages.size} ${stringResource(R.string.paint_image)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(end = 16.dp)
+                        )
+                    }
+                }
+                
+                // 选中的图片预览 - 固定在顶部
+                if (selectedImages.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        selectedImages.forEach { image ->
+                            SelectedImagePreview(
+                                image = image,
+                                onRemove = { onRemoveImage(image.id) },
+                                onClick = { 
+                                    onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                                }
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+                
+                // 输入区域 - 占据剩余空间
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    BasicTextField(
+                        value = promptText,
+                        onValueChange = onPromptChange,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(focusRequester)
+                            .verticalScroll(rememberScrollState()),
+                        textStyle = TextStyle(
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 28.sp
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (promptText.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.paint_prompt_hint),
+                                        style = TextStyle(
+                                            fontSize = 18.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                            lineHeight = 28.sp
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
+                
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                
+                // 底部按钮栏 - 随键盘上移
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 左侧按钮：优化、图片
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 优化按钮
+                        Surface(
+                            onClick = { if (promptText.isNotEmpty() && !isLoading && !isGenerating) onEnhance() },
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (isLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.AutoFixHigh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (promptText.isNotEmpty()) 
+                                            MaterialTheme.colorScheme.primary 
+                                        else 
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.paint_enhance),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (promptText.isNotEmpty() && !isLoading) 
+                                        MaterialTheme.colorScheme.onSurface 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+                        }
+                        
+                        // 图片按钮
+                        Surface(
+                            onClick = onPickImage,
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Image,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = stringResource(R.string.paint_image),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    
+                    // 右侧：发送/停止按钮
+                    if (isGenerating) {
+                        Surface(
+                            onClick = onStop,
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.error
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Stop,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.paint_stop),
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+                    } else {
+                        val canSend = promptText.isNotEmpty() || selectedImages.isNotEmpty()
+                        Surface(
+                            onClick = { if (canSend) onSend() },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.paint_send),
+                                color = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

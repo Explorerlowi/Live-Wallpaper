@@ -72,6 +72,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
@@ -92,7 +94,7 @@ import com.example.livewallpaper.ui.theme.TextPrimary
 private val GalleryBackgroundColor = Color(0xFFF5F5F5)
 
 /**
- * 图库浏览器主界面（带底部弹出动画）
+ * 图库浏览器主界面（使用 Dialog 确保正确的层级）
  * @param viewModel 图库 ViewModel
  * @param onImagesSelected 选择完成回调，返回选中的图片 URI 列表
  * @param onDismiss 关闭图库回调
@@ -106,9 +108,6 @@ fun GalleryScreen(
     val uiState by viewModel.uiState.collectAsState()
     val currentPage by viewModel.currentPage.collectAsState()
     
-    // 控制动画显示
-    var isVisible by remember { mutableStateOf(false) }
-    
     // 预览对话框状态
     var showPreview by remember { mutableStateOf(false) }
     
@@ -120,130 +119,107 @@ fun GalleryScreen(
         initialFirstVisibleItemIndex = uiState.albumListScrollIndex,
         initialFirstVisibleItemScrollOffset = uiState.albumListScrollOffset
     )
-    
-    // 启动时触发进入动画
-    LaunchedEffect(Unit) {
-        isVisible = true
-    }
-    
-    // 关闭时的回调
-    val handleDismiss: () -> Unit = {
-        isVisible = false
-    }
-    
-    // 动画结束后调用 onDismiss
-    LaunchedEffect(isVisible) {
-        if (!isVisible) {
-            // 等待动画结束
-            kotlinx.coroutines.delay(300)
-            onDismiss()
-        }
-    }
 
     // 处理返回键
     BackHandler(enabled = true) {
         when {
             previewImageIndex != null -> previewImageIndex = null
             showPreview -> showPreview = false
-            currentPage is GalleryPage.AlbumList -> handleDismiss()
+            currentPage is GalleryPage.AlbumList -> onDismiss()
             currentPage is GalleryPage.ImageGrid -> viewModel.backToAlbums()
         }
     }
 
-    // 半透明遮罩背景
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = if (isVisible) 0.5f else 0f))
-            .clickable(enabled = isVisible) { handleDismiss() }
+    // 使用 Dialog 确保层级高于其他内容
+    Dialog(
+        onDismissRequest = {
+            when (currentPage) {
+                is GalleryPage.AlbumList -> onDismiss()
+                is GalleryPage.ImageGrid -> viewModel.backToAlbums()
+            }
+        },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        // 从底部滑入的图库内容
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars),
+            color = GalleryBackgroundColor,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(enabled = false) { /* 阻止点击穿透 */ },
-                color = GalleryBackgroundColor,
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                ) {
-                    // 顶部栏
-                    GalleryTopBar(
-                        currentPage = currentPage,
-                        selectedCount = uiState.selectedImages.size,
-                        onBack = {
-                            when (currentPage) {
-                                is GalleryPage.AlbumList -> handleDismiss()
-                                is GalleryPage.ImageGrid -> viewModel.backToAlbums()
-                            }
-                        },
-                        onSelectAll = { viewModel.selectAll() },
-                        onClearSelection = { viewModel.clearSelection() }
-                    )
+                // 顶部栏
+                GalleryTopBar(
+                    currentPage = currentPage,
+                    selectedCount = uiState.selectedImages.size,
+                    onBack = {
+                        when (currentPage) {
+                            is GalleryPage.AlbumList -> onDismiss()
+                            is GalleryPage.ImageGrid -> viewModel.backToAlbums()
+                        }
+                    },
+                    onSelectAll = { viewModel.selectAll() },
+                    onClearSelection = { viewModel.clearSelection() }
+                )
 
-                    // 内容区域
-                    AnimatedContent(
-                        targetState = currentPage,
-                        transitionSpec = {
-                            if (targetState is GalleryPage.ImageGrid) {
-                                slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-                            } else {
-                                slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = "page_transition"
-                    ) { page ->
-                        when (page) {
-                            is GalleryPage.AlbumList -> {
-                                AlbumListContent(
-                                    allImagesAlbum = uiState.allImagesAlbum,
-                                    albums = uiState.albums,
-                                    error = uiState.error,
-                                    listState = albumListState,
-                                    onAlbumClick = { album ->
-                                        // 保存当前滚动位置后再打开相册
-                                        viewModel.saveAlbumListScrollPosition(
-                                            albumListState.firstVisibleItemIndex,
-                                            albumListState.firstVisibleItemScrollOffset
-                                        )
-                                        viewModel.openAlbum(album)
-                                    },
-                                    onRetry = { viewModel.loadAlbums() }
-                                )
-                            }
-                            is GalleryPage.ImageGrid -> {
-                                ImageGridContent(
-                                    images = uiState.images,
-                                    selectedImages = uiState.selectedImages,
-                                    onImageClick = { viewModel.toggleImageSelection(it) },
-                                    onPreviewImage = { index -> previewImageIndex = index }
-                                )
-                            }
+                // 内容区域
+                AnimatedContent(
+                    targetState = currentPage,
+                    transitionSpec = {
+                        if (targetState is GalleryPage.ImageGrid) {
+                            slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                        } else {
+                            slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    label = "page_transition"
+                ) { page ->
+                    when (page) {
+                        is GalleryPage.AlbumList -> {
+                            AlbumListContent(
+                                allImagesAlbum = uiState.allImagesAlbum,
+                                albums = uiState.albums,
+                                error = uiState.error,
+                                listState = albumListState,
+                                onAlbumClick = { album ->
+                                    // 保存当前滚动位置后再打开相册
+                                    viewModel.saveAlbumListScrollPosition(
+                                        albumListState.firstVisibleItemIndex,
+                                        albumListState.firstVisibleItemScrollOffset
+                                    )
+                                    viewModel.openAlbum(album)
+                                },
+                                onRetry = { viewModel.loadAlbums() }
+                            )
+                        }
+                        is GalleryPage.ImageGrid -> {
+                            ImageGridContent(
+                                images = uiState.images,
+                                selectedImages = uiState.selectedImages,
+                                onImageClick = { viewModel.toggleImageSelection(it) },
+                                onPreviewImage = { index -> previewImageIndex = index }
+                            )
                         }
                     }
+                }
 
-                    // 底部确认按钮（仅在有选中图片时显示）
-                    if (uiState.selectedImages.isNotEmpty()) {
-                        ConfirmSelectionBar(
-                            selectedCount = uiState.selectedImages.size,
-                            onPreview = { showPreview = true },
-                            onConfirm = {
-                                val selected = viewModel.confirmSelection()
-                                onImagesSelected(selected)
-                            },
-                            modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
-                        )
-                    }
+                // 底部确认按钮（仅在有选中图片时显示）
+                if (uiState.selectedImages.isNotEmpty()) {
+                    ConfirmSelectionBar(
+                        selectedCount = uiState.selectedImages.size,
+                        onPreview = { showPreview = true },
+                        onConfirm = {
+                            val selected = viewModel.confirmSelection()
+                            onImagesSelected(selected)
+                        },
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+                    )
                 }
             }
         }

@@ -723,9 +723,27 @@ private suspend fun saveImageToGallery(
                 }
             }
             is ImageSource.StringSource -> {
-                val uri = Uri.parse(imageSource.path)
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it)
+                val path = imageSource.path
+                when {
+                    // 本地文件路径
+                    path.startsWith("/") -> {
+                        java.io.File(path).inputStream().use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    }
+                    // file:// URI
+                    path.startsWith("file://") -> {
+                        java.io.File(path.removePrefix("file://")).inputStream().use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    }
+                    // content:// URI
+                    else -> {
+                        val uri = Uri.parse(path)
+                        context.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    }
                 }
             }
             is ImageSource.ResourceSource -> {

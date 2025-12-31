@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -72,13 +74,17 @@ fun SessionDrawerContent(
     currentSessionId: String?,
     onSelectSession: (String) -> Unit,
     onCreateSession: () -> Unit,
-    onDeleteSession: (String) -> Unit
+    onDeleteSession: (String) -> Unit,
+    onRenameSession: (String, String) -> Unit = { _, _ -> }
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val drawerWidth = screenWidth * 0.82f
     
     // 删除确认对话框状态
     var sessionToDelete by remember { mutableStateOf<PaintSession?>(null) }
+    
+    // 重命名对话框状态
+    var sessionToRename by remember { mutableStateOf<PaintSession?>(null) }
     
     // 时间分组标签
     val todayLabel = stringResource(R.string.session_group_today)
@@ -201,6 +207,7 @@ fun SessionDrawerContent(
                                 session = session,
                                 isSelected = session.id == currentSessionId,
                                 onClick = { onSelectSession(session.id) },
+                                onRename = { sessionToRename = session },
                                 onDelete = { sessionToDelete = session }
                             )
                         }
@@ -220,6 +227,22 @@ fun SessionDrawerContent(
             isDangerous = true,
             onConfirm = { onDeleteSession(session.id) },
             onDismiss = { sessionToDelete = null }
+        )
+    }
+    
+    // 重命名对话框
+    sessionToRename?.let { session ->
+        com.example.livewallpaper.ui.components.TextInputDialog(
+            title = stringResource(R.string.paint_rename_session),
+            initialValue = session.title,
+            placeholder = stringResource(R.string.paint_session_name_hint),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            maxLength = 50,
+            onConfirm = { newTitle ->
+                onRenameSession(session.id, newTitle)
+            },
+            onDismiss = { sessionToRename = null }
         )
     }
 }
@@ -321,6 +344,7 @@ private fun SessionItem(
     session: PaintSession,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
@@ -342,6 +366,7 @@ private fun SessionItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 标题文字，只占实际宽度，点击触发重命名
                 Text(
                     text = session.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -349,8 +374,14 @@ private fun SessionItem(
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f, fill = false)  // 不填充剩余空间
+                        .pointerInput(Unit) {
+                            detectTapGestures { onRename() }
+                        }
                 )
+                // 占位，点击这里会触发父级的 onClick（打开会话）
+                Spacer(modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = onDelete,
                     modifier = Modifier.size(32.dp)

@@ -99,11 +99,13 @@ class PaintViewModel(
             is PaintEvent.CreateSession -> createSession(event.model)
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
             is PaintEvent.DeleteSession -> deleteSession(event.sessionId)
+            is PaintEvent.RenameSession -> renameSession(event.sessionId, event.newTitle)
             is PaintEvent.SendMessage -> sendMessage()
             is PaintEvent.StopGeneration -> stopGeneration()
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.EditUserMessage -> { /* Android 端实现 */ }
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
@@ -175,6 +177,18 @@ class PaintViewModel(
                     ) 
                 }
                 currentSessionId = null
+            }
+        }
+    }
+
+    private fun renameSession(sessionId: String, newTitle: String) {
+        viewModelScope.launch {
+            repository.getSession(sessionId).first()?.let { session ->
+                val updatedSession = session.copy(title = newTitle)
+                repository.updateSession(updatedSession)
+                if (_uiState.value.currentSession?.id == sessionId) {
+                    _uiState.update { it.copy(currentSession = updatedSession) }
+                }
             }
         }
     }

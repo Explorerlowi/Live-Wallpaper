@@ -285,6 +285,7 @@ fun PaintScreen(
                 is PaintToastMessage.GeneratingInProgress -> context.getString(R.string.paint_generating_in_progress)
                 is PaintToastMessage.DownloadSuccess -> context.getString(R.string.paint_download_success)
                 is PaintToastMessage.DownloadFailed -> context.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
+                is PaintToastMessage.CannotRegenerate -> context.getString(R.string.paint_cannot_regenerate)
             }
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
@@ -314,7 +315,10 @@ fun PaintScreen(
                     viewModel.onEvent(PaintEvent.CreateSession())
                     scope.launch { drawerState.close() }
                 },
-                onDeleteSession = { viewModel.onEvent(PaintEvent.DeleteSession(it)) }
+                onDeleteSession = { viewModel.onEvent(PaintEvent.DeleteSession(it)) },
+                onRenameSession = { sessionId, newTitle ->
+                    viewModel.onEvent(PaintEvent.RenameSession(sessionId, newTitle))
+                }
             )
         },
         gesturesEnabled = true,
@@ -440,6 +444,9 @@ fun PaintScreen(
                                     val clip = ClipData.newPlainText("message", text)
                                     clipboard.setPrimaryClip(clip)
                                     Toast.makeText(context, context.getString(R.string.message_copied), Toast.LENGTH_SHORT).show()
+                                },
+                                onEditMessage = { messageId ->
+                                    viewModel.onEvent(PaintEvent.EditUserMessage(messageId))
                                 },
                                 onDeleteMessage = { messageId ->
                                     viewModel.onEvent(PaintEvent.DeleteMessage(messageId))
@@ -679,6 +686,7 @@ private fun MessageItem(
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
     onCopyText: (String) -> Unit = {},
+    onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onDeleteVersionGroup: (String) -> Unit = {},
     onRegenerate: (String) -> Unit = {},
@@ -923,6 +931,7 @@ private fun MessageItem(
             UserMessageActionBar(
                 message = message,
                 onCopy = { onCopyText(message.messageContent) },
+                onEdit = { onEditMessage(message.id) },
                 onDelete = { showDeleteConfirm = true }
             )
         }
@@ -1023,6 +1032,7 @@ private fun MessageActionBar(
 private fun UserMessageActionBar(
     message: PaintMessage,
     onCopy: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -1037,6 +1047,13 @@ private fun UserMessageActionBar(
                 onClick = onCopy
             )
         }
+        
+        // 编辑按钮
+        ActionIconButton(
+            icon = Icons.Default.Edit,
+            contentDescription = stringResource(R.string.message_edit),
+            onClick = onEdit
+        )
         
         // 删除按钮
         ActionIconButton(
@@ -1119,12 +1136,12 @@ private fun ActionIconButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(28.dp)
+        modifier = Modifier.size(36.dp)
     ) {
         Icon(
             icon,
             contentDescription = contentDescription,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(22.dp),
             tint = tint
         )
     }

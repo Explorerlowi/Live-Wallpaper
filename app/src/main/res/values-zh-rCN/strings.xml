@@ -112,6 +112,8 @@
     <string name="paint_generating_time">正在生成中... %1$s</string>
     <string name="paint_stop">停止</string>
     <string name="paint_send">发送</string>
+    <string name="paint_expand_input">展开输入</string>
+    <string name="paint_image">图片</string>
     <string name="paint_sessions">会话列表</string>
     <string name="paint_new_session">新建会话</string>
     <string name="paint_no_sessions">暂无会话</string>
@@ -124,6 +126,8 @@
     <string name="paint_select_resolution">选择分辨率</string>
     <string name="paint_delete_session_title">删除会话</string>
     <string name="paint_delete_session_message">确定要删除会话「%1$s」吗？此操作无法撤销。</string>
+    <string name="paint_rename_session">重命名会话</string>
+    <string name="paint_session_name_hint">输入会话名称</string>
     <string name="paint_delete">删除</string>
     <string name="paint_auth_mode">鉴权方式</string>
     <string name="paint_no_config">暂无配置</string>
@@ -147,6 +151,7 @@
     
     <!-- 消息操作 -->
     <string name="message_copy">复制</string>
+    <string name="message_edit">编辑</string>
     <string name="message_delete">删除</string>
     <string name="message_delete_title">删除消息</string>
     <string name="message_delete_confirm">确定要删除这条消息吗？</string>
@@ -160,6 +165,7 @@
     <string name="message_version_next">下一版本</string>
     <string name="message_add_to_selected">添加到已选</string>
     <string name="paint_generating_in_progress">正在生成中，请稍候</string>
+    <string name="paint_cannot_regenerate">无法重新生成，原始消息已删除</string>
     <string name="paint_download_success">已保存到相册</string>
     <string name="paint_download_failed">保存失败</string>
     
