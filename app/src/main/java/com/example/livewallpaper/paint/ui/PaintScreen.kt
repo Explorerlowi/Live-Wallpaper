@@ -362,9 +362,9 @@ fun PaintScreen(
                     onRatioClick = { showRatioSelector = true },
                     onResolutionClick = { showResolutionSelector = true },
                     onExpandInput = { showFullScreenInput = true },
-                    onImagePreview = { source ->
-                        previewImages = listOf(source)
-                        previewInitialIndex = 0
+                    onImagePreview = { images, index ->
+                        previewImages = images
+                        previewInitialIndex = index
                     },
                     onApplyRatio = { ratio ->
                         viewModel.onEvent(PaintEvent.SelectAspectRatio(ratio))
@@ -540,9 +540,9 @@ fun PaintScreen(
                     onEnhance = { viewModel.onEvent(PaintEvent.EnhancePrompt) },
                     onPickImage = openImagePicker,
                     onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
-                    onImagePreview = { source ->
-                        previewImages = listOf(source)
-                        previewInitialIndex = 0
+                    onImagePreview = { images, index ->
+                        previewImages = images
+                        previewInitialIndex = index
                     },
                     onDismiss = {
                         showFullScreenInput = false

@@ -67,7 +67,7 @@ fun PaintBottomBar(
     onRatioClick: () -> Unit,
     onResolutionClick: () -> Unit,
     onExpandInput: () -> Unit,
-    onImagePreview: ((ImageSource) -> Unit)? = null,
+    onImagePreview: ((List<ImageSource>, Int) -> Unit)? = null,
     onApplyRatio: ((AspectRatio) -> Unit)? = null
 ) {
     // 实时计时器
@@ -109,7 +109,7 @@ fun PaintBottomBar(
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        selectedImages.forEach { image ->
+                        selectedImages.forEachIndexed { index, image ->
                             // 计算该图片的推荐比例
                             val imageRatio = remember(image.width, image.height) {
                                 if (image.width > 0 && image.height > 0) {
@@ -123,7 +123,8 @@ fun PaintBottomBar(
                                 isRatioSelected = imageRatio == selectedRatio,
                                 onRemove = { onRemoveImage(image.id) },
                                 onClick = { 
-                                    onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                                    val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
+                                    onImagePreview?.invoke(allImages, index)
                                 },
                                 onRatioClick = {
                                     imageRatio?.let { onApplyRatio?.invoke(it) }
@@ -507,7 +508,7 @@ fun FullScreenPromptOverlay(
     onEnhance: () -> Unit,
     onPickImage: () -> Unit,
     onRemoveImage: (String) -> Unit,
-    onImagePreview: ((ImageSource) -> Unit)?,
+    onImagePreview: ((List<ImageSource>, Int) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -578,12 +579,13 @@ fun FullScreenPromptOverlay(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    selectedImages.forEach { image ->
+                    selectedImages.forEachIndexed { index, image ->
                         SelectedImagePreview(
                             image = image,
                             onRemove = { onRemoveImage(image.id) },
                             onClick = {
-                                onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                                val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
+                                onImagePreview?.invoke(allImages, index)
                             }
                         )
                     }
