@@ -28,12 +28,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
@@ -54,6 +55,7 @@ fun PaintBottomBar(
     selectedResolution: Resolution,
     activeProfile: ApiProfile?,
     isApiProfileLoaded: Boolean = true,
+    collapsedInputFocusRequester: FocusRequester,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -64,6 +66,7 @@ fun PaintBottomBar(
     onModelClick: () -> Unit,
     onRatioClick: () -> Unit,
     onResolutionClick: () -> Unit,
+    onExpandInput: () -> Unit,
     onImagePreview: ((ImageSource) -> Unit)? = null,
     onApplyRatio: ((AspectRatio) -> Unit)? = null
 ) {
@@ -73,9 +76,6 @@ fun PaintBottomBar(
     
     // 描述选择器状态
     var showDescriptionPicker by remember { mutableStateOf(false) }
-    
-    // 全屏输入状态
-    var showFullScreenInput by remember { mutableStateOf(false) }
     
     // 输入框行数
     var lineCount by remember { mutableIntStateOf(1) }
@@ -254,6 +254,7 @@ fun PaintBottomBar(
                                     onValueChange = onPromptChange,
                                     modifier = Modifier
                                         .weight(1f)
+                                        .focusRequester(collapsedInputFocusRequester)
                                         .heightIn(min = 24.dp, max = 120.dp),
                                     textStyle = TextStyle(
                                         fontSize = 16.sp,
@@ -342,7 +343,7 @@ fun PaintBottomBar(
                             .padding(top = 4.dp, end = 8.dp)
                     ) {
                         IconButton(
-                            onClick = { showFullScreenInput = true },
+                            onClick = onExpandInput,
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
@@ -356,27 +357,6 @@ fun PaintBottomBar(
                 }
             }
         }
-    }
-    
-    // 全屏输入对话框
-    if (showFullScreenInput) {
-        FullScreenInputDialog(
-            promptText = promptText,
-            selectedImages = selectedImages,
-            isGenerating = isGenerating,
-            isLoading = isLoading,
-            onPromptChange = onPromptChange,
-            onSend = {
-                onSend()
-                showFullScreenInput = false
-            },
-            onStop = onStop,
-            onEnhance = onEnhance,
-            onPickImage = onPickImage,
-            onRemoveImage = onRemoveImage,
-            onImagePreview = onImagePreview,
-            onDismiss = { showFullScreenInput = false }
-        )
     }
     
     // 描述选择器底部抽屉
@@ -515,11 +495,8 @@ private fun formatElapsedTime(context: android.content.Context, seconds: Long): 
     }
 }
 
-/**
- * 全屏输入对话框
- */
 @Composable
-private fun FullScreenInputDialog(
+fun FullScreenPromptOverlay(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
@@ -534,237 +511,240 @@ private fun FullScreenInputDialog(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    
-    // 自动聚焦输入框
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    var textFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = promptText,
+                selection = TextRange(promptText.length)
+            )
+        )
     }
     
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+    LaunchedEffect(Unit) {
+        textFieldValue = textFieldValue.copy(selection = TextRange(textFieldValue.text.length))
+        focusRequester.requestFocus()
+    }
+
+    LaunchedEffect(promptText) {
+        if (promptText != textFieldValue.text) {
+            textFieldValue = TextFieldValue(
+                text = promptText,
+                selection = TextRange(promptText.length)
+            )
+        }
+    }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.ime),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars),
-            color = MaterialTheme.colorScheme.background
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.ime)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 顶部栏 - 关闭按钮
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = stringResource(R.string.close),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    
-                    // 如果有图片，显示图片数量
-                    if (selectedImages.isNotEmpty()) {
-                        Text(
-                            text = "${selectedImages.size} ${stringResource(R.string.paint_image)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(end = 16.dp)
-                        )
-                    }
-                }
-                
-                // 选中的图片预览 - 固定在顶部
-                if (selectedImages.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        selectedImages.forEach { image ->
-                            SelectedImagePreview(
-                                image = image,
-                                onRemove = { onRemoveImage(image.id) },
-                                onClick = { 
-                                    onImagePreview?.invoke(ImageSource.StringSource(image.uri))
-                                }
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                }
-                
-                // 输入区域 - 占据剩余空间
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    BasicTextField(
-                        value = promptText,
-                        onValueChange = onPromptChange,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .focusRequester(focusRequester)
-                            .verticalScroll(rememberScrollState()),
-                        textStyle = TextStyle(
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 28.sp
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (promptText.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.paint_prompt_hint),
-                                        style = TextStyle(
-                                            fontSize = 18.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                            lineHeight = 28.sp
-                                        )
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = stringResource(R.string.close),
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                
-                // 底部按钮栏 - 随键盘上移
+
+                if (selectedImages.isNotEmpty()) {
+                    Text(
+                        text = "${selectedImages.size} ${stringResource(R.string.paint_image)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(end = 16.dp)
+                    )
+                }
+            }
+
+            if (selectedImages.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    selectedImages.forEach { image ->
+                        SelectedImagePreview(
+                            image = image,
+                            onRemove = { onRemoveImage(image.id) },
+                            onClick = {
+                                onImagePreview?.invoke(ImageSource.StringSource(image.uri))
+                            }
+                        )
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                BasicTextField(
+                    value = textFieldValue,
+                    onValueChange = {
+                        textFieldValue = it
+                        onPromptChange(it.text)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .verticalScroll(rememberScrollState()),
+                    textStyle = TextStyle(
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 28.sp
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (textFieldValue.text.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.paint_prompt_hint),
+                                    style = TextStyle(
+                                        fontSize = 18.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                        lineHeight = 28.sp
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧按钮：优化、图片
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) onEnhance() },
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        // 优化按钮
-                        Surface(
-                            onClick = { if (promptText.isNotEmpty() && !isLoading && !isGenerating) onEnhance() },
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.AutoFixHigh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = if (promptText.isNotEmpty()) 
-                                            MaterialTheme.colorScheme.primary 
-                                        else 
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                    )
-                                }
-                                Text(
-                                    text = stringResource(R.string.paint_enhance),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (promptText.isNotEmpty() && !isLoading) 
-                                        MaterialTheme.colorScheme.onSurface 
-                                    else 
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.AutoFixHigh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (textFieldValue.text.isNotEmpty())
+                                        MaterialTheme.colorScheme.primary
+                                    else
                                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                 )
                             }
-                        }
-                        
-                        // 图片按钮
-                        Surface(
-                            onClick = onPickImage,
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Image,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                                Text(
-                                    text = stringResource(R.string.paint_image),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                    
-                    // 右侧：发送/停止按钮
-                    if (isGenerating) {
-                        Surface(
-                            onClick = onStop,
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.error
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Stop,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.paint_stop),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
-                        }
-                    } else {
-                        val canSend = promptText.isNotEmpty() || selectedImages.isNotEmpty()
-                        Surface(
-                            onClick = { if (canSend) onSend() },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                        ) {
                             Text(
-                                text = stringResource(R.string.paint_send),
-                                color = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                text = stringResource(R.string.paint_enhance),
                                 style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                                color = if (textFieldValue.text.isNotEmpty() && !isLoading)
+                                    MaterialTheme.colorScheme.onSurface
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                             )
                         }
+                    }
+
+                    Surface(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Image,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = stringResource(R.string.paint_image),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                if (isGenerating) {
+                    Surface(
+                        onClick = onStop,
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.error
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Stop,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.paint_stop),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                } else {
+                    val canSend = textFieldValue.text.isNotEmpty() || selectedImages.isNotEmpty()
+                    Surface(
+                        onClick = { if (canSend) onSend() },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.paint_send),
+                            color = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                        )
                     }
                 }
             }

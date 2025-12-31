@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -141,6 +142,8 @@ fun PaintScreen(
     var showRatioSelector by remember { mutableStateOf(false) }
     var showResolutionSelector by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
+    var showFullScreenInput by remember { mutableStateOf(false) }
+    val collapsedInputFocusRequester = remember { FocusRequester() }
     
     // 图片预览状态（支持多图预览）
     var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
@@ -324,7 +327,8 @@ fun PaintScreen(
         gesturesEnabled = true,
         scrimColor = Color.Black.copy(alpha = 0.4f)
     ) {
-        Scaffold(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
             topBar = {
                 PaintTopBar(
                     currentSession = uiState.currentSession,
@@ -346,6 +350,7 @@ fun PaintScreen(
                     selectedResolution = uiState.selectedResolution,
                     activeProfile = uiState.activeProfile,
                     isApiProfileLoaded = uiState.isApiProfileLoaded,
+                    collapsedInputFocusRequester = collapsedInputFocusRequester,
                     onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
                     onSend = { viewModel.onEvent(PaintEvent.SendMessage) },
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
@@ -356,6 +361,7 @@ fun PaintScreen(
                     onModelClick = { showModelSelector = true },
                     onRatioClick = { showRatioSelector = true },
                     onResolutionClick = { showResolutionSelector = true },
+                    onExpandInput = { showFullScreenInput = true },
                     onImagePreview = { source ->
                         previewImages = listOf(source)
                         previewInitialIndex = 0
@@ -366,7 +372,7 @@ fun PaintScreen(
                 )
             },
             containerColor = MaterialTheme.colorScheme.background
-        ) { paddingValues ->
+            ) { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -515,6 +521,34 @@ fun PaintScreen(
                         onClick = { viewModel.onEvent(PaintEvent.ScrollToBottom) }
                     )
                 }
+            }
+            }
+
+            if (showFullScreenInput) {
+                FullScreenPromptOverlay(
+                    promptText = uiState.promptText,
+                    selectedImages = uiState.selectedImages,
+                    isGenerating = uiState.isGenerating,
+                    isLoading = uiState.isLoading,
+                    onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
+                    onSend = {
+                        viewModel.onEvent(PaintEvent.SendMessage)
+                        showFullScreenInput = false
+                        collapsedInputFocusRequester.requestFocus()
+                    },
+                    onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
+                    onEnhance = { viewModel.onEvent(PaintEvent.EnhancePrompt) },
+                    onPickImage = openImagePicker,
+                    onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
+                    onImagePreview = { source ->
+                        previewImages = listOf(source)
+                        previewInitialIndex = 0
+                    },
+                    onDismiss = {
+                        showFullScreenInput = false
+                        collapsedInputFocusRequester.requestFocus()
+                    }
+                )
             }
         }
     }
