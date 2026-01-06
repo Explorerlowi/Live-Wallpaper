@@ -175,6 +175,22 @@
     <string name="desc_category_landscape">Landscape</string>
     <string name="desc_category_portrait">Portrait</string>
     
+    <!-- Description Scenes -->
+    <string name="desc_scene_general">General</string>
+    <string name="desc_scene_chinese_style">Chinese Style</string>
+    
+    <!-- Chinese Style Categories -->
+    <string name="desc_category_color">Elegant Colors</string>
+    <string name="desc_category_costume">Costume Styles</string>
+    <string name="desc_category_accessory">Accessories</string>
+    <string name="desc_category_headdress">Headdress</string>
+    <string name="desc_category_forehead">Forehead Ornaments</string>
+    <string name="desc_category_fabric">Fabrics</string>
+    <string name="desc_category_craft">Craftsmanship</string>
+    <string name="desc_category_pattern">Patterns</string>
+    <string name="desc_category_scene">Scenes</string>
+    <string name="desc_category_atmosphere">Atmosphere</string>
+    
     <!-- 会话时间分组 -->
     <string name="session_group_today">Today</string>
     <string name="session_group_7_days">Last 7 Days</string>

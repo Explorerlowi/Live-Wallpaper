@@ -177,6 +177,22 @@
     <string name="desc_category_landscape">风景</string>
     <string name="desc_category_portrait">人像</string>
     
+    <!-- 描述场景 -->
+    <string name="desc_scene_general">通用</string>
+    <string name="desc_scene_chinese_style">古风</string>
+    
+    <!-- 古风场景分类 -->
+    <string name="desc_category_color">颜色雅称</string>
+    <string name="desc_category_costume">服装制式</string>
+    <string name="desc_category_accessory">配饰</string>
+    <string name="desc_category_headdress">头饰</string>
+    <string name="desc_category_forehead">额饰</string>
+    <string name="desc_category_fabric">面料</string>
+    <string name="desc_category_craft">工艺</string>
+    <string name="desc_category_pattern">花纹</string>
+    <string name="desc_category_scene">场景</string>
+    <string name="desc_category_atmosphere">氛围</string>
+    
     <!-- 会话时间分组 -->
     <string name="session_group_today">今天</string>
     <string name="session_group_7_days">7天内</string>
