@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.ImageSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -76,6 +77,10 @@ fun PaintBottomBar(
     
     // 描述选择器状态
     var showDescriptionPicker by remember { mutableStateOf(false) }
+    
+    // 确认弹窗状态
+    var showEnhanceConfirm by remember { mutableStateOf(false) }
+    var showClearConfirm by remember { mutableStateOf(false) }
     
     // 输入框行数
     var lineCount by remember { mutableIntStateOf(1) }
@@ -221,22 +226,44 @@ fun PaintBottomBar(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 优化按钮
-                        IconButton(
-                            onClick = onEnhance,
-                            enabled = promptText.isNotEmpty() && !isLoading && !isGenerating
+                        // 清除和优化按钮（垂直排列）
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
+                            // 清除按钮（纯文本）
+                            TextButton(
+                                onClick = { showClearConfirm = true },
+                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.paint_clear),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (promptText.isNotEmpty() && !isLoading && !isGenerating) 
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                 )
-                            } else {
-                                Icon(
-                                    Icons.Default.AutoFixHigh,
-                                    contentDescription = stringResource(R.string.paint_enhance),
-                                    tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                )
+                            }
+                            
+                            // 优化按钮
+                            IconButton(
+                                onClick = { showEnhanceConfirm = true },
+                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating
+                            ) {
+                                if (isLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.AutoFixHigh,
+                                        contentDescription = stringResource(R.string.paint_enhance),
+                                        tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    )
+                                }
                             }
                         }
 
@@ -375,6 +402,30 @@ fun PaintBottomBar(
                     onPromptChange(newPrompt)
                 }
             }
+        )
+    }
+    
+    // 优化确认弹窗
+    if (showEnhanceConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_enhance_confirm_title),
+            message = stringResource(R.string.paint_enhance_confirm_message),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = onEnhance,
+            onDismiss = { showEnhanceConfirm = false }
+        )
+    }
+    
+    // 清除确认弹窗
+    if (showClearConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_clear_confirm_title),
+            message = stringResource(R.string.paint_clear_confirm_message),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = { onPromptChange("") },
+            onDismiss = { showClearConfirm = false }
         )
     }
 }
@@ -521,6 +572,10 @@ fun FullScreenPromptOverlay(
         )
     }
     
+    // 确认弹窗状态
+    var showEnhanceConfirm by remember { mutableStateOf(false) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    
     LaunchedEffect(Unit) {
         textFieldValue = textFieldValue.copy(selection = TextRange(textFieldValue.text.length))
         focusRequester.requestFocus()
@@ -561,13 +616,33 @@ fun FullScreenPromptOverlay(
                     )
                 }
 
-                if (selectedImages.isNotEmpty()) {
-                    Text(
-                        text = "${selectedImages.size} ${stringResource(R.string.paint_image)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(end = 16.dp)
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (selectedImages.isNotEmpty()) {
+                        Text(
+                            text = "${selectedImages.size} ${stringResource(R.string.paint_image)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    
+                    // 清除按钮（右上角）
+                    TextButton(
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) showClearConfirm = true },
+                        enabled = textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.paint_clear),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) 
+                                MaterialTheme.colorScheme.primary
+                            else 
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             }
 
@@ -647,8 +722,9 @@ fun FullScreenPromptOverlay(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 优化按钮
                     Surface(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) onEnhance() },
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) showEnhanceConfirm = true },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
@@ -661,29 +737,29 @@ fun FullScreenPromptOverlay(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.AutoFixHigh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = if (textFieldValue.text.isNotEmpty())
-                                        MaterialTheme.colorScheme.primary
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.AutoFixHigh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (textFieldValue.text.isNotEmpty())
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.paint_enhance),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (textFieldValue.text.isNotEmpty() && !isLoading)
+                                        MaterialTheme.colorScheme.onSurface
                                     else
                                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                 )
                             }
-                            Text(
-                                text = stringResource(R.string.paint_enhance),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (textFieldValue.text.isNotEmpty() && !isLoading)
-                                    MaterialTheme.colorScheme.onSurface
-                                else
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                            )
                         }
-                    }
 
                     Surface(
                         onClick = onPickImage,
@@ -751,5 +827,29 @@ fun FullScreenPromptOverlay(
                 }
             }
         }
+    }
+    
+    // 优化确认弹窗
+    if (showEnhanceConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_enhance_confirm_title),
+            message = stringResource(R.string.paint_enhance_confirm_message),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = onEnhance,
+            onDismiss = { showEnhanceConfirm = false }
+        )
+    }
+    
+    // 清除确认弹窗
+    if (showClearConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_clear_confirm_title),
+            message = stringResource(R.string.paint_clear_confirm_message),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = { onPromptChange("") },
+            onDismiss = { showClearConfirm = false }
+        )
     }
 }

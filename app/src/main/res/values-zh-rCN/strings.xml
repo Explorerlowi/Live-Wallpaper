@@ -108,6 +108,11 @@
     <string name="paint_empty_subtitle">输入描述，让AI为你绘制图像</string>
     <string name="paint_prompt_hint">描述你想要的画面...</string>
     <string name="paint_enhance">优化</string>
+    <string name="paint_clear">清除</string>
+    <string name="paint_enhance_confirm_title">优化提示词</string>
+    <string name="paint_enhance_confirm_message">确定要优化当前提示词吗？这将替换原有内容。</string>
+    <string name="paint_clear_confirm_title">清除提示词</string>
+    <string name="paint_clear_confirm_message">确定要清空当前提示词吗？</string>
     <string name="paint_generating">正在绘制...</string>
     <string name="paint_generating_time">正在生成中... %1$s</string>
     <string name="paint_stop">停止</string>

@@ -106,6 +106,11 @@
     <string name="paint_empty_subtitle">Enter a description and let AI paint for you</string>
     <string name="paint_prompt_hint">Describe the image you want...</string>
     <string name="paint_enhance">Enhance</string>
+    <string name="paint_clear">Clear</string>
+    <string name="paint_enhance_confirm_title">Enhance Prompt</string>
+    <string name="paint_enhance_confirm_message">Are you sure you want to enhance the current prompt? This will replace the original content.</string>
+    <string name="paint_clear_confirm_title">Clear Prompt</string>
+    <string name="paint_clear_confirm_message">Are you sure you want to clear the current prompt?</string>
     <string name="paint_generating">Generating...</string>
     <string name="paint_generating_time">Generating... %1$s</string>
     <string name="paint_stop">Stop</string>
