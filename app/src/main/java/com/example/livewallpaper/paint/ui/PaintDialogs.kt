@@ -477,8 +477,7 @@ fun ApiSettingsDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        onDismissRequest = onDismiss
     ) {
         Surface(
             modifier = Modifier

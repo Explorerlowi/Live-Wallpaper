@@ -84,6 +84,24 @@ fun PaintBottomBar(
     
     // 输入框行数
     var lineCount by remember { mutableIntStateOf(1) }
+
+    var promptFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = promptText,
+                selection = TextRange(promptText.length)
+            )
+        )
+    }
+
+    LaunchedEffect(promptText) {
+        if (promptText != promptFieldValue.text) {
+            promptFieldValue = TextFieldValue(
+                text = promptText,
+                selection = TextRange(promptText.length)
+            )
+        }
+    }
     
     LaunchedEffect(isGenerating, generationStartTime) {
         if (isGenerating && generationStartTime > 0) {
@@ -241,7 +259,7 @@ fun PaintBottomBar(
                                     text = stringResource(R.string.paint_clear),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (promptText.isNotEmpty() && !isLoading && !isGenerating) 
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) 
+                                        MaterialTheme.colorScheme.primary
                                     else 
                                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                 )
@@ -278,8 +296,11 @@ fun PaintBottomBar(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 BasicTextField(
-                                    value = promptText,
-                                    onValueChange = onPromptChange,
+                                    value = promptFieldValue,
+                                    onValueChange = { newValue ->
+                                        promptFieldValue = newValue
+                                        onPromptChange(newValue.text)
+                                    },
                                     modifier = Modifier
                                         .weight(1f)
                                         .focusRequester(collapsedInputFocusRequester)

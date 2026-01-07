@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -117,6 +118,7 @@ fun PaintScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     
@@ -201,7 +203,7 @@ fun PaintScreen(
                     )
                 )
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.paint_image_load_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, resources.getString(R.string.paint_image_load_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -277,18 +279,18 @@ fun PaintScreen(
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collectLatest { message ->
             val text = when (message) {
-                is PaintToastMessage.PleaseConfigApi -> context.getString(R.string.paint_please_config_api)
-                is PaintToastMessage.GenerateSuccess -> context.getString(R.string.paint_generate_success)
-                is PaintToastMessage.GenerateFailed -> context.getString(R.string.paint_generate_failed) + (message.error?.let { ": $it" } ?: "")
-                is PaintToastMessage.Stopped -> context.getString(R.string.paint_stopped)
-                is PaintToastMessage.SaveSuccess -> context.getString(R.string.paint_save_success)
-                is PaintToastMessage.Deleted -> context.getString(R.string.paint_deleted)
-                is PaintToastMessage.EnhanceSuccess -> context.getString(R.string.paint_enhance_success)
-                is PaintToastMessage.EnhanceFailed -> context.getString(R.string.paint_enhance_failed) + (message.error?.let { ": $it" } ?: "")
-                is PaintToastMessage.GeneratingInProgress -> context.getString(R.string.paint_generating_in_progress)
-                is PaintToastMessage.DownloadSuccess -> context.getString(R.string.paint_download_success)
-                is PaintToastMessage.DownloadFailed -> context.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
-                is PaintToastMessage.CannotRegenerate -> context.getString(R.string.paint_cannot_regenerate)
+                is PaintToastMessage.PleaseConfigApi -> resources.getString(R.string.paint_please_config_api)
+                is PaintToastMessage.GenerateSuccess -> resources.getString(R.string.paint_generate_success)
+                is PaintToastMessage.GenerateFailed -> resources.getString(R.string.paint_generate_failed) + (message.error?.let { ": $it" } ?: "")
+                is PaintToastMessage.Stopped -> resources.getString(R.string.paint_stopped)
+                is PaintToastMessage.SaveSuccess -> resources.getString(R.string.paint_save_success)
+                is PaintToastMessage.Deleted -> resources.getString(R.string.paint_deleted)
+                is PaintToastMessage.EnhanceSuccess -> resources.getString(R.string.paint_enhance_success)
+                is PaintToastMessage.EnhanceFailed -> resources.getString(R.string.paint_enhance_failed) + (message.error?.let { ": $it" } ?: "")
+                is PaintToastMessage.GeneratingInProgress -> resources.getString(R.string.paint_generating_in_progress)
+                is PaintToastMessage.DownloadSuccess -> resources.getString(R.string.paint_download_success)
+                is PaintToastMessage.DownloadFailed -> resources.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
+                is PaintToastMessage.CannotRegenerate -> resources.getString(R.string.paint_cannot_regenerate)
             }
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
@@ -449,7 +451,7 @@ fun PaintScreen(
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     val clip = ClipData.newPlainText("message", text)
                                     clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, context.getString(R.string.message_copied), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, resources.getString(R.string.message_copied), Toast.LENGTH_SHORT).show()
                                 },
                                 onEditMessage = { messageId ->
                                     viewModel.onEvent(PaintEvent.EditUserMessage(messageId))
@@ -473,10 +475,10 @@ fun PaintScreen(
                                             val imagePath = image.localPath
                                             if (imagePath != null) {
                                                 saveImageToGallery(context, imagePath)
-                                                Toast.makeText(context, context.getString(R.string.paint_download_success), Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, resources.getString(R.string.paint_download_success), Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, context.getString(R.string.paint_download_failed), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, resources.getString(R.string.paint_download_failed), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },

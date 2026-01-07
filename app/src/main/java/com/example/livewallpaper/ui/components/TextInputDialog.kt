@@ -13,8 +13,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 
 /**
  * 通用文本输入对话框
@@ -71,42 +69,27 @@ fun TextInputDialog(
         }
     }
 
-    Dialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                // 标题
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 输入框
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
+            Column {
                 OutlinedTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
-                        // 限制最大长度
                         val limitedText = if (maxLength != null && newValue.text.length > maxLength) {
                             newValue.copy(text = newValue.text.take(maxLength))
                         } else {
                             newValue
                         }
                         textFieldValue = limitedText
-                        errorMessage = null // 清除错误
+                        errorMessage = null
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -132,26 +115,23 @@ fun TextInputDialog(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // 按钮行
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text(dismissText)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = { validateAndConfirm() },
-                        enabled = textFieldValue.text.isNotBlank()
-                    ) {
-                        Text(confirmText)
-                    }
-                }
             }
-        }
-    }
+        },
+        confirmButton = {
+            Button(
+                onClick = { validateAndConfirm() },
+                enabled = textFieldValue.text.isNotBlank()
+            ) {
+                Text(confirmText)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(dismissText)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 6.dp
+    )
 }

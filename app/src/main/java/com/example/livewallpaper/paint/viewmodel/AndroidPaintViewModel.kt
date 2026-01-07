@@ -71,6 +71,7 @@ class AndroidPaintViewModel(
     
     // 消息监听的协程，切换会话时需要取消旧的监听
     private var messagesCollectJob: Job? = null
+    private var promptDraftSaveJob: Job? = null
 
     private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
     val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
@@ -251,8 +252,35 @@ class AndroidPaintViewModel(
             selectedImages = _uiState.value.selectedImages.map { it.toSerializable() }
         )
 
-    private fun restoreDraft(key: String): SessionDraft =
-        sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+    private fun restoreDraft(key: String): SessionDraft {
+        val cached = sessionDrafts[key]
+        if (cached != null) return cached
+        val loaded = loadDraft(key)
+        return if (loaded != null) {
+            sessionDrafts[key] = loaded
+            loaded
+        } else {
+            SessionDraft()
+        }
+    }
+
+    private fun schedulePromptDraftSave(key: String, draft: SessionDraft) {
+        sessionDrafts[key] = draft
+        promptDraftSaveJob?.cancel()
+        promptDraftSaveJob = viewModelScope.launch(Dispatchers.Default) {
+            delay(350)
+            val jsonStr = try {
+                json.encodeToString(draft)
+            } catch (_: Exception) {
+                null
+            }
+            if (jsonStr != null) {
+                withContext(Dispatchers.IO) {
+                    draftPrefs.edit().putString(key, jsonStr).apply()
+                }
+            }
+        }
+    }
 
     private fun createSession(model: PaintModel) {
         viewModelScope.launch {
@@ -670,10 +698,9 @@ class AndroidPaintViewModel(
 
     private fun updatePrompt(text: String) {
         _uiState.update { it.copy(promptText = text) }
-        // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
-        saveDraft(key, current.copy(promptText = text))
+        val current = restoreDraft(key)
+        schedulePromptDraftSave(key, current.copy(promptText = text))
     }
 
     private fun addImage(image: SelectedImage) {
