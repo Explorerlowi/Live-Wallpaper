@@ -236,6 +236,7 @@ fun SessionDrawerContent(
             title = stringResource(R.string.paint_rename_session),
             initialValue = session.title,
             placeholder = stringResource(R.string.paint_session_name_hint),
+            singleLine = false,
             confirmText = stringResource(R.string.confirm),
             dismissText = stringResource(R.string.cancel),
             maxLength = 50,
@@ -535,7 +536,8 @@ fun ApiSettingsDialog(
                             label = { Text("配置名称") },
                             placeholder = { Text("例如：我的API") },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                            singleLine = false,
+                            maxLines = 4
                         )
                         
                         OutlinedTextField(
@@ -544,7 +546,8 @@ fun ApiSettingsDialog(
                             label = { Text("API Base URL") },
                             placeholder = { Text("https://yunwu.ai") },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                            singleLine = false,
+                            maxLines = 4
                         )
                         
                         OutlinedTextField(
@@ -552,7 +555,8 @@ fun ApiSettingsDialog(
                             onValueChange = { token = it },
                             label = { Text("访问令牌 (Token)") },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
+                            singleLine = false,
+                            maxLines = 4,
                             visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
                             trailingIcon = {
                                 IconButton(onClick = { showToken = !showToken }) {

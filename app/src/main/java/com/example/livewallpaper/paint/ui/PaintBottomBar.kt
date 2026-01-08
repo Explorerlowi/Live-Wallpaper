@@ -114,8 +114,8 @@ fun PaintBottomBar(
         }
     }
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
+        color = Color.Transparent,
+        shadowElevation = 0.dp
     ) {
         Box {
             Column(
@@ -186,6 +186,7 @@ fun PaintBottomBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(Color.Transparent)
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -233,8 +234,6 @@ fun PaintBottomBar(
                     )
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
                 // 输入栏容器 - 包含展开按钮
                 Box {
                     Row(
@@ -242,18 +241,22 @@ fun PaintBottomBar(
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         // 清除和优化按钮（垂直排列）
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
+                            modifier = Modifier.width(48.dp)
                         ) {
                             // 清除按钮（纯文本）
                             TextButton(
                                 onClick = { showClearConfirm = true },
                                 enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(28.dp)
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier
+                                    .height(24.dp)
+                                    .width(48.dp)
                             ) {
                                 Text(
                                     text = stringResource(R.string.paint_clear),
@@ -268,7 +271,8 @@ fun PaintBottomBar(
                             // 优化按钮
                             IconButton(
                                 onClick = { showEnhanceConfirm = true },
-                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating
+                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 if (isLoading) {
                                     CircularProgressIndicator(
@@ -332,52 +336,63 @@ fun PaintBottomBar(
                     }
 
                     // 图片按钮
-                    IconButton(onClick = onPickImage) {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription = stringResource(R.string.add_image),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                    Surface(
+                        onClick = onPickImage,
+                        shape = CircleShape,
+                        color = Color.Transparent,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(
+                                Icons.Default.Image,
+                                contentDescription = stringResource(R.string.add_image),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
 
-                    // 发送/停止按钮 - 圆角矩形，显示文字
+                    // 发送/停止按钮 - 圆形
                     if (isGenerating) {
                         Surface(
                             onClick = onStop,
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.error
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
                             ) {
                                 Icon(
                                     Icons.Default.Stop,
-                                    contentDescription = null,
+                                    contentDescription = stringResource(R.string.paint_stop),
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.paint_stop),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelLarge
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                    } else {
-                        val canSend = promptText.isNotEmpty() || selectedImages.isNotEmpty()
+                    } else if (promptText.isNotEmpty()) {
                         Surface(
-                            onClick = { if (canSend) onSend() },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                            onClick = onSend,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Text(
-                                text = stringResource(R.string.paint_send),
-                                color = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.ArrowUpward,
+                                    contentDescription = stringResource(R.string.paint_send),
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -460,11 +475,15 @@ private fun QuickActionChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         color = if (isHighlighted) 
             MaterialTheme.colorScheme.error.copy(alpha = 0.1f) 
         else 
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        )
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),

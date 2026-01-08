@@ -40,6 +40,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -121,6 +122,7 @@ fun PaintScreen(
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val keyboardController = LocalSoftwareKeyboardController.current
     
     // 使用 DrawerState 控制抽屉
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -335,7 +337,10 @@ fun PaintScreen(
                 PaintTopBar(
                     currentSession = uiState.currentSession,
                     selectedModel = uiState.selectedModel,
-                    onSessionClick = { scope.launch { drawerState.open() } },
+                    onSessionClick = { 
+                        keyboardController?.hide()
+                        scope.launch { drawerState.open() } 
+                    },
                     onModelClick = { showModelSelector = true },
                     onClose = handleBack
                 )
