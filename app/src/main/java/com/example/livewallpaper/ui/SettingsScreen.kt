@@ -815,25 +815,20 @@ private fun ReorderImagesSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val hasModifiedOrder = hasChanges && reorderedUris != imageUris
     
-    // 检测列表是否在顶部
-    val isListAtTop by remember {
-        derivedStateOf {
-            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
-        }
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        sheetGesturesEnabled = isListAtTop
+        dragHandle = null,
+        sheetGesturesEnabled = false
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.9f)
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(horizontal = 24.dp)
+                .padding(top = 24.dp, bottom = 16.dp)
         ) {
             Text(
                 text = stringResource(R.string.reorder_images),
