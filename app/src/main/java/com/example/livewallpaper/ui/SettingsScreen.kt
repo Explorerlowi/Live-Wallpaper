@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -127,10 +128,8 @@ import com.example.livewallpaper.ui.LanguageOption
 import org.koin.androidx.compose.koinViewModel
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import org.koin.compose.koinInject
-import org.burnoutcrew.reorderable.ReorderableItem
-import org.burnoutcrew.reorderable.detectReorderAfterLongPress
-import org.burnoutcrew.reorderable.rememberReorderableLazyListState
-import org.burnoutcrew.reorderable.reorderable
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * 检查照片访问权限状态
@@ -814,22 +813,29 @@ private fun ReorderImagesSheet(
 
     var reorderedUris by remember(imageUris) { mutableStateOf(imageUris) }
     var hasChanges by remember(imageUris) { mutableStateOf(false) }
-    val reorderState = rememberReorderableLazyListState(
-        onMove = { from, to ->
-            reorderedUris = reorderedUris.toMutableList().apply {
-                add(to.index, removeAt(from.index))
-            }
-            hasChanges = true
+    val lazyListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        reorderedUris = reorderedUris.toMutableList().apply {
+            add(to.index, removeAt(from.index))
         }
-    )
+        hasChanges = true
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val hasModifiedOrder = hasChanges && reorderedUris != imageUris
+    
+    // 检测列表是否在顶部
+    val isListAtTop by remember {
+        derivedStateOf {
+            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        sheetGesturesEnabled = isListAtTop
     ) {
         Column(
             modifier = Modifier
@@ -852,11 +858,10 @@ private fun ReorderImagesSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             LazyColumn(
-                state = reorderState.listState,
+                state = lazyListState,
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .fillMaxWidth()
-                    .reorderable(reorderState)
             ) {
                 itemsIndexed(reorderedUris, key = { _, uri -> uri }) { index, uri ->
                     ReorderableItem(state = reorderState, key = uri) { isDragging ->
@@ -867,7 +872,7 @@ private fun ReorderImagesSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp)
-                                .detectReorderAfterLongPress(reorderState)
+                                .longPressDraggableHandle()
                         )
                     }
                 }

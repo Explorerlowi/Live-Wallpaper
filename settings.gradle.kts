@@ -25,6 +25,9 @@ dependencyResolutionManagement {
         
         google()
         mavenCentral()
+        
+        // JitPack - 用于 compose-reorderable 等库
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
