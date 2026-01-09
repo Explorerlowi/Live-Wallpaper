@@ -61,6 +61,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -81,6 +82,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.os.LocaleListCompat
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.LaunchedEffect
 import java.util.Locale
 import androidx.compose.ui.Alignment
@@ -130,6 +132,8 @@ import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import org.koin.compose.koinInject
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.TextButton
 
 /**
  * 检查照片访问权限状态
@@ -371,24 +375,13 @@ fun SettingsScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.background,
-                            MaterialTheme.colorScheme.surface
-                        )
-                    )
-                )
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            // 背景装饰 - 爪印图案
-            PawPrintDecorations()
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.statusBars)
             ) {
-                // 顶部栏
+                // 顶部栏 - 增加顶部 StatusBars 的 padding
                 TopBar(
                     isMultiSelectMode = isMultiSelectMode,
                     selectedCount = selectedUris.size,
@@ -418,9 +411,13 @@ fun SettingsScreen(
                     onSelectAll = {
                         selectedUris = state.config.imageUris.toSet()
                     },
+                    onDeselectAll = {
+                        selectedUris = emptySet()
+                    },
                     onDeleteSelected = {
                         showDeleteSelectedDialog = true
-                    }
+                    },
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
                 )
 
                 // 图片瀑布流
@@ -465,37 +462,36 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-
-                    // 添加图片按钮
-                    AddImageButton(
-                        onClick = openImagePicker,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp)
-                    )
                 }
+            }
 
-                // 底部设置壁纸按钮
-                val noImagesHint = stringResource(R.string.no_images_hint)
-                BottomActionBar(
-                    onSetWallpaperClick = {
-                        if (state.config.imageUris.isEmpty()) {
-                            // 没有图片时显示提示
-                            Toast.makeText(context, noImagesHint, Toast.LENGTH_SHORT).show()
-                        } else {
-                            // 有图片时正常设置壁纸
+            // 悬浮在底部的操作区域 (添加按钮 + 设置壁纸按钮)
+            // 使用 Box 组合，并放置在底部中间
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+            ) {
+                 if (state.config.imageUris.isNotEmpty()) {
+                     FloatingBottomBar(
+                         onAddClick = openImagePicker,
+                         onSetWallpaperClick = {
                             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
                             intent.putExtra(
                                 WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
                                 ComponentName(context, LiveWallpaperService::class.java)
                             )
                             context.startActivity(intent)
-                        }
-                    },
-                    modifier = Modifier.padding(
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    )
-                )
+                         }
+                     )
+                 } else {
+                     // 空状态下只显示添加按钮，大一点
+                     AddImageButton(
+                        onClick = openImagePicker,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                     )
+                 }
             }
         }
         
@@ -622,139 +618,135 @@ private fun TopBar(
     onDrawClick: () -> Unit,
     onExitMultiSelect: () -> Unit,
     onSelectAll: () -> Unit,
-    onDeleteSelected: () -> Unit
+    onDeselectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isMultiSelectMode) {
-            // 多选模式顶部栏
-            // 关闭按钮（简洁样式，无背景）
+            // 多选模式顶部栏 - 保持功能，优化样式
             IconButton(
                 onClick = onExitMultiSelect,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(R.string.cancel),
-                    tint = TextPrimary,
-                    modifier = Modifier.size(24.dp)
+                    tint = MaterialTheme.colorScheme.onBackground
                 )
             }
             
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(16.dp))
             
-            // 选中数量
             Text(
-                text = stringResource(R.string.multi_select_count, selectedCount),
-                fontSize = 18.sp,
+                text = "$selectedCount",
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             
             Spacer(modifier = Modifier.weight(1f))
             
-            // 全选按钮
+            val isAllSelected = selectedCount == totalCount && totalCount > 0
+            
             TextButton(
-                onClick = onSelectAll,
-                enabled = selectedCount < totalCount
+                onClick = {
+                    if (isAllSelected) {
+                        onDeselectAll()
+                    } else {
+                        onSelectAll()
+                    }
+                },
+                enabled = true
             ) {
                 Text(
-                    text = stringResource(R.string.select_all),
-                    color = if (selectedCount < totalCount) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    text = if (isAllSelected) stringResource(R.string.cancel_select_all) else stringResource(R.string.select_all),
+                    fontWeight = FontWeight.Medium
                 )
             }
             
-            // 删除选中按钮
             IconButton(
                 onClick = onDeleteSelected,
                 enabled = selectedCount > 0,
                 colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = if (selectedCount > 0) MaterialTheme.colorScheme.error.copy(alpha = 0.1f) else Color.Transparent,
-                    contentColor = if (selectedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                modifier = Modifier.size(44.dp)
+                    contentColor = MaterialTheme.colorScheme.error
+                )
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete_selected),
-                    modifier = Modifier.size(24.dp)
+                    contentDescription = stringResource(R.string.delete_selected)
                 )
             }
         } else {
-            // 普通模式顶部栏 - 使用 Box 实现标题真正居中
-            Box(
-                modifier = Modifier.fillMaxWidth()
+            // 普通模式顶部栏 - 极简风格
+            // 左侧：App 标题
+            Text(
+                text = stringResource(R.string.app_title),
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f)
+            )
+
+            // 右侧：功能按钮组
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 左侧绘图按钮
-                IconButton(
-                    onClick = onDrawClick,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .align(Alignment.CenterStart)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Brush,
-                        contentDescription = stringResource(R.string.draw),
-                        modifier = Modifier.size(24.dp)
+                // 绘图
+                SmallIconBtn(
+                    icon = Icons.Default.Brush,
+                    contentDescription = stringResource(R.string.draw),
+                    onClick = onDrawClick
+                )
+
+                // 排序
+                if (isReorderEnabled) {
+                    SmallIconBtn(
+                        icon = Icons.Default.Reorder,
+                        contentDescription = stringResource(R.string.reorder),
+                        onClick = onReorderClick
                     )
                 }
 
-                // 中间标题（真正居中）
-                Text(
-                    text = stringResource(R.string.app_title),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.align(Alignment.Center)
+                // 设置
+                SmallIconBtn(
+                    icon = Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.settings),
+                    onClick = onSettingsClick
                 )
-
-                // 右侧按钮组
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    // 排序按钮
-                    IconButton(
-                        onClick = onReorderClick,
-                        enabled = isReorderEnabled,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = if (isReorderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Reorder,
-                            contentDescription = stringResource(R.string.reorder),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // 设置按钮
-                    IconButton(
-                        onClick = onSettingsClick,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.settings),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
             }
         }
+    }
+}
+
+@Composable
+private fun SmallIconBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(
+                onClick = onClick,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(24.dp), // 图标稍微放大一点
+            tint = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -995,13 +987,7 @@ private fun applyLanguage(languageTag: String?) {
 }
 
 /**
- * 单个图片卡片 - 按原比例显示
- * @param uri 图片 URI
- * @param hasCropParams 是否设置了自定义裁剪参数
- * @param isMultiSelectMode 是否处于多选模式
- * @param isSelected 是否被选中
- * @param onClick 点击回调
- * @param onLongPress 长按回调
+ * 单个图片卡片 - 纯净样式
  */
 @Composable
 private fun PhotoCard(
@@ -1014,64 +1000,51 @@ private fun PhotoCard(
 ) {
     val context = LocalContext.current
     
-    // 使用 ImageRequest 限制图片尺寸，防止超大图片导致 Canvas 崩溃
-    // 瀑布流是2列，每列宽度约为屏幕宽度的一半，这里使用 800x1600 作为最大尺寸
+    // 使用 ImageRequest 限制图片尺寸
     val imageRequest = remember(uri) {
         ImageRequest.Builder(context)
             .data(uri)
-            .size(Size(800, 1600)) // 限制最大尺寸，Coil 会自动下采样
+            .size(Size(800, 1600))
             .crossfade(true)
-            .placeholder(android.R.drawable.ic_menu_gallery) // 占位符
-            .error(android.R.drawable.ic_menu_report_image) // 错误占位符
+            .placeholder(android.R.drawable.ic_menu_gallery)
+            .error(android.R.drawable.ic_menu_report_image)
             .build()
     }
     
     val painter = rememberAsyncImagePainter(imageRequest)
     val painterState = painter.state
     
-    // 根据图片实际尺寸计算宽高比 - 使用 derivedStateOf 优化重组性能
+    // 比例计算
     val aspectRatio = remember {
         derivedStateOf {
             when (val state = painterState) {
                 is AsyncImagePainter.State.Success -> {
                     val size = state.painter.intrinsicSize
-                    if (size.width > 0 && size.height > 0) {
-                        size.width / size.height
-                    } else {
-                        0.75f // 默认 3:4
-                    }
+                    if (size.width > 0 && size.height > 0) size.width / size.height else 0.75f
                 }
-                else -> 0.75f // 加载中或失败时使用默认比例
+                else -> 0.75f
             }
         }
     }.value
     
-    // 边框颜色：多选模式且选中时显示选中边框，否则显示裁剪参数边框
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val borderModifier = when {
-        isMultiSelectMode && isSelected -> Modifier.border(3.dp, primaryColor, RoundedCornerShape(16.dp))
-        hasCropParams && !isMultiSelectMode -> Modifier.border(3.dp, primaryColor, RoundedCornerShape(16.dp))
-        else -> Modifier
-    }
+    // 选中状态边框
+    val borderColor = MaterialTheme.colorScheme.primary
+    val borderWidth = if (isMultiSelectMode && isSelected) 4.dp else 0.dp
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio.coerceIn(0.5f, 2f)) // 限制比例范围
-            .then(borderModifier)
+            .aspectRatio(aspectRatio.coerceIn(0.5f, 2f))
             .pointerInput(uri) {
                 detectTapGestures(
                     onTap = { onClick() },
                     onLongPress = { onLongPress() }
                 )
             },
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 4.dp
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
+        shape = RoundedCornerShape(16.dp), // 加大圆角
+        border = if (borderWidth > 0.dp) androidx.compose.foundation.BorderStroke(borderWidth, borderColor) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant) // 使用变体色作为底色
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Image(
@@ -1081,125 +1054,122 @@ private fun PhotoCard(
                 modifier = Modifier.fillMaxSize()
             )
             
-            // 多选模式下的选中遮罩和指示器
-            if (isMultiSelectMode) {
-                // 半透明遮罩（选中时）
-                if (isSelected) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.3f))
-                    )
-                }
-                
-                // 选择指示器（右上角）
+            // 选中遮罩
+            if (isMultiSelectMode && isSelected) {
                 Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                )
+                
+                // 选中图标
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
-                        .size(28.dp)
-                        .background(
-                            color = if (isSelected) primaryColor else Color.White.copy(alpha = 0.8f),
-                            shape = CircleShape
-                        )
-                        .then(
-                            if (!isSelected) {
-                                Modifier.border(2.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
+                        .size(24.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+            
+            // 如果有裁剪参数，显示一个小标记
+            if (hasCropParams && !isMultiSelectMode) {
+                 Icon(
+                    imageVector = Icons.Default.CheckCircle, // 或者换成 Crop 图标
+                    contentDescription = "Cropped",
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(16.dp)
+                        .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                        .padding(2.dp)
+                )
             }
         }
     }
 }
 
 /**
- * 添加图片按钮 - 圆形，图标在上文本在下
+ * 悬浮底部操作栏
+ */
+@Composable
+private fun FloatingBottomBar(
+    onAddClick: () -> Unit,
+    onSetWallpaperClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+        modifier = Modifier.height(64.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 添加按钮
+            FilledIconButton(
+                onClick = onAddClick,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
+            }
+
+            // 设置壁纸按钮
+            Button(
+                onClick = onSetWallpaperClick,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(end = 8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.set_live_wallpaper),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 添加图片大按钮 (空状态用)
  */
 @Composable
 private fun AddImageButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    Button(
         onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primary,
-        shadowElevation = 8.dp,
-        modifier = modifier.size(80.dp)
+        modifier = modifier
+            .padding(bottom = 32.dp)
+            .height(56.dp),
+        shape = RoundedCornerShape(28.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(28.dp)
-            )
-            
-            Spacer(modifier = Modifier.height(2.dp))
-            
-            Text(
-                text = stringResource(R.string.add_image),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-        }
+        Icon(Icons.Default.Add, contentDescription = null)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.add_image),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
-/**
- * 底部操作栏
- */
-@Composable
-private fun BottomActionBar(
-    onSetWallpaperClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Button(
-            onClick = onSetWallpaperClick,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 6.dp
-            )
-        ) {
-            Text(
-                text = stringResource(R.string.set_live_wallpaper),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-        }
-    }
-}
+// 移除旧的 BottomActionBar 定义，保留 EmptyState 和 Dialogs
+
 
 /**
  * 空状态提示
@@ -1445,30 +1415,3 @@ private fun PartialAccessPermissionDialog(
     }
 }
 
-/**
- * 背景爪印装饰
- */
-@Composable
-private fun PawPrintDecorations() {
-    val decorations = remember {
-        listOf(
-            Triple(-20.dp, 100.dp, 15f),
-            Triple(300.dp, 80.dp, -20f),
-            Triple(50.dp, 250.dp, 30f),
-            Triple(280.dp, 400.dp, -10f),
-            Triple(-10.dp, 500.dp, 25f),
-            Triple(320.dp, 600.dp, -15f),
-        )
-    }
-
-    decorations.forEach { (x, y, rotation) ->
-        Text(
-            text = "🐾",
-            fontSize = 32.sp,
-            modifier = Modifier
-                .offset(x = x, y = y)
-                .rotate(rotation),
-            color = MintGreen300.copy(alpha = 0.3f)
-        )
-    }
-}

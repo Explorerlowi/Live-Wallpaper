@@ -107,11 +107,12 @@ fun SessionDrawerContent(
             // 状态栏占位
             Spacer(modifier = Modifier.statusBarsPadding())
             
-            // 标题栏
+            // 标题栏 - 高度与TopAppBar对齐（64dp）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .height(64.dp)
+                    .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -129,16 +130,22 @@ fun SessionDrawerContent(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                FilledTonalIconButton(
-                    onClick = onCreateSession,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            onClick = onCreateSession,
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Default.Add,
                         contentDescription = stringResource(R.string.paint_new_session),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

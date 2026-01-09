@@ -7,31 +7,46 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -42,31 +57,34 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.ui.theme.LiveWallpaperTheme
-import com.example.livewallpaper.ui.theme.MintGreen100
-import com.example.livewallpaper.ui.theme.MintGreen200
 import com.example.livewallpaper.ui.LanguageOption
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 class SettingsActivity : ComponentActivity() {
@@ -130,7 +148,7 @@ class SettingsActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     currentInterval: Long,
@@ -151,6 +169,12 @@ fun SettingsScreen(
     var selectedLanguage by remember { mutableStateOf(initialLanguage) }
     var selectedThemeMode by remember { mutableStateOf(currentThemeMode) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
+
+    // Bottom Sheet States
+    var showScaleModeSheet by remember { mutableStateOf(false) }
+    var showPlayModeSheet by remember { mutableStateOf(false) }
+    var showThemeSheet by remember { mutableStateOf(false) }
+    var showLanguageSheet by remember { mutableStateOf(false) }
     
     // 检查是否有修改
     val hasChanges = remember(intervalValue, selectedScaleMode, selectedPlayMode, selectedLanguage, selectedThemeMode) {
@@ -178,13 +202,33 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+                title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = handleBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
+                    }
+                },
+                actions = {
+                    if (hasChanges) {
+                        TextButton(
+                            onClick = {
+                                onConfirm(intervalValue.toLong(), selectedScaleMode, selectedPlayMode)
+                                // 语言变化时通知并应用
+                                if (selectedLanguage != initialLanguage) {
+                                    onLanguageChange(selectedLanguage)
+                                } else {
+                                    onBack()
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = stringResource(R.string.save_and_exit),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -207,194 +251,84 @@ fun SettingsScreen(
                     )
                 )
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 间隔设置
-            Text(
-                text = stringResource(R.string.interval_label),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Slider(
-                    value = intervalValue,
-                    onValueChange = { intervalValue = it },
-                    valueRange = 1000f..60000f,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-                
-                Spacer(modifier = Modifier.width(12.dp))
-                
-                Surface(
-                    modifier = Modifier
-                        .clickable { showIntervalInputDialog = true }
-                        .clip(RoundedCornerShape(8.dp)),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                ) {
-                    Text(
-                        text = stringResource(R.string.interval_seconds, intervalValue / 1000f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .width(72.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 缩放模式设置
-            Text(
-                text = stringResource(R.string.scale_mode_label),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ScaleMode.entries.forEach { mode ->
-                    val label = when (mode) {
-                        ScaleMode.CENTER_CROP -> stringResource(R.string.scale_mode_fill)
-                        ScaleMode.FIT_CENTER -> stringResource(R.string.scale_mode_fit)
+                // 壁纸设置组
+                item {
+                    SettingsGroupCard {
+                        // 切换间隔
+                        SettingsItem(
+                            icon = Icons.Default.Timer,
+                            title = stringResource(R.string.interval_label),
+                            value = stringResource(R.string.interval_seconds, intervalValue / 1000f),
+                            onClick = { showIntervalInputDialog = true }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        
+                        // 缩放模式
+                        val scaleModeLabel = when (selectedScaleMode) {
+                            ScaleMode.CENTER_CROP -> stringResource(R.string.scale_mode_fill)
+                            ScaleMode.FIT_CENTER -> stringResource(R.string.scale_mode_fit)
+                        }
+                        SettingsItem(
+                            icon = Icons.Default.AspectRatio,
+                            title = stringResource(R.string.scale_mode_label),
+                            value = scaleModeLabel,
+                            onClick = { showScaleModeSheet = true }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        
+                        // 播放模式
+                        val playModeLabel = when (selectedPlayMode) {
+                            PlayMode.SEQUENTIAL -> stringResource(R.string.play_mode_sequential)
+                            PlayMode.RANDOM -> stringResource(R.string.play_mode_random)
+                        }
+                        SettingsItem(
+                            icon = Icons.Default.PlayCircle,
+                            title = stringResource(R.string.play_mode_label),
+                            value = playModeLabel,
+                            onClick = { showPlayModeSheet = true }
+                        )
                     }
-                    
-                    FilterChip(
-                        selected = selectedScaleMode == mode,
-                        onClick = { selectedScaleMode = mode },
-                        label = { Text(label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 播放模式设置
-            Text(
-                text = stringResource(R.string.play_mode_label),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                PlayMode.entries.forEach { mode ->
-                    val label = when (mode) {
-                        PlayMode.SEQUENTIAL -> stringResource(R.string.play_mode_sequential)
-                        PlayMode.RANDOM -> stringResource(R.string.play_mode_random)
+                // 外观设置组
+                item {
+                    SettingsGroupCard {
+                        // 主题
+                        val themeLabel = when (selectedThemeMode) {
+                            ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+                            ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                            ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                            ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
+                        }
+                        SettingsItem(
+                            icon = Icons.Default.ColorLens,
+                            title = stringResource(R.string.theme_label),
+                            value = themeLabel,
+                            onClick = { showThemeSheet = true }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        
+                        // 语言
+                        SettingsItem(
+                            icon = Icons.Default.Language,
+                            title = stringResource(R.string.language_label),
+                            value = stringResource(selectedLanguage.labelRes),
+                            onClick = { showLanguageSheet = true }
+                        )
                     }
-                    
-                    FilterChip(
-                        selected = selectedPlayMode == mode,
-                        onClick = { selectedPlayMode = mode },
-                        label = { Text(label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 主题设置
-            Text(
-                text = stringResource(R.string.theme_label),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                ThemeMode.entries.forEach { mode ->
-                    val label = when (mode) {
-                        ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
-                        ThemeMode.LIGHT -> stringResource(R.string.theme_light)
-                        ThemeMode.DARK -> stringResource(R.string.theme_dark)
-                        ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
-                    }
-
-                    FilterChip(
-                        selected = selectedThemeMode == mode,
-                        onClick = { 
-                            selectedThemeMode = mode
-                            // 立即应用主题变化
-                            onThemeModeChange(mode)
-                        },
-                        label = { Text(label, maxLines = 1) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 语言设置
-            Text(
-                text = stringResource(R.string.language_label),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LanguageOption.entries.forEach { option ->
-                    FilterChip(
-                        selected = selectedLanguage == option,
-                        onClick = { selectedLanguage = option },
-                        label = { Text(stringResource(option.labelRes)) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 
+    // 弹窗和对话框部分
+    
     // 间隔输入对话框
     if (showIntervalInputDialog) {
         IntervalInputDialog(
@@ -407,32 +341,229 @@ fun SettingsScreen(
             onDismiss = { showIntervalInputDialog = false }
         )
     }
+
+    // 缩放模式选择
+    if (showScaleModeSheet) {
+        SelectionBottomSheet(
+            title = stringResource(R.string.scale_mode_label),
+            options = ScaleMode.entries,
+            selectedOption = selectedScaleMode,
+            onOptionSelected = { 
+                selectedScaleMode = it 
+                showScaleModeSheet = false
+            },
+            onDismissRequest = { showScaleModeSheet = false },
+            labelProvider = { mode ->
+                when (mode) {
+                    ScaleMode.CENTER_CROP -> stringResource(R.string.scale_mode_fill)
+                    ScaleMode.FIT_CENTER -> stringResource(R.string.scale_mode_fit)
+                }
+            }
+        )
+    }
     
+    // 播放模式选择
+    if (showPlayModeSheet) {
+        SelectionBottomSheet(
+            title = stringResource(R.string.play_mode_label),
+            options = PlayMode.entries,
+            selectedOption = selectedPlayMode,
+            onOptionSelected = { 
+                selectedPlayMode = it 
+                showPlayModeSheet = false
+            },
+            onDismissRequest = { showPlayModeSheet = false },
+            labelProvider = { mode ->
+                when (mode) {
+                    PlayMode.SEQUENTIAL -> stringResource(R.string.play_mode_sequential)
+                    PlayMode.RANDOM -> stringResource(R.string.play_mode_random)
+                }
+            }
+        )
+    }
+    
+    // 主题选择
+    if (showThemeSheet) {
+        SelectionBottomSheet(
+            title = stringResource(R.string.theme_label),
+            options = ThemeMode.entries,
+            selectedOption = selectedThemeMode,
+            onOptionSelected = { 
+                selectedThemeMode = it
+                onThemeModeChange(it) // 立即应用主题预览
+                showThemeSheet = false
+            },
+            onDismissRequest = { showThemeSheet = false },
+            labelProvider = { mode ->
+                when (mode) {
+                    ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+                    ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                    ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                    ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
+                }
+            }
+        )
+    }
+    
+    // 语言选择
+    if (showLanguageSheet) {
+        SelectionBottomSheet(
+            title = stringResource(R.string.language_label),
+            options = LanguageOption.entries,
+            selectedOption = selectedLanguage,
+            onOptionSelected = { 
+                selectedLanguage = it
+                showLanguageSheet = false
+            },
+            onDismissRequest = { showLanguageSheet = false },
+            labelProvider = { stringResource(it.labelRes) }
+        )
+    }
+
     // 退出确认对话框
     if (showExitConfirmDialog) {
         ExitConfirmDialog(
             onSaveAndExit = {
                 onConfirm(intervalValue.toLong(), selectedScaleMode, selectedPlayMode)
-                showExitConfirmDialog = false
-                // 语言变化时通知并应用（onLanguageChange 内部会 finish）
+                // 语言变化时通知并应用
                 if (selectedLanguage != initialLanguage) {
                     onLanguageChange(selectedLanguage)
                 } else {
-                    // 语言没变化，正常退出
                     onBack()
                 }
+                showExitConfirmDialog = false
             },
             onDiscardAndExit = {
-                // 如果主题被修改了，需要恢复原来的主题
+                // 如果主题被修改了，恢复原来的主题
                 if (selectedThemeMode != currentThemeMode) {
                     onThemeModeChange(currentThemeMode)
                 }
-                // 语言没有立即应用，所以不需要恢复
                 showExitConfirmDialog = false
                 onBack()
             },
             onDismiss = { showExitConfirmDialog = false }
         )
+    }
+}
+
+@Composable
+fun SettingsGroupCard(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        shadowElevation = 1.dp
+    ) {
+        Column {
+            content()
+        }
+    }
+}
+
+@Composable
+fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = { 
+            Text(
+                text = title, 
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            ) 
+        },
+        supportingContent = null,
+        leadingContent = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.outlineVariant
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = Color.Transparent
+        ),
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> SelectionBottomSheet(
+    title: String,
+    options: List<T>,
+    selectedOption: T,
+    onOptionSelected: (T) -> Unit,
+    onDismissRequest: () -> Unit,
+    labelProvider: @Composable (T) -> String
+) {
+    val sheetState = rememberModalBottomSheetState()
+    
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+            )
+            
+            options.forEach { option ->
+                val isSelected = option == selectedOption
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOptionSelected(option) }
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = labelProvider(option),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -122,14 +122,16 @@ fun LiveWallpaperTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            // 设置状态栏颜色
-            window.statusBarColor = colorScheme.background.toArgb()
-            // 设置导航栏颜色（键盘弹出时的底部背景）
-            window.navigationBarColor = colorScheme.background.toArgb()
-            // 设置窗口背景色，确保键盘弹出时背景颜色正确
-            window.decorView.setBackgroundColor(colorScheme.background.toArgb())
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
-            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
+            // 沉浸式：设置状态栏和导航栏透明
+            window.statusBarColor = Color.Transparent.toArgb()
+            window.navigationBarColor = Color.Transparent.toArgb()
+            
+            // 让内容延伸到系统栏区域
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = !darkTheme
+            insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

@@ -39,8 +39,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -122,10 +122,17 @@ fun PaintScreen(
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     
     // 使用 DrawerState 控制抽屉
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    
+    // 监听抽屉状态变化，开始打开时立即清除焦点（收起键盘）
+    LaunchedEffect(drawerState.currentValue, drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open || drawerState.currentValue == DrawerValue.Open) {
+            focusManager.clearFocus()
+        }
+    }
     
     // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
     val handleBack: () -> Unit = {
@@ -338,7 +345,6 @@ fun PaintScreen(
                     currentSession = uiState.currentSession,
                     selectedModel = uiState.selectedModel,
                     onSessionClick = { 
-                        keyboardController?.hide()
                         scope.launch { drawerState.open() } 
                     },
                     onModelClick = { showModelSelector = true },

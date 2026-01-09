@@ -5,6 +5,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -243,32 +244,12 @@ fun PaintBottomBar(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // 清除和优化按钮（垂直排列）
+                        // 优化按钮
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(0.dp),
                             modifier = Modifier.width(48.dp)
                         ) {
-                            // 清除按钮（纯文本）
-                            TextButton(
-                                onClick = { showClearConfirm = true },
-                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier
-                                    .height(24.dp)
-                                    .width(48.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.paint_clear),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (promptText.isNotEmpty() && !isLoading && !isGenerating) 
-                                        MaterialTheme.colorScheme.primary
-                                    else 
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                )
-                            }
-                            
-                            // 优化按钮
                             IconButton(
                                 onClick = { showEnhanceConfirm = true },
                                 enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
@@ -397,7 +378,7 @@ fun PaintBottomBar(
                     }
                 }
                 
-                    // 展开按钮 - 放在输入栏右上角，当文本达到4行时显示
+                    // 清除和展开按钮 - 放在输入栏右上角，当文本达到4行时显示
                     androidx.compose.animation.AnimatedVisibility(
                         visible = lineCount >= 4,
                         enter = fadeIn() + scaleIn(),
@@ -406,16 +387,39 @@ fun PaintBottomBar(
                             .align(Alignment.TopEnd)
                             .padding(top = 4.dp, end = 8.dp)
                     ) {
-                        IconButton(
-                            onClick = onExpandInput,
-                            modifier = Modifier.size(28.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.OpenInFull,
-                                contentDescription = stringResource(R.string.paint_expand_input),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                            // 清除按钮（文字）
+                            Text(
+                                text = stringResource(R.string.paint_clear),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (promptText.isNotEmpty() && !isLoading && !isGenerating)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                modifier = Modifier
+                                    .clickable(
+                                        enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) { showClearConfirm = true }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp)
                             )
+                            
+                            // 展开按钮
+                            IconButton(
+                                onClick = onExpandInput,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.OpenInFull,
+                                    contentDescription = stringResource(R.string.paint_expand_input),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
