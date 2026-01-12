@@ -74,20 +74,32 @@ import kotlin.random.Random
 
 /**
  * 图片缓存 - 避免重复解码 Base64
+ * 使用基于内存大小的 LruCache，限制为 64MB
  */
 private object ImageCache {
-    // 缓存最多 20 张图片，约 100MB（假设每张 5MB）
-    private val cache = LruCache<String, Bitmap>(20)
+    // 最大缓存 64MB
+    private const val MAX_CACHE_SIZE = 64 * 1024 * 1024
+    
+    private val cache = object : LruCache<String, Bitmap>(MAX_CACHE_SIZE) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int {
+            return bitmap.allocationByteCount
+        }
+    }
     
     fun get(imageId: String): Bitmap? = cache.get(imageId)
     
     fun put(imageId: String, bitmap: Bitmap) {
         cache.put(imageId, bitmap)
     }
+    
+    fun clear() {
+        cache.evictAll()
+    }
 }
 
 /**
  * 异步解码 Base64 图片
+ * 使用采样率降低内存占用，避免 OOM
  */
 @Composable
 private fun rememberDecodedBitmap(imageId: String, base64: String): Bitmap? {
@@ -97,8 +109,31 @@ private fun rememberDecodedBitmap(imageId: String, base64: String): Bitmap? {
         if (bitmap == null) {
             bitmap = withContext(Dispatchers.Default) {
                 try {
-                    val bytes = Base64.decode(base64, Base64.DEFAULT)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
+                    // 使用流式解码避免一次性加载整个 byte 数组
+                    val inputStream = java.io.ByteArrayInputStream(base64.toByteArray(Charsets.US_ASCII))
+                    val base64Stream = android.util.Base64InputStream(inputStream, Base64.DEFAULT)
+                    
+                    // 先获取图片尺寸
+                    val tempBytes = base64Stream.readBytes()
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, options)
+                    
+                    // 计算采样率，目标最大边 2048px
+                    val maxDimension = maxOf(options.outWidth, options.outHeight)
+                    val targetSize = 2048
+                    var sampleSize = 1
+                    while (maxDimension / sampleSize > targetSize) {
+                        sampleSize *= 2
+                    }
+                    
+                    // 使用采样率解码
+                    val decodeOptions = BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                        inPreferredConfig = Bitmap.Config.RGB_565 // 使用 RGB_565 减少内存
+                    }
+                    BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, decodeOptions)?.also {
                         ImageCache.put(imageId, it)
                     }
                 } catch (e: Exception) {
@@ -1024,17 +1059,6 @@ private fun MessageActionBar(
                 contentDescription = stringResource(R.string.message_add_to_selected),
                 onClick = onAddImages
             )
-        }
-        
-        // 复制按钮（仅有文本时显示）
-        if (message.messageContent.isNotEmpty()) {
-            VersionSwitcher(
-                current = currentVersionIndex + 1,
-                total = totalVersions,
-                onPrevious = onPreviousVersion,
-                onNext = onNextVersion
-            )
-            Spacer(modifier = Modifier.width(4.dp))
         }
         
         // 复制按钮（仅有文本时显示）

@@ -401,13 +401,14 @@ private fun AlbumItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 封面图 - 限制尺寸防止超大图片崩溃
+            // 封面图 - 限制尺寸并使用 RGB_565 减少内存
             val context = LocalContext.current
             Image(
                 painter = rememberAsyncImagePainter(
                     model = ImageRequest.Builder(context)
                         .data(album.coverUri)
                         .size(Size(200, 200))
+                        .allowRgb565(true)
                         .crossfade(true)
                         .build()
                 ),
@@ -515,13 +516,14 @@ private fun ImageGridItem(
                 }
             )
     ) {
-        // 缩略图 - 限制尺寸防止超大图片崩溃
+        // 缩略图 - 限制尺寸并使用 RGB_565 减少内存
         val context = LocalContext.current
         Image(
             painter = rememberAsyncImagePainter(
                 model = ImageRequest.Builder(context)
                     .data(image.uri)
                     .size(Size(400, 400))
+                    .allowRgb565(true)
                     .crossfade(true)
                     .build()
             ),

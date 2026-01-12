@@ -396,17 +396,19 @@ class AndroidPaintViewModel(
 
             val selectedImagesSnapshot = state.selectedImages
 
-            val userImagesForMessage = selectedImagesSnapshot.map { img ->
-                // 获取图片尺寸
-                val (width, height) = getImageDimensions(img.uri)
-                PaintImage(
-                    id = generateId(),
-                    mimeType = img.mimeType,
-                    localPath = img.uri,
-                    width = width,
-                    height = height,
-                    isReference = true
-                )
+            // 在 IO 线程获取图片尺寸，避免阻塞主线程
+            val userImagesForMessage = withContext(Dispatchers.IO) {
+                selectedImagesSnapshot.map { img ->
+                    val (width, height) = getImageDimensions(img.uri)
+                    PaintImage(
+                        id = generateId(),
+                        mimeType = img.mimeType,
+                        localPath = img.uri,
+                        width = width,
+                        height = height,
+                        isReference = true
+                    )
+                }
             }
             
             val userMessage = PaintMessage(
@@ -554,6 +556,7 @@ class AndroidPaintViewModel(
 
     /**
      * 保存生成的图片并返回路径和尺寸信息
+     * 使用流式处理避免内存溢出
      * @return Triple<路径, 宽度, 高度>，失败返回 null
      */
     private fun saveGeneratedImage(
@@ -561,26 +564,34 @@ class AndroidPaintViewModel(
         messageId: String,
         base64Data: String
     ): Triple<String, Int, Int>? {
-        val bytes = try {
-            Base64.decode(base64Data, Base64.DEFAULT)
-        } catch (_: IllegalArgumentException) {
-            return null
-        }
-
-        // 解码获取图片尺寸
-        val options = BitmapFactory.Options().apply {
-            inJustDecodeBounds = true
-        }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        val width = options.outWidth
-        val height = options.outHeight
-
         val dir = File(appContext.filesDir, "aipaint/$sessionId").apply { mkdirs() }
         val file = File(dir, "$messageId.png")
+        
         return try {
-            file.writeBytes(bytes)
-            Triple(file.absolutePath, width, height)
-        } catch (_: IOException) {
+            // 分块解码并写入文件，避免一次性加载整个图片到内存
+            val inputStream = java.io.ByteArrayInputStream(base64Data.toByteArray(Charsets.US_ASCII))
+            val base64InputStream = android.util.Base64InputStream(inputStream, Base64.DEFAULT)
+            
+            file.outputStream().buffered().use { output ->
+                base64InputStream.copyTo(output, bufferSize = 8192)
+            }
+            
+            // 只解码边界信息，不加载整个图片
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            val width = options.outWidth
+            val height = options.outHeight
+            
+            if (width > 0 && height > 0) {
+                Triple(file.absolutePath, width, height)
+            } else {
+                file.delete()
+                null
+            }
+        } catch (_: Exception) {
+            file.delete()
             null
         }
     }
@@ -750,7 +761,9 @@ class AndroidPaintViewModel(
                     SelectedImage(
                         id = generateId(),
                         uri = img.localPath!!,
-                        mimeType = img.mimeType
+                        mimeType = img.mimeType,
+                        width = img.width,
+                        height = img.height
                     )
                 }
             

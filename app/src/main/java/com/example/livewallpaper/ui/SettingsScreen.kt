@@ -910,7 +910,8 @@ private fun ReorderRow(
     val painter = rememberAsyncImagePainter(
         ImageRequest.Builder(context)
             .data(uri)
-            .size(Size(400, 400))
+            .size(Size(200, 200))  // 缩小尺寸，排序列表不需要太大
+            .allowRgb565(true)
             .crossfade(true)
             .build()
     )
@@ -995,11 +996,12 @@ private fun PhotoCard(
 ) {
     val context = LocalContext.current
     
-    // 使用 ImageRequest 限制图片尺寸
+    // 使用 ImageRequest 限制图片尺寸，启用 RGB_565 减少内存占用
     val imageRequest = remember(uri) {
         ImageRequest.Builder(context)
             .data(uri)
-            .size(Size(800, 1600))
+            .size(Size(600, 1200))  // 缩略图尺寸，足够瀑布流显示
+            .allowRgb565(true)      // 使用 RGB_565 格式，内存减半
             .crossfade(true)
             .placeholder(android.R.drawable.ic_menu_gallery)
             .error(android.R.drawable.ic_menu_report_image)
