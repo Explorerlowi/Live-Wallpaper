@@ -133,6 +133,7 @@
     <string name="paint_delete_session_title">删除会话</string>
     <string name="paint_delete_session_message">确定要删除会话「%1$s」吗？此操作无法撤销。</string>
     <string name="paint_rename_session">重命名会话</string>
+    <string name="paint_session_name_label">会话名称</string>
     <string name="paint_session_name_hint">输入会话名称</string>
     <string name="paint_delete">删除</string>
     <string name="paint_auth_mode">鉴权方式</string>
@@ -203,4 +204,49 @@
     <string name="session_group_today">今天</string>
     <string name="session_group_7_days">7天内</string>
     <string name="session_group_30_days">30天内</string>
+    
+    <!-- 图片切分 -->
+    <string name="split_grid_editor">图片切分</string>
+    <string name="split_replace_image">替换图片</string>
+    <string name="split_undo">撤销</string>
+    <string name="split_redo">重做</string>
+    <string name="split_reset_grid">重置网格</string>
+    <string name="split_grid_config">网格配置</string>
+    <string name="split_ratio_preset">比例预设</string>
+    <string name="split_preset_grid_3x3">3 × 3</string>
+    <string name="split_preset_grid_4x4">4 × 4</string>
+    <string name="split_preset_grid_4x5">4 × 5</string>
+    <string name="split_preset_grid_4x6">4 × 6</string>
+    <string name="split_preset_grid_5x5">5 × 5</string>
+    <string name="split_preset_custom">%1$d × %2$d</string>
+    <string name="split_rows">行数</string>
+    <string name="split_columns">列数</string>
+    <string name="split_and_save">切分</string>
+    <string name="split_finetune_export">微调与导出</string>
+    <string name="split_back">返回</string>
+    <string name="split_reset">重置</string>
+    <string name="split_reset_confirm_title">确认重置？</string>
+    <string name="split_reset_confirm_message">将清除当前图块的微调设置，是否继续？</string>
+    <string name="split_adjust_tiles">调整图块</string>
+    <string name="split_tap_to_edit">点击图块以编辑其位置</string>
+    <string name="split_export_format">导出格式</string>
+    <string name="split_export_png_desc">无损，画质最佳</string>
+    <string name="split_export_jpg_desc">文件更小</string>
+    <string name="split_naming_rules">文件命名规则</string>
+    <string name="split_save_tags">保存标签</string>
+    <string name="split_prefix">前缀</string>
+    <string name="split_suffix">后缀</string>
+    <string name="split_compress_zip">压缩为ZIP</string>
+    <string name="split_compress_hint">将所有图块打包成一个压缩文件</string>
+    <string name="split_download_tiles">下载 %1$d 个图块</string>
+    <string name="split_select_prefix">选择或输入前缀</string>
+    <string name="split_select_suffix">选择或输入后缀</string>
+    <string name="split_input_new">输入新内容…</string>
+    <string name="split_saved_options">已保存的选项：</string>
+    <string name="split_apply_all">应用到全部</string>
+    <string name="split_save_new">保存</string>
+    <string name="split_apply">应用</string>
+    <string name="split_export_success">成功导出 %1$d 个图块</string>
+    <string name="split_export_failed">导出失败</string>
+    <string name="split_image">图片切分</string>
 </resources>

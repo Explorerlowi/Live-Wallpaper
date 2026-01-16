@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -45,6 +47,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -60,6 +63,9 @@ import com.example.livewallpaper.gallery.ui.GalleryScreen
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
 import com.example.livewallpaper.paint.viewmodel.AndroidPaintViewModel
 import com.example.livewallpaper.paint.viewmodel.PaintToastMessage
+import com.example.livewallpaper.paint.ui.split.ImageSplitActivity
+import com.example.livewallpaper.ui.components.AppDropdownMenu
+import com.example.livewallpaper.ui.components.AppMenuItem
 import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
@@ -549,6 +555,9 @@ fun PaintScreen(
                                     viewModel.onEvent(
                                         PaintEvent.UpdateImageDimensions(messageId, imageId, width, height)
                                     )
+                                },
+                                onSplitImage = { imagePath ->
+                                    ImageSplitActivity.launch(context, imagePath)
                                 }
                             )
                         }
@@ -679,6 +688,7 @@ fun PaintScreen(
             }
         )
     }
+    
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -775,7 +785,8 @@ private fun MessageItem(
     onSwitchVersion: (String, Int) -> Unit = { _, _ -> },
     onDownloadImage: (PaintImage) -> Unit = {},
     onAddImages: (List<PaintImage>) -> Unit = {},
-    onUpdateImageDimensions: (String, String, Int, Int) -> Unit = { _, _, _, _ -> }
+    onUpdateImageDimensions: (String, String, Int, Int) -> Unit = { _, _, _, _ -> },
+    onSplitImage: (String) -> Unit = {}
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val isAssistant = !isUser
@@ -884,14 +895,16 @@ private fun MessageItem(
             Column(modifier = Modifier.padding(12.dp)) {
                 // 文本内容
                 if (message.messageContent.isNotEmpty()) {
-                    Text(
-                        text = message.messageContent,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (message.status == MessageStatus.ERROR) 
-                            MaterialTheme.colorScheme.error 
-                        else 
-                            MaterialTheme.colorScheme.onSurface
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = message.messageContent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (message.status == MessageStatus.ERROR)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
                 
                 // 图片 - 支持多图预览
@@ -1003,6 +1016,9 @@ private fun MessageItem(
                 },
                 onDownload = {
                     message.images.firstOrNull()?.let { onDownloadImage(it) }
+                },
+                onSplitImage = {
+                    message.images.firstOrNull()?.localPath?.let { onSplitImage(it) }
                 }
             )
         }
@@ -1035,8 +1051,28 @@ private fun MessageActionBar(
     onPreviousVersion: () -> Unit,
     onNextVersion: () -> Unit,
     onDelete: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    onSplitImage: () -> Unit = {}
 ) {
+    var showMoreMenu by remember { mutableStateOf(false) }
+    val moreMenuItems = listOf(
+        AppMenuItem(
+            title = stringResource(R.string.split_image),
+            icon = Icons.Default.ContentCut,
+            enabled = hasImages,
+            onClick = {
+                showMoreMenu = false
+                onSplitImage()
+            }
+        )
+    )
+
+    // 菜单固定出现在锚点上方：
+    // - menuHeight ≈ items * 48dp
+    // - anchorHeight ≈ 36dp（ActionIconButton）
+    // - gap ≈ 16dp（留白，避免挡住按钮）
+    val moreMenuOffsetY = remember(moreMenuItems.size) { -((moreMenuItems.size * 48) + 36 + 16).dp }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -1093,6 +1129,20 @@ private fun MessageActionBar(
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
         )
+
+        Box {
+            ActionIconButton(
+                icon = Icons.Default.MoreVert,
+                contentDescription = "更多",
+                onClick = { showMoreMenu = true }
+            )
+            AppDropdownMenu(
+                expanded = showMoreMenu,
+                onDismissRequest = { showMoreMenu = false },
+                items = moreMenuItems,
+                offset = DpOffset(0.dp, moreMenuOffsetY)
+            )
+        }
     }
 }
 
@@ -1205,12 +1255,21 @@ private fun ActionIconButton(
     onClick: () -> Unit,
     tint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(36.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            // 去掉默认 ripple（会出现一闪而过的灰色无圆角动效）
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
     ) {
         Icon(
-            icon,
+            imageVector = icon,
             contentDescription = contentDescription,
             modifier = Modifier.size(22.dp),
             tint = tint

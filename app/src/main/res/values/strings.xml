@@ -131,6 +131,7 @@
     <string name="paint_delete_session_title">Delete Session</string>
     <string name="paint_delete_session_message">Are you sure you want to delete session \"%1$s\"? This action cannot be undone.</string>
     <string name="paint_rename_session">Rename Session</string>
+    <string name="paint_session_name_label">Session name</string>
     <string name="paint_session_name_hint">Enter session name</string>
     <string name="paint_delete">Delete</string>
     <string name="paint_auth_mode">Auth Mode</string>
@@ -201,4 +202,49 @@
     <string name="session_group_today">Today</string>
     <string name="session_group_7_days">Last 7 Days</string>
     <string name="session_group_30_days">Last 30 Days</string>
+    
+    <!-- 图片切分 -->
+    <string name="split_grid_editor">Image Split</string>
+    <string name="split_replace_image">Replace Image</string>
+    <string name="split_undo">Undo</string>
+    <string name="split_redo">Redo</string>
+    <string name="split_reset_grid">Reset Grid</string>
+    <string name="split_grid_config">Grid Configuration</string>
+    <string name="split_ratio_preset">Ratio Preset</string>
+    <string name="split_preset_grid_3x3">3 × 3</string>
+    <string name="split_preset_grid_4x4">4 × 4</string>
+    <string name="split_preset_grid_4x5">4 × 5</string>
+    <string name="split_preset_grid_4x6">4 × 6</string>
+    <string name="split_preset_grid_5x5">5 × 5</string>
+    <string name="split_preset_custom">%1$d × %2$d</string>
+    <string name="split_rows">Rows</string>
+    <string name="split_columns">Columns</string>
+    <string name="split_and_save">Split</string>
+    <string name="split_finetune_export">Fine-tune &amp; Export</string>
+    <string name="split_back">Back</string>
+    <string name="split_reset">Reset</string>
+    <string name="split_reset_confirm_title">Reset adjustments?</string>
+    <string name="split_reset_confirm_message">This will discard current tile adjustments. Continue?</string>
+    <string name="split_adjust_tiles">Adjust Tiles</string>
+    <string name="split_tap_to_edit">Tap a tile to edit its position</string>
+    <string name="split_export_format">Export Format</string>
+    <string name="split_export_png_desc">Lossless, best quality</string>
+    <string name="split_export_jpg_desc">Smaller file size</string>
+    <string name="split_naming_rules">File Naming Rules</string>
+    <string name="split_save_tags">Save Tags</string>
+    <string name="split_prefix">Prefix</string>
+    <string name="split_suffix">Suffix</string>
+    <string name="split_compress_zip">Compress as ZIP</string>
+    <string name="split_compress_hint">Bundle all tiles into a single archive</string>
+    <string name="split_download_tiles">Download %1$d Tiles</string>
+    <string name="split_select_prefix">Select or Input Prefix</string>
+    <string name="split_select_suffix">Select or Input Suffix</string>
+    <string name="split_input_new">Input new value…</string>
+    <string name="split_saved_options">Saved Options:</string>
+    <string name="split_apply_all">Apply to All</string>
+    <string name="split_save_new">Save</string>
+    <string name="split_apply">Apply</string>
+    <string name="split_export_success">%1$d tiles exported successfully</string>
+    <string name="split_export_failed">Export failed</string>
+    <string name="split_image">Split Image</string>
 </resources>

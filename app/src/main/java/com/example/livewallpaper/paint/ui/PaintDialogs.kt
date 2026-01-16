@@ -242,8 +242,9 @@ fun SessionDrawerContent(
         com.example.livewallpaper.ui.components.TextInputDialog(
             title = stringResource(R.string.paint_rename_session),
             initialValue = session.title,
-            placeholder = stringResource(R.string.paint_session_name_hint),
-            singleLine = false,
+            label = stringResource(R.string.paint_session_name_label),
+            description = stringResource(R.string.paint_session_name_hint),
+            singleLine = true,
             confirmText = stringResource(R.string.confirm),
             dismissText = stringResource(R.string.cancel),
             maxLength = 50,

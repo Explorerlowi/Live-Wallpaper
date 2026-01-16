@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -19,6 +20,8 @@ import androidx.compose.ui.unit.dp
  *
  * @param title 对话框标题
  * @param initialValue 初始文本值
+ * @param label 输入框 label（显示在输入框上方）
+ * @param description 输入区说明文案（显示在输入框上方）
  * @param placeholder 输入框占位文本
  * @param confirmText 确认按钮文本
  * @param dismissText 取消按钮文本
@@ -32,9 +35,11 @@ import androidx.compose.ui.unit.dp
 fun TextInputDialog(
     title: String,
     initialValue: String = "",
+    label: String? = null,
+    description: String? = null,
     placeholder: String = "",
-    confirmText: String = "确定",
-    dismissText: String = "取消",
+    confirmText: String,
+    dismissText: String,
     singleLine: Boolean = true,
     maxLength: Int? = null,
     validator: ((String) -> String?)? = null,
@@ -74,12 +79,21 @@ fun TextInputDialog(
         title = {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
             )
         },
         text = {
             Column {
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 OutlinedTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
@@ -94,6 +108,9 @@ fun TextInputDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
+                    label = label?.let { labelText ->
+                        { Text(text = labelText) }
+                    },
                     placeholder = {
                         Text(
                             text = placeholder,
@@ -101,28 +118,56 @@ fun TextInputDialog(
                         )
                     },
                     singleLine = singleLine,
+                    minLines = if (singleLine) 1 else 3,
+                    maxLines = if (singleLine) 1 else 6,
                     isError = errorMessage != null,
-                    supportingText = if (errorMessage != null) {
-                        { Text(errorMessage!!) }
-                    } else if (maxLength != null) {
-                        { Text("${textFieldValue.text.length}/$maxLength") }
-                    } else null,
                     keyboardOptions = KeyboardOptions(
                         imeAction = if (singleLine) ImeAction.Done else ImeAction.Default
                     ),
-                    keyboardActions = KeyboardActions(
-                        onDone = { validateAndConfirm() }
+                    keyboardActions = if (singleLine) {
+                        KeyboardActions(onDone = { validateAndConfirm() })
+                    } else {
+                        KeyboardActions()
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else if (maxLength != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text(
+                            text = "${textFieldValue.text.length}/$maxLength",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(
+            TextButton(
                 onClick = { validateAndConfirm() },
-                enabled = textFieldValue.text.isNotBlank()
+                enabled = textFieldValue.text.trim().isNotBlank()
             ) {
-                Text(confirmText)
+                Text(
+                    text = confirmText,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
             }
         },
         dismissButton = {
@@ -131,7 +176,6 @@ fun TextInputDialog(
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
-        tonalElevation = 6.dp
+        shape = RoundedCornerShape(20.dp)
     )
 }

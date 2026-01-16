@@ -66,6 +66,15 @@
             android:launchMode="singleTop"
             android:hardwareAccelerated="true">
         </activity>
+
+        <activity
+            android:name=".paint.ui.split.ImageSplitActivity"
+            android:exported="false"
+            android:label="@string/split_image"
+            android:theme="@style/Theme.LiveWallpaper"
+            android:keepScreenOn="true"
+            android:launchMode="singleTop"
+            android:hardwareAccelerated="true" />
     </application>
 
 </manifest>
