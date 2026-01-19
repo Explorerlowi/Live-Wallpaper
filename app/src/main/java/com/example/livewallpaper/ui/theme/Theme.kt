@@ -42,8 +42,8 @@ private val LightColorScheme = lightColorScheme(
 
 // 深色主题
 private val DarkColorScheme = darkColorScheme(
-    primary = Teal300,  // 使用更亮的青色作为主色
-    onPrimary = Color.White,  // 白色文字
+    primary = Teal500,  // 改为更深的青色 (0xFF009688)
+    onPrimary = Color.White,  // 深色背景上使用白色文字
     primaryContainer = Teal500,
     onPrimaryContainer = MintGreen100,
     secondary = Teal200,

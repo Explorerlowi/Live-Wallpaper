@@ -118,6 +118,7 @@ import com.example.livewallpaper.gallery.data.MediaStoreRepository
 import com.example.livewallpaper.gallery.ui.GalleryScreen
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
 import com.example.livewallpaper.ui.theme.ButtonPrimary
+import com.example.livewallpaper.ui.components.LiquidGlassButton
 import com.example.livewallpaper.ui.theme.MintGreen100
 import com.example.livewallpaper.ui.theme.MintGreen200
 import com.example.livewallpaper.ui.theme.MintGreen300
@@ -1098,41 +1099,79 @@ private fun FloatingBottomBar(
     onAddClick: () -> Unit,
     onSetWallpaperClick: () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(32.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
-        modifier = Modifier.height(64.dp)
+    // 玻璃质感容器
+    Box(
+        modifier = Modifier
+            .height(64.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(32.dp),
+                spotColor = Color.Black.copy(alpha = 0.2f),
+                ambientColor = Color.Black.copy(alpha = 0.1f)
+            )
+            .clip(RoundedCornerShape(32.dp))
+            // 1. 半透明背景 (模拟磨砂)
+            .background(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f)
+            )
+            // 2. 玻璃高光边框
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.6f), // 上部亮
+                        Color.White.copy(alpha = 0.1f)  // 下部暗
+                    )
+                ),
+                shape = RoundedCornerShape(32.dp)
+            )
     ) {
+        // 3. 额外的玻璃反射层
+        Box(
+            modifier = Modifier
+                .matchParentSize() // 使用 matchParentSize 避免撑大父容器
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.05f),
+                            Color.White.copy(alpha = 0.15f),
+                            Color.Transparent
+                        ),
+                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        end = androidx.compose.ui.geometry.Offset(200f, 200f)
+                    )
+                )
+        )
+
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .align(Alignment.Center),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // 添加按钮
-            FilledIconButton(
+            LiquidGlassButton(
                 onClick = onAddClick,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                ),
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add")
             }
 
             // 设置壁纸按钮
-            Button(
+            LiquidGlassButton(
                 onClick = onSetWallpaperClick,
-                shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
                     .height(48.dp)
-                    .padding(end = 8.dp)
+                    .padding(end = 8.dp),
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Text(
                     text = stringResource(R.string.set_live_wallpaper),
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
                 )
             }
         }
@@ -1147,13 +1186,12 @@ private fun AddImageButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Button(
+    LiquidGlassButton(
         onClick = onClick,
         modifier = modifier
             .padding(bottom = 32.dp)
             .height(56.dp),
-        shape = RoundedCornerShape(28.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+        shape = RoundedCornerShape(28.dp)
     ) {
         Icon(Icons.Default.Add, contentDescription = null)
         Spacer(modifier = Modifier.width(8.dp))
