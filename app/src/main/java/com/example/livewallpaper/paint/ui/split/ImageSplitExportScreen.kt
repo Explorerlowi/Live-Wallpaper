@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -45,6 +46,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.livewallpaper.R
 import com.example.livewallpaper.ui.components.AppDropdownMenu
 import com.example.livewallpaper.ui.components.AppMenuItem
+import com.example.livewallpaper.ui.components.ImageEditScreen
+import com.example.livewallpaper.ui.components.ImageEditResult
+import com.example.livewallpaper.ui.components.applyImageEditResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -134,6 +138,10 @@ fun ImageSplitExportScreen(
     var showPrefixDialog by remember { mutableStateOf(false) }
     var showSuffixDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    
+    // 图片编辑器状态
+    var showImageEditor by remember { mutableStateOf(false) }
+    var editingTileIndex by remember { mutableIntStateOf(-1) }
     
     // 更新单个图块的前缀
     fun updatePrefixForTile(index: Int, prefix: String) {
@@ -324,7 +332,11 @@ fun ImageSplitExportScreen(
                         TileCarousel(
                             tiles = mutableTiles,
                             selectedIndex = selectedIndex,
-                            onSelectTile = { selectedIndex = it }
+                            onSelectTile = { selectedIndex = it },
+                            onEditTile = { index ->
+                                editingTileIndex = index
+                                showImageEditor = true
+                            }
                         )
 
                         Spacer(modifier = Modifier.height(24.dp))
@@ -455,6 +467,57 @@ fun ImageSplitExportScreen(
                     onDismiss = { showResetConfirm = false }
                 )
             }
+            
+            // 图片编辑器
+            if (showImageEditor && editingTileIndex >= 0 && editingTileIndex < mutableTiles.size) {
+                val editingTile = mutableTiles[editingTileIndex]
+                // 使用原始 bitmap 进行编辑，并恢复之前的编辑参数
+                val initialResult = ImageEditResult(
+                    cropRect = androidx.compose.ui.geometry.Rect(
+                        left = editingTile.editParams.cropLeft,
+                        top = editingTile.editParams.cropTop,
+                        right = editingTile.editParams.cropRight,
+                        bottom = editingTile.editParams.cropBottom
+                    ),
+                    rotation = editingTile.editParams.rotation,
+                    flipHorizontal = editingTile.editParams.flipHorizontal,
+                    flipVertical = editingTile.editParams.flipVertical
+                )
+                ImageEditScreen(
+                    bitmap = editingTile.originalBitmap,  // 使用原始 bitmap
+                    initialResult = initialResult,         // 恢复之前的编辑参数
+                    onConfirm = { result ->
+                        // 应用编辑结果到原始 bitmap
+                        val newBitmap = applyImageEditResult(editingTile.originalBitmap, result)
+                        // 保存编辑参数
+                        val newEditParams = TileEditParams(
+                            cropLeft = result.cropRect.left,
+                            cropTop = result.cropRect.top,
+                            cropRight = result.cropRect.right,
+                            cropBottom = result.cropRect.bottom,
+                            rotation = result.rotation,
+                            flipHorizontal = result.flipHorizontal,
+                            flipVertical = result.flipVertical
+                        )
+                        val newTiles = mutableTiles.toMutableList()
+                        newTiles[editingTileIndex] = editingTile.copy(
+                            bitmap = newBitmap,
+                            editParams = newEditParams,
+                            // 重置微调参数
+                            offsetX = 0f,
+                            offsetY = 0f,
+                            scale = 1f
+                        )
+                        mutableTiles = newTiles
+                        showImageEditor = false
+                        editingTileIndex = -1
+                    },
+                    onDismiss = {
+                        showImageEditor = false
+                        editingTileIndex = -1
+                    }
+                )
+            }
         }
     }
 }
@@ -499,10 +562,25 @@ private fun ExportTopBar(
 private fun TileCarousel(
     tiles: List<SplitTile>,
     selectedIndex: Int,
-    onSelectTile: (Int) -> Unit
+    onSelectTile: (Int) -> Unit,
+    onEditTile: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
+    
+    // 获取容器宽度，用于计算动态 contentPadding
+    var containerWidth by remember { mutableIntStateOf(0) }
+    
+    // 动态计算 contentPadding，确保第一张和最后一张图片能居中
+    // 使用容器宽度的一半减去最小卡片宽度的一半
+    val horizontalPadding = remember(containerWidth) {
+        if (containerWidth > 0) {
+            // 确保 padding 足够大，让任意宽度的卡片都能居中
+            (containerWidth / 2).coerceAtLeast(with(density) { 140.dp.roundToPx() })
+        } else {
+            with(density) { 140.dp.roundToPx() }
+        }
+    }
     
     // 监听滚动位置，实时更新选中项
     val centerItemIndex by remember {
@@ -531,26 +609,51 @@ private fun TileCarousel(
         }
     }
     
-    // 点击卡片时滚动到该卡片
+    // 点击卡片或选中项变化时滚动到该卡片居中
     LaunchedEffect(selectedIndex) {
-        if (!listState.isScrollInProgress) {
-            val layoutInfo = listState.layoutInfo
-            val viewportCenter = layoutInfo.viewportStartOffset + layoutInfo.viewportSize.width / 2
-            val currentItem = layoutInfo.visibleItemsInfo.find { it.index == selectedIndex }
+        // 等待一帧让布局完成
+        kotlinx.coroutines.delay(16)
+        
+        val layoutInfo = listState.layoutInfo
+        if (layoutInfo.visibleItemsInfo.isEmpty()) return@LaunchedEffect
+        
+        val viewportWidth = layoutInfo.viewportSize.width
+        val viewportCenter = layoutInfo.viewportStartOffset + viewportWidth / 2
+        
+        // 查找选中项的信息
+        val targetItem = layoutInfo.visibleItemsInfo.find { it.index == selectedIndex }
+        
+        if (targetItem != null) {
+            // 选中项在可见范围内，计算需要滚动的距离让它居中
+            val itemCenter = targetItem.offset + targetItem.size / 2
+            val scrollDistance = itemCenter - viewportCenter
             
-            if (currentItem != null) {
-                val itemCenter = currentItem.offset + currentItem.size / 2
-                if (kotlin.math.abs(itemCenter - viewportCenter) > 10) {
-                    listState.animateScrollToItem(
-                        index = selectedIndex,
-                        scrollOffset = -layoutInfo.viewportSize.width / 2 + with(density) { 90.dp.roundToPx() }
-                    )
+            if (kotlin.math.abs(scrollDistance) > 10) {
+                listState.animateScrollBy(scrollDistance.toFloat())
+            }
+        } else {
+            // 选中项不在可见范围内，先滚动到该项，再调整居中
+            // 计算 scrollOffset：让 item 的中心对齐 viewport 的中心
+            // 由于不知道 item 的实际宽度，使用平均值估算
+            val estimatedItemWidth = with(density) { 180.dp.roundToPx() }
+            val scrollOffset = -(viewportWidth / 2) + horizontalPadding + (estimatedItemWidth / 2)
+            
+            listState.animateScrollToItem(
+                index = selectedIndex,
+                scrollOffset = scrollOffset
+            )
+            
+            // 滚动后再次微调居中
+            kotlinx.coroutines.delay(100)
+            val newLayoutInfo = listState.layoutInfo
+            val newTargetItem = newLayoutInfo.visibleItemsInfo.find { it.index == selectedIndex }
+            if (newTargetItem != null) {
+                val newViewportCenter = newLayoutInfo.viewportStartOffset + newLayoutInfo.viewportSize.width / 2
+                val newItemCenter = newTargetItem.offset + newTargetItem.size / 2
+                val adjustDistance = newItemCenter - newViewportCenter
+                if (kotlin.math.abs(adjustDistance) > 5) {
+                    listState.animateScrollBy(adjustDistance.toFloat())
                 }
-            } else {
-                listState.animateScrollToItem(
-                    index = selectedIndex,
-                    scrollOffset = -layoutInfo.viewportSize.width / 2 + with(density) { 90.dp.roundToPx() }
-                )
             }
         }
     }
@@ -560,9 +663,10 @@ private fun TileCarousel(
         modifier = Modifier
             .fillMaxWidth()
             // 限制预览区高度，避免图片卡片撑破布局
-            .height(240.dp),
+            .height(240.dp)
+            .onSizeChanged { containerWidth = it.width },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(horizontal = 80.dp),
+        contentPadding = PaddingValues(horizontal = with(density) { horizontalPadding.toDp() }),
         verticalAlignment = Alignment.CenterVertically,
         flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     ) {
@@ -570,7 +674,8 @@ private fun TileCarousel(
             TileCard(
                 tile = tile,
                 isSelected = index == centerItemIndex, // 使用实时计算的中心项
-                onClick = { onSelectTile(index) }
+                onClick = { onSelectTile(index) },
+                onDoubleClick = { onEditTile(index) }
             )
         }
     }
@@ -583,7 +688,8 @@ private fun TileCarousel(
 private fun TileCard(
     tile: SplitTile,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDoubleClick: () -> Unit = {}
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isSelected) 1.1f else 0.85f,
@@ -617,24 +723,34 @@ private fun TileCard(
             modifier = Modifier
                 .width(cardWidth)
                 .height(cardHeight)
-                .clickable(onClick = onClick),
+                .clickable {
+                    if (isSelected) {
+                        // 已选中的卡片，点击进入编辑
+                        onDoubleClick()
+                    } else {
+                        // 未选中的卡片，点击选中
+                        onClick()
+                    }
+                },
             shape = RoundedCornerShape(16.dp),
             shadowElevation = elevation,
             color = MaterialTheme.colorScheme.surface
         ) {
-            Image(
-                bitmap = tile.bitmap.asImageBitmap(),
-                contentDescription = "Tile ${tile.index + 1}",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = tile.offsetX
-                        translationY = tile.offsetY
-                        scaleX = tile.scale
-                        scaleY = tile.scale
-                    },
-                contentScale = ContentScale.Crop
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                Image(
+                    bitmap = tile.bitmap.asImageBitmap(),
+                    contentDescription = "Tile ${tile.index + 1}",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = tile.offsetX
+                            translationY = tile.offsetY
+                            scaleX = tile.scale
+                            scaleY = tile.scale
+                        },
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
         
         Spacer(modifier = Modifier.height(8.dp))

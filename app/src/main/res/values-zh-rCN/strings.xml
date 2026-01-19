@@ -249,4 +249,12 @@
     <string name="split_export_success">成功导出 %1$d 个图块</string>
     <string name="split_export_failed">导出失败</string>
     <string name="split_image">图片切分</string>
+    
+    <!-- 图片编辑器 -->
+    <string name="image_editor_reset">还原</string>
+    <string name="image_editor_rotate">旋转</string>
+    <string name="image_editor_cancel">取消</string>
+    <string name="image_editor_crop">裁剪</string>
+    <string name="image_editor_flip_horizontal">水平翻转</string>
+    <string name="image_editor_flip_vertical">垂直翻转</string>
 </resources>

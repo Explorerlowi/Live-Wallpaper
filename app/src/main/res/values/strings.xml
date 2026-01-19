@@ -247,4 +247,12 @@
     <string name="split_export_success">%1$d tiles exported successfully</string>
     <string name="split_export_failed">Export failed</string>
     <string name="split_image">Split Image</string>
+    
+    <!-- 图片编辑器 -->
+    <string name="image_editor_reset">Reset</string>
+    <string name="image_editor_rotate">Rotate</string>
+    <string name="image_editor_cancel">Cancel</string>
+    <string name="image_editor_crop">Crop</string>
+    <string name="image_editor_flip_horizontal">Flip Horizontal</string>
+    <string name="image_editor_flip_vertical">Flip Vertical</string>
 </resources>

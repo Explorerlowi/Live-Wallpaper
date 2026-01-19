@@ -94,13 +94,32 @@ data class GridConfig(
 }
 
 /**
+ * 图块编辑参数
+ */
+data class TileEditParams(
+    val cropLeft: Float = 0f,
+    val cropTop: Float = 0f,
+    val cropRight: Float = 1f,
+    val cropBottom: Float = 1f,
+    val rotation: Int = 0,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false
+) {
+    val isDefault: Boolean
+        get() = cropLeft == 0f && cropTop == 0f && cropRight == 1f && cropBottom == 1f &&
+                rotation == 0 && !flipHorizontal && !flipVertical
+}
+
+/**
  * 切分后的单个图块
  */
 data class SplitTile(
     val index: Int,
     val row: Int,
     val column: Int,
-    val bitmap: Bitmap,
+    val bitmap: Bitmap,           // 当前显示的 bitmap（可能已编辑）
+    val originalBitmap: Bitmap = bitmap,  // 原始 bitmap（用于重新编辑）
+    val editParams: TileEditParams = TileEditParams(),  // 编辑参数
     // 微调偏移（像素）
     val offsetX: Float = 0f,
     val offsetY: Float = 0f,
