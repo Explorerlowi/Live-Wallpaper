@@ -331,6 +331,7 @@ fun PaintScreen(
             val text = when (message) {
                 is PaintToastMessage.PleaseConfigApi -> resources.getString(R.string.paint_please_config_api)
                 is PaintToastMessage.GenerateSuccess -> resources.getString(R.string.paint_generate_success)
+                is PaintToastMessage.GenerateMultipleSuccess -> resources.getString(R.string.paint_generate_multiple_success, message.count)
                 is PaintToastMessage.GenerateFailed -> resources.getString(R.string.paint_generate_failed) + (message.error?.let { ": $it" } ?: "")
                 is PaintToastMessage.Stopped -> resources.getString(R.string.paint_stopped)
                 is PaintToastMessage.SaveSuccess -> resources.getString(R.string.paint_save_success)

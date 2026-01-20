@@ -31,7 +31,7 @@ class GeminiApiService(
         images: List<PaintImage>,
         aspectRatio: AspectRatio,
         resolution: Resolution
-    ): AppResult<String> {
+    ): AppResult<List<String>> {
         return try {
             val endpoint = "${profile.baseUrl}/v1beta/models/${model.endpoint}:generateContent"
             val requestBody = buildGenerateImageRequest(prompt, images, model, aspectRatio, resolution)
@@ -144,8 +144,9 @@ class GeminiApiService(
     /**
      * 流式解析图片响应，避免一次性加载整个响应体导致 OOM
      * 通过逐块读取并查找 Base64 数据来降低内存占用
+     * 支持提取响应中的所有图片
      */
-    private suspend fun parseGenerateImageResponse(response: HttpResponse): AppResult<String> {
+    private suspend fun parseGenerateImageResponse(response: HttpResponse): AppResult<List<String>> {
         val responseCode = response.status.value
 
         if (responseCode !in 200..299) {
@@ -157,10 +158,10 @@ class GeminiApiService(
         return try {
             // 使用流式方式读取响应体
             val channel: ByteReadChannel = response.bodyAsChannel()
-            val base64Data = extractBase64FromStream(channel)
+            val base64DataList = extractAllBase64FromStream(channel)
             
-            if (base64Data != null) {
-                AppResult.Success(base64Data)
+            if (base64DataList.isNotEmpty()) {
+                AppResult.Success(base64DataList)
             } else {
                 AppResult.Error(AppError.Server(responseCode, "未返回图片数据"))
             }
@@ -170,10 +171,12 @@ class GeminiApiService(
     }
 
     /**
-     * 从流中提取 Base64 图片数据
+     * 从流中提取所有 Base64 图片数据
      * 使用状态机方式逐步解析，避免将整个响应加载到内存
+     * 支持提取响应中的所有图片（nanobanana 支持一次请求生成多张图片）
      */
-    private suspend fun extractBase64FromStream(channel: ByteReadChannel): String? {
+    private suspend fun extractAllBase64FromStream(channel: ByteReadChannel): List<String> {
+        val result = mutableListOf<String>()
         val buffer = StringBuilder()
         val chunkSize = 8192 // 8KB 块
         val byteArray = ByteArray(chunkSize)
@@ -204,8 +207,17 @@ class GeminiApiService(
                         val endQuoteIndex = remaining.indexOf('"')
                         
                         if (endQuoteIndex != -1) {
-                            // 在当前块中找到了结束引号
-                            return remaining.substring(0, endQuoteIndex)
+                            // 在当前块中找到了结束引号，保存这张图片
+                            val base64Data = remaining.substring(0, endQuoteIndex)
+                            if (base64Data.isNotEmpty()) {
+                                result.add(base64Data)
+                            }
+                            // 重置状态，继续查找下一张图片
+                            foundDataStart = false
+                            base64Builder = null
+                            // 保留剩余内容继续解析
+                            buffer.clear()
+                            buffer.append(remaining.substring(endQuoteIndex + 1))
                         } else {
                             // 继续累积 Base64 数据
                             base64Builder.append(remaining)
@@ -227,8 +239,18 @@ class GeminiApiService(
                 base64Builder?.let { builder ->
                     val endQuoteIndex = chunk.indexOf('"')
                     if (endQuoteIndex != -1) {
+                        // 找到结束引号，保存这张图片
                         builder.append(chunk.substring(0, endQuoteIndex))
-                        return builder.toString()
+                        val base64Data = builder.toString()
+                        if (base64Data.isNotEmpty()) {
+                            result.add(base64Data)
+                        }
+                        // 重置状态，继续查找下一张图片
+                        foundDataStart = false
+                        base64Builder = null
+                        // 保留剩余内容继续解析
+                        buffer.clear()
+                        buffer.append(chunk.substring(endQuoteIndex + 1))
                     } else {
                         builder.append(chunk)
                     }
@@ -236,7 +258,15 @@ class GeminiApiService(
             }
         }
         
-        return base64Builder?.toString()?.takeIf { it.isNotEmpty() }
+        // 处理最后可能未完成的数据
+        base64Builder?.let { builder ->
+            val base64Data = builder.toString()
+            if (base64Data.isNotEmpty()) {
+                result.add(base64Data)
+            }
+        }
+        
+        return result
     }
 
     private suspend fun parseEnhancePromptResponse(response: HttpResponse): AppResult<String> {

@@ -143,6 +143,7 @@
     <string name="paint_image_load_failed">图片加载失败</string>
     <string name="paint_please_config_api">请先配置API</string>
     <string name="paint_generate_success">生成成功</string>
+    <string name="paint_generate_multiple_success">成功生成 %d 张图片</string>
     <string name="paint_generate_failed">生成失败</string>
     <string name="paint_stopped">已停止生成</string>
     <string name="paint_save_success">保存成功</string>

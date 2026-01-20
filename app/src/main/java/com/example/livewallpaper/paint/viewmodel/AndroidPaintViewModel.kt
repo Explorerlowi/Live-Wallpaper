@@ -486,33 +486,59 @@ class AndroidPaintViewModel(
                         resolution = state.selectedResolution
                     )
                     
-                    result.onSuccess { base64Data ->
-                        val imageInfo = saveGeneratedImage(
-                            sessionId = generatingSessionId,
-                            messageId = generatingMessageId,
-                            base64Data = base64Data
-                        )
-                        val updatedMessage = assistantMessage.copy(
-                            messageContent = "",
-                            images = listOf(
+                    result.onSuccess { base64DataList ->
+                        // 保存所有生成的图片
+                        val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
+                            val imageInfo = saveGeneratedImage(
+                                sessionId = generatingSessionId,
+                                messageId = generatingMessageId,
+                                base64Data = base64Data,
+                                imageIndex = index
+                            )
+                            imageInfo?.let {
                                 PaintImage(
                                     id = generateId(),
-                                    localPath = imageInfo?.first,
+                                    localPath = it.first,
                                     mimeType = "image/png",
-                                    width = imageInfo?.second ?: 0,
-                                    height = imageInfo?.third ?: 0
+                                    width = it.second,
+                                    height = it.third
                                 )
-                            ),
-                            status = MessageStatus.SUCCESS,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        repository.updateMessage(updatedMessage)
-                        // 更新会话的 updatedAt
-                        repository.getSession(generatingSessionId).first()?.let { sess ->
-                            repository.updateSession(sess)
+                            }
                         }
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(PaintToastMessage.GenerateSuccess)
+                        
+                        if (savedImages.isEmpty()) {
+                            // 没有成功保存任何图片
+                            val errorMessage = assistantMessage.copy(
+                                messageContent = "保存图片失败",
+                                status = MessageStatus.ERROR,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateMessage(errorMessage)
+                            withContext(Dispatchers.Main) {
+                                _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
+                            }
+                        } else {
+                            // 更新消息，包含所有生成的图片
+                            val updatedMessage = assistantMessage.copy(
+                                messageContent = "",
+                                images = savedImages,
+                                status = MessageStatus.SUCCESS,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateMessage(updatedMessage)
+                            // 更新会话的 updatedAt
+                            repository.getSession(generatingSessionId).first()?.let { sess ->
+                                repository.updateSession(sess)
+                            }
+                            withContext(Dispatchers.Main) {
+                                _toastEvent.emit(
+                                    if (savedImages.size > 1) {
+                                        PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
+                                    } else {
+                                        PaintToastMessage.GenerateSuccess
+                                    }
+                                )
+                            }
                         }
                     }.onError { error ->
                         val errorMessage = assistantMessage.copy(
@@ -562,10 +588,12 @@ class AndroidPaintViewModel(
     private fun saveGeneratedImage(
         sessionId: String,
         messageId: String,
-        base64Data: String
+        base64Data: String,
+        imageIndex: Int = 0
     ): Triple<String, Int, Int>? {
         val dir = File(appContext.filesDir, "aipaint/$sessionId").apply { mkdirs() }
-        val file = File(dir, "$messageId.png")
+        val fileName = if (imageIndex == 0) "$messageId.png" else "${messageId}_$imageIndex.png"
+        val file = File(dir, fileName)
         
         return try {
             // 分块解码并写入文件，避免一次性加载整个图片到内存
@@ -1005,32 +1033,58 @@ class AndroidPaintViewModel(
                         resolution = session.resolution
                     )
                     
-                    result.onSuccess { base64Data ->
-                        val imageInfo = saveGeneratedImage(
-                            sessionId = sessionId,
-                            messageId = generatingMessageId,
-                            base64Data = base64Data
-                        )
-                        val updatedMessage = newAssistantMessage.copy(
-                            messageContent = "",
-                            images = listOf(
+                    result.onSuccess { base64DataList ->
+                        // 保存所有生成的图片
+                        val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
+                            val imageInfo = saveGeneratedImage(
+                                sessionId = sessionId,
+                                messageId = generatingMessageId,
+                                base64Data = base64Data,
+                                imageIndex = index
+                            )
+                            imageInfo?.let {
                                 PaintImage(
                                     id = generateId(),
-                                    localPath = imageInfo?.first,
+                                    localPath = it.first,
                                     mimeType = "image/png",
-                                    width = imageInfo?.second ?: 0,
-                                    height = imageInfo?.third ?: 0
+                                    width = it.second,
+                                    height = it.third
                                 )
-                            ),
-                            status = MessageStatus.SUCCESS,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        repository.updateMessage(updatedMessage)
-                        repository.getSession(sessionId).first()?.let { sess ->
-                            repository.updateSession(sess)
+                            }
                         }
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(PaintToastMessage.GenerateSuccess)
+                        
+                        if (savedImages.isEmpty()) {
+                            // 没有成功保存任何图片
+                            val errorMessage = newAssistantMessage.copy(
+                                messageContent = "保存图片失败",
+                                status = MessageStatus.ERROR,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateMessage(errorMessage)
+                            withContext(Dispatchers.Main) {
+                                _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
+                            }
+                        } else {
+                            // 更新消息，包含所有生成的图片
+                            val updatedMessage = newAssistantMessage.copy(
+                                messageContent = "",
+                                images = savedImages,
+                                status = MessageStatus.SUCCESS,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateMessage(updatedMessage)
+                            repository.getSession(sessionId).first()?.let { sess ->
+                                repository.updateSession(sess)
+                            }
+                            withContext(Dispatchers.Main) {
+                                _toastEvent.emit(
+                                    if (savedImages.size > 1) {
+                                        PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
+                                    } else {
+                                        PaintToastMessage.GenerateSuccess
+                                    }
+                                )
+                            }
                         }
                     }.onError { error ->
                         val errorMessage = newAssistantMessage.copy(

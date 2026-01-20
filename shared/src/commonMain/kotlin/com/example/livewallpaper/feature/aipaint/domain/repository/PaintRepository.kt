@@ -42,7 +42,7 @@ interface PaintRepository {
         images: List<PaintImage>,
         aspectRatio: AspectRatio,
         resolution: Resolution
-    ): AppResult<String>
+    ): AppResult<List<String>>
     
     suspend fun enhancePrompt(
         profile: ApiProfile,

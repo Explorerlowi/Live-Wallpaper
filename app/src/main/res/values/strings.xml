@@ -141,6 +141,7 @@
     <string name="paint_image_load_failed">Failed to load image</string>
     <string name="paint_please_config_api">Please configure API first</string>
     <string name="paint_generate_success">Generation successful</string>
+    <string name="paint_generate_multiple_success">Successfully generated %d images</string>
     <string name="paint_generate_failed">Generation failed</string>
     <string name="paint_stopped">Generation stopped</string>
     <string name="paint_save_success">Saved successfully</string>

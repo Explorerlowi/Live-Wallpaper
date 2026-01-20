@@ -7,6 +7,7 @@ package com.example.livewallpaper.paint.viewmodel
 sealed class PaintToastMessage {
     data object PleaseConfigApi : PaintToastMessage()
     data object GenerateSuccess : PaintToastMessage()
+    data class GenerateMultipleSuccess(val count: Int) : PaintToastMessage()  // 生成多张图片成功
     data class GenerateFailed(val error: String?) : PaintToastMessage()
     data object Stopped : PaintToastMessage()
     data object SaveSuccess : PaintToastMessage()
