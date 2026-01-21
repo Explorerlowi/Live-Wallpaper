@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import com.example.livewallpaper.ui.components.SelectOption
+import com.example.livewallpaper.ui.components.SimpleSelectDialog
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -130,6 +132,9 @@ fun ImageSplitExportScreen(
     var compressAsZip by remember { mutableStateOf(false) }
     var isExporting by remember { mutableStateOf(false) }
     
+    // 选中导出的图块索引集合，默认全选
+    var selectedTileIndices by remember { mutableStateOf(tiles.indices.toSet()) }
+    
     // 从持久化存储加载已保存的值
     var savedPrefixValues by remember { mutableStateOf(loadSavedPrefixes(context)) }
     var savedSuffixValues by remember { mutableStateOf(loadSavedSuffixes(context)) }
@@ -201,23 +206,37 @@ fun ImageSplitExportScreen(
         }
     }
     
-    // 导出图片
+    // 导出图片（只导出选中的图块）
     fun exportTiles() {
+        if (selectedTileIndices.isEmpty()) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.split_no_selection_hint),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        
         scope.launch {
             isExporting = true
             try {
+                // 只导出选中的图块
+                val tilesToExport = mutableTiles.filterIndexed { index, _ -> 
+                    index in selectedTileIndices 
+                }
+                
                 val result = withContext(Dispatchers.IO) {
                     if (compressAsZip) {
-                        exportAsZip(context, mutableTiles, exportFormat)
+                        exportAsZip(context, tilesToExport, exportFormat)
                     } else {
-                        exportIndividually(context, mutableTiles, exportFormat)
+                        exportIndividually(context, tilesToExport, exportFormat)
                     }
                 }
                 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.split_export_success, mutableTiles.size),
+                        context.getString(R.string.split_export_success, tilesToExport.size),
                         Toast.LENGTH_SHORT
                     ).show()
                     onDismiss()
@@ -328,11 +347,29 @@ fun ImageSplitExportScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // 选择导出控制栏
+                        SelectionControlBar(
+                            selectedCount = selectedTileIndices.size,
+                            totalCount = mutableTiles.size,
+                            onSelectAll = { selectedTileIndices = mutableTiles.indices.toSet() },
+                            onDeselectAll = { selectedTileIndices = emptySet() }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         // 图块轮播区
                         TileCarousel(
                             tiles = mutableTiles,
                             selectedIndex = selectedIndex,
+                            selectedTileIndices = selectedTileIndices,
                             onSelectTile = { selectedIndex = it },
+                            onToggleTileSelection = { index ->
+                                selectedTileIndices = if (index in selectedTileIndices) {
+                                    selectedTileIndices - index
+                                } else {
+                                    selectedTileIndices + index
+                                }
+                            },
                             onEditTile = { index ->
                                 editingTileIndex = index
                                 showImageEditor = true
@@ -380,7 +417,7 @@ fun ImageSplitExportScreen(
                                 .padding(16.dp)
                                 .height(52.dp),
                             shape = RoundedCornerShape(26.dp),
-                            enabled = !isExporting
+                            enabled = !isExporting && selectedTileIndices.isNotEmpty()
                         ) {
                             if (isExporting) {
                                 CircularProgressIndicator(
@@ -397,7 +434,7 @@ fun ImageSplitExportScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                stringResource(R.string.split_download_tiles, mutableTiles.size),
+                                stringResource(R.string.split_download_tiles, selectedTileIndices.size),
                                 style = MaterialTheme.typography.titleMedium
                             )
                         }
@@ -556,13 +593,79 @@ private fun ExportTopBar(
 }
 
 /**
+ * 选择导出控制栏
+ */
+@Composable
+private fun SelectionControlBar(
+    selectedCount: Int,
+    totalCount: Int,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 选中计数
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.split_selected_count, selectedCount, totalCount),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        
+        // 全选/取消全选按钮
+        val isAllSelected = selectedCount == totalCount
+        TextButton(
+            onClick = if (isAllSelected) onDeselectAll else onSelectAll
+        ) {
+            Icon(
+                imageVector = if (isAllSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = stringResource(
+                    if (isAllSelected) R.string.split_deselect_all else R.string.split_select_all
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/**
  * 图块轮播区
  */
 @Composable
 private fun TileCarousel(
     tiles: List<SplitTile>,
     selectedIndex: Int,
+    selectedTileIndices: Set<Int>,
     onSelectTile: (Int) -> Unit,
+    onToggleTileSelection: (Int) -> Unit,
     onEditTile: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
@@ -674,8 +777,10 @@ private fun TileCarousel(
             TileCard(
                 tile = tile,
                 isSelected = index == centerItemIndex, // 使用实时计算的中心项
+                isCheckedForExport = index in selectedTileIndices,
                 onClick = { onSelectTile(index) },
-                onDoubleClick = { onEditTile(index) }
+                onDoubleClick = { onEditTile(index) },
+                onToggleExportSelection = { onToggleTileSelection(index) }
             )
         }
     }
@@ -688,8 +793,10 @@ private fun TileCarousel(
 private fun TileCard(
     tile: SplitTile,
     isSelected: Boolean,
+    isCheckedForExport: Boolean,
     onClick: () -> Unit,
-    onDoubleClick: () -> Unit = {}
+    onDoubleClick: () -> Unit = {},
+    onToggleExportSelection: () -> Unit = {}
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isSelected) 1.1f else 0.85f,
@@ -700,9 +807,11 @@ private fun TileCard(
         label = "scale"
     )
     
-    val elevation by animateDpAsState(
-        targetValue = if (isSelected) 12.dp else 4.dp,
-        label = "elevation"
+    // 选中状态的边框宽度（替代阴影，避免透明 PNG 出现灰色）
+    // 只有选中导出且是当前浏览项时才显示边框
+    val borderWidth by animateDpAsState(
+        targetValue = if (isSelected && isCheckedForExport) 2.dp else 0.dp,
+        label = "borderWidth"
     )
 
     // 高度固定，宽度按原始比例动态变化（并限制范围，避免极端长图撑爆轮播）
@@ -711,6 +820,12 @@ private fun TileCard(
         tile.bitmap.width.toFloat() / tile.bitmap.height.coerceAtLeast(1).toFloat()
     }
     val cardWidth = (cardHeight * aspect).coerceIn(120.dp, 280.dp)
+    
+    // 未选中导出时的透明度
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isCheckedForExport) 1f else 0.4f,
+        label = "contentAlpha"
+    )
     
     Column(
         modifier = Modifier
@@ -723,6 +838,16 @@ private fun TileCard(
             modifier = Modifier
                 .width(cardWidth)
                 .height(cardHeight)
+                .graphicsLayer { alpha = contentAlpha }
+                .then(
+                    if (borderWidth > 0.dp) {
+                        Modifier.border(
+                            width = borderWidth,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    } else Modifier
+                )
                 .clickable {
                     if (isSelected) {
                         // 已选中的卡片，点击进入编辑
@@ -733,8 +858,7 @@ private fun TileCard(
                     }
                 },
             shape = RoundedCornerShape(16.dp),
-            shadowElevation = elevation,
-            color = MaterialTheme.colorScheme.surface
+            color = Color.Transparent  // 透明背景，避免 PNG 透明区域显示灰色
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Image(
@@ -755,18 +879,42 @@ private fun TileCard(
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        // 外部底部标签
+        // 底部标签（包含选中复选框和名称）
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+            color = MaterialTheme.colorScheme.primaryContainer.copy(
+                alpha = if (isCheckedForExport) 0.8f else 0.4f
+            ),
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onToggleExportSelection() }
         ) {
-            Text(
-                text = if (tile.fileName.isNotBlank()) tile.fileName else "tile ${String.format("%02d", tile.index + 1)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                modifier = Modifier.padding(start = 6.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 选中复选框
+                Checkbox(
+                    checked = isCheckedForExport,
+                    onCheckedChange = { onToggleExportSelection() },
+                    modifier = Modifier.size(20.dp),
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                // 文件名
+                Text(
+                    text = if (tile.fileName.isNotBlank()) tile.fileName else "tile ${String.format("%02d", tile.index + 1)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(
+                        alpha = if (isCheckedForExport) 1f else 0.6f
+                    ),
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -1020,6 +1168,7 @@ private fun NamingInputDialog(
     onDismiss: () -> Unit
 ) {
     var inputValue by remember { mutableStateOf(currentValue) }
+    var showHistoryDialog by remember { mutableStateOf(false) }
 
     // 覆盖层模式：避免弹出系统 Dialog/AlertDialog（会触发窗口 dim/重绘导致闪屏）
     BackHandler(onBack = onDismiss)
@@ -1075,61 +1224,61 @@ private fun NamingInputDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         cursorColor = MaterialTheme.colorScheme.primary
-                    )
+                    ),
+                    trailingIcon = if (inputValue.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { inputValue = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else null
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 if (savedValues.isNotEmpty()) {
+                    // 使用按钮替代原来的 FlowRow
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showHistoryDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = stringResource(R.string.split_saved_options),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                savedValues.forEach { value ->
-                                    val selected = inputValue == value
-                                    FilterChip(
-                                        selected = selected,
-                                        onClick = { inputValue = value },
-                                        label = { Text(value) },
-                                        leadingIcon = if (selected) {
-                                            {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        } else null,
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surface,
-                                            labelColor = MaterialTheme.colorScheme.onSurface,
-                                            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        ),
-                                        border = FilterChipDefaults.filterChipBorder(
-                                            enabled = true,
-                                            selected = selected,
-                                            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-                                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                                        )
-                                    )
-                                }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = stringResource(R.string.split_saved_options),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -1190,6 +1339,27 @@ private fun NamingInputDialog(
                 }
             }
         }
+    }
+
+    // 历史记录选择弹窗
+    if (showHistoryDialog) {
+        val options = savedValues.map { value ->
+            SelectOption(
+                value = value,
+                label = value,
+                icon = Icons.Default.History
+            )
+        }
+        
+        SimpleSelectDialog(
+            options = options,
+            selectedValue = inputValue,
+            onSelect = { 
+                inputValue = it
+                showHistoryDialog = false
+            },
+            onDismiss = { showHistoryDialog = false }
+        )
     }
 }
 

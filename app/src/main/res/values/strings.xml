@@ -238,6 +238,10 @@
     <string name="split_compress_zip">Compress as ZIP</string>
     <string name="split_compress_hint">Bundle all tiles into a single archive</string>
     <string name="split_download_tiles">Download %1$d Tiles</string>
+    <string name="split_selected_count">%1$d/%2$d selected</string>
+    <string name="split_select_all">Select All</string>
+    <string name="split_deselect_all">Deselect All</string>
+    <string name="split_no_selection_hint">Please select at least one tile to export</string>
     <string name="split_select_prefix">Select or Input Prefix</string>
     <string name="split_select_suffix">Select or Input Suffix</string>
     <string name="split_input_new">Input new value…</string>

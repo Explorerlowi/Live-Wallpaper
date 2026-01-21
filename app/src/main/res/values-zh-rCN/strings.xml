@@ -240,6 +240,10 @@
     <string name="split_compress_zip">压缩为ZIP</string>
     <string name="split_compress_hint">将所有图块打包成一个压缩文件</string>
     <string name="split_download_tiles">下载 %1$d 个图块</string>
+    <string name="split_selected_count">已选 %1$d/%2$d</string>
+    <string name="split_select_all">全选</string>
+    <string name="split_deselect_all">取消全选</string>
+    <string name="split_no_selection_hint">请至少选择一个图块导出</string>
     <string name="split_select_prefix">选择或输入前缀</string>
     <string name="split_select_suffix">选择或输入后缀</string>
     <string name="split_input_new">输入新内容…</string>
