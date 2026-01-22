@@ -13,6 +13,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -126,6 +131,7 @@ import com.example.livewallpaper.ui.theme.TextPrimary
 import com.example.livewallpaper.ui.theme.TextSecondary
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.ui.LanguageOption
 import org.koin.androidx.compose.koinViewModel
@@ -172,42 +178,11 @@ private fun checkPhotoPermissionStatus(context: android.content.Context): Pair<B
 }
 
 @Composable
-fun SettingsScreen(
+fun WallpaperHomeScreen(
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-
-    // Activity Result Launcher for Settings
-    val settingsLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            result.data?.let { data ->
-                data.getLongExtra("interval", -1L).takeIf { it != -1L }?.let { interval ->
-                    viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
-                }
-                data.getStringExtra("scaleMode")?.let { scaleMode ->
-                    viewModel.onEvent(SettingsEvent.UpdateScaleMode(
-                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode.valueOf(scaleMode)
-                    ))
-                }
-                data.getStringExtra("playMode")?.let { playMode ->
-                    viewModel.onEvent(SettingsEvent.UpdatePlayMode(
-                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode.valueOf(playMode)
-                    ))
-                }
-                data.getStringExtra("languageTag")?.let { languageTag ->
-                    viewModel.onEvent(SettingsEvent.UpdateLanguage(languageTag))
-                }
-                data.getStringExtra("themeMode")?.let { themeMode ->
-                    viewModel.onEvent(SettingsEvent.UpdateThemeMode(
-                        com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode.valueOf(themeMode)
-                    ))
-                }
-            }
-        }
-    }
 
     // 对话框状态
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
@@ -217,6 +192,7 @@ fun SettingsScreen(
     var showCropUri by remember { mutableStateOf<String?>(null) }
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showReorderSheet by remember { mutableStateOf(false) }
+    var showAppSettings by remember { mutableStateOf(false) }
     
     // 多选模式状态
     var isMultiSelectMode by remember { mutableStateOf(false) }
@@ -388,16 +364,7 @@ fun SettingsScreen(
                     selectedCount = selectedUris.size,
                     totalCount = state.config.imageUris.size,
                     isReorderEnabled = state.config.imageUris.size > 1,
-                    onSettingsClick = {
-                        val intent = Intent(context, SettingsActivity::class.java).apply {
-                            putExtra("interval", state.config.interval)
-                            putExtra("scaleMode", state.config.scaleMode.name)
-                            putExtra("playMode", state.config.playMode.name)
-                            putExtra("languageTag", state.config.languageTag)
-                            putExtra("themeMode", state.config.themeMode.name)
-                        }
-                        settingsLauncher.launch(intent)
-                    },
+                    onSettingsClick = { showAppSettings = true },
                     onReorderClick = { showReorderSheet = true },
                     onDrawClick = {
                         val intent = Intent(context, com.example.livewallpaper.paint.PaintActivity::class.java).apply {
@@ -521,6 +488,40 @@ fun SettingsScreen(
                 },
                 onDismiss = { showReorderSheet = false }
             )
+        }
+
+        // App 设置页（同 Activity 内的 Screen，从右侧滑入）
+        AnimatedVisibility(
+            visible = showAppSettings,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                AppSettingsScreen(
+                    currentInterval = state.config.interval,
+                    currentScaleMode = state.config.scaleMode,
+                    currentPlayMode = state.config.playMode,
+                    currentLanguageTag = state.config.languageTag,
+                    currentThemeMode = state.config.themeMode,
+                    onConfirm = { interval, scaleMode, playMode ->
+                        viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
+                        viewModel.onEvent(SettingsEvent.UpdateScaleMode(scaleMode))
+                        viewModel.onEvent(SettingsEvent.UpdatePlayMode(playMode))
+                    },
+                    onLanguageChange = { language ->
+                        viewModel.onEvent(SettingsEvent.UpdateLanguage(language.localeTag))
+                        showAppSettings = false
+                    },
+                    onThemeModeChange = { themeMode ->
+                        viewModel.onEvent(SettingsEvent.UpdateThemeMode(themeMode))
+                    },
+                    onBack = { showAppSettings = false }
+                )
+            }
         }
     }
 

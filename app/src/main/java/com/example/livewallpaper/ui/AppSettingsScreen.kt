@@ -1,15 +1,9 @@
 package com.example.livewallpaper.ui
 
-import android.os.Bundle
-import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,24 +15,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,9 +39,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -63,11 +49,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,82 +58,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
-import com.example.livewallpaper.ui.theme.LiveWallpaperTheme
-import com.example.livewallpaper.ui.LanguageOption
-import kotlinx.coroutines.launch
-import java.util.Locale
-
-class SettingsActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        
-        // 保持屏幕常亮，防止息屏
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        
-        // Edge-to-Edge 已在 themes.xml 中配置
-        
-        // 获取传入的参数
-        val currentInterval = intent.getLongExtra("interval", 5000L)
-        val currentScaleMode = ScaleMode.valueOf(
-            intent.getStringExtra("scaleMode") ?: ScaleMode.CENTER_CROP.name
-        )
-        val currentPlayMode = PlayMode.valueOf(
-            intent.getStringExtra("playMode") ?: PlayMode.SEQUENTIAL.name
-        )
-        val currentLanguageTag = intent.getStringExtra("languageTag")
-        val currentThemeMode = ThemeMode.valueOf(
-            intent.getStringExtra("themeMode") ?: ThemeMode.SYSTEM.name
-        )
-        
-        // 立即设置内容，减少启动延迟
-        setContent {
-            // 使用 remember 和 mutableStateOf 来响应主题变化
-            var themeMode by remember { mutableStateOf(currentThemeMode) }
-            
-            LiveWallpaperTheme(themeMode = themeMode) {
-                SettingsScreen(
-                    currentInterval = currentInterval,
-                    currentScaleMode = currentScaleMode,
-                    currentPlayMode = currentPlayMode,
-                    currentLanguageTag = currentLanguageTag,
-                    currentThemeMode = currentThemeMode,
-                    onConfirm = { interval, scaleMode, playMode ->
-                        intent.putExtra("interval", interval)
-                        intent.putExtra("scaleMode", scaleMode.name)
-                        intent.putExtra("playMode", playMode.name)
-                        setResult(RESULT_OK, intent)
-                    },
-                    onLanguageChange = { language ->
-                        intent.putExtra("languageTag", language.localeTag)
-                        setResult(RESULT_OK, intent)
-                        // 保存时应用语言变化
-                        val localeList = androidx.core.os.LocaleListCompat.forLanguageTags(language.localeTag)
-                        androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(localeList)
-                        // 语言切换会重建 Activity，直接 finish 避免闪黑
-                        finish()
-                    },
-                    onThemeModeChange = { newThemeMode ->
-                        themeMode = newThemeMode  // 立即更新主题
-                        intent.putExtra("themeMode", newThemeMode.name)
-                        setResult(RESULT_OK, intent)
-                    },
-                    onBack = { finish() }
-                )
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
+fun AppSettingsScreen(
     currentInterval: Long,
     currentScaleMode: ScaleMode,
     currentPlayMode: PlayMode,
@@ -175,16 +91,16 @@ fun SettingsScreen(
     var showPlayModeSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
-    
+
     // 检查是否有修改
     val hasChanges = remember(intervalValue, selectedScaleMode, selectedPlayMode, selectedLanguage, selectedThemeMode) {
         intervalValue.toLong() != currentInterval ||
-        selectedScaleMode != currentScaleMode ||
-        selectedPlayMode != currentPlayMode ||
-        selectedLanguage != initialLanguage ||
-        selectedThemeMode != currentThemeMode
+            selectedScaleMode != currentScaleMode ||
+            selectedPlayMode != currentPlayMode ||
+            selectedLanguage != initialLanguage ||
+            selectedThemeMode != currentThemeMode
     }
-    
+
     // 处理返回按钮
     val handleBack: () -> Unit = {
         if (hasChanges) {
@@ -193,11 +109,9 @@ fun SettingsScreen(
             onBack()
         }
     }
-    
+
     // 拦截系统返回键
-    BackHandler {
-        handleBack()
-    }
+    BackHandler { handleBack() }
 
     Scaffold(
         topBar = {
@@ -267,8 +181,11 @@ fun SettingsScreen(
                             value = stringResource(R.string.interval_seconds, intervalValue / 1000f),
                             onClick = { showIntervalInputDialog = true }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
                         // 缩放模式
                         val scaleModeLabel = when (selectedScaleMode) {
                             ScaleMode.CENTER_CROP -> stringResource(R.string.scale_mode_fill)
@@ -280,8 +197,11 @@ fun SettingsScreen(
                             value = scaleModeLabel,
                             onClick = { showScaleModeSheet = true }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
                         // 播放模式
                         val playModeLabel = when (selectedPlayMode) {
                             PlayMode.SEQUENTIAL -> stringResource(R.string.play_mode_sequential)
@@ -313,8 +233,11 @@ fun SettingsScreen(
                             value = themeLabel,
                             onClick = { showThemeSheet = true }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
                         // 语言
                         SettingsItem(
                             icon = Icons.Default.Language,
@@ -328,8 +251,6 @@ fun SettingsScreen(
         }
     }
 
-    // 弹窗和对话框部分
-    
     // 间隔输入对话框
     if (showIntervalInputDialog) {
         IntervalInputDialog(
@@ -349,8 +270,8 @@ fun SettingsScreen(
             title = stringResource(R.string.scale_mode_label),
             options = ScaleMode.entries,
             selectedOption = selectedScaleMode,
-            onOptionSelected = { 
-                selectedScaleMode = it 
+            onOptionSelected = {
+                selectedScaleMode = it
                 showScaleModeSheet = false
             },
             onDismissRequest = { showScaleModeSheet = false },
@@ -362,15 +283,15 @@ fun SettingsScreen(
             }
         )
     }
-    
+
     // 播放模式选择
     if (showPlayModeSheet) {
         SelectionBottomSheet(
             title = stringResource(R.string.play_mode_label),
             options = PlayMode.entries,
             selectedOption = selectedPlayMode,
-            onOptionSelected = { 
-                selectedPlayMode = it 
+            onOptionSelected = {
+                selectedPlayMode = it
                 showPlayModeSheet = false
             },
             onDismissRequest = { showPlayModeSheet = false },
@@ -382,14 +303,14 @@ fun SettingsScreen(
             }
         )
     }
-    
+
     // 主题选择
     if (showThemeSheet) {
         SelectionBottomSheet(
             title = stringResource(R.string.theme_label),
             options = ThemeMode.entries,
             selectedOption = selectedThemeMode,
-            onOptionSelected = { 
+            onOptionSelected = {
                 selectedThemeMode = it
                 onThemeModeChange(it) // 立即应用主题预览
                 showThemeSheet = false
@@ -406,14 +327,14 @@ fun SettingsScreen(
             }
         )
     }
-    
+
     // 语言选择
     if (showLanguageSheet) {
         SelectionBottomSheet(
             title = stringResource(R.string.language_label),
             options = LanguageOption.entries,
             selectedOption = selectedLanguage,
-            onOptionSelected = { 
+            onOptionSelected = {
                 selectedLanguage = it
                 showLanguageSheet = false
             },
@@ -427,7 +348,6 @@ fun SettingsScreen(
         ExitConfirmDialog(
             onSaveAndExit = {
                 onConfirm(intervalValue.toLong(), selectedScaleMode, selectedPlayMode)
-                // 语言变化时通知并应用
                 if (selectedLanguage != initialLanguage) {
                     onLanguageChange(selectedLanguage)
                 } else {
@@ -450,15 +370,13 @@ fun SettingsScreen(
 
 @Composable
 fun SettingsGroupCard(content: @Composable () -> Unit) {
-    Surface(
+    androidx.compose.material3.Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
         shadowElevation = 1.dp
     ) {
-        Column {
-            content()
-        }
+        Column { content() }
     }
 }
 
@@ -470,12 +388,12 @@ fun SettingsItem(
     onClick: () -> Unit
 ) {
     ListItem(
-        headlineContent = { 
+        headlineContent = {
             Text(
-                text = title, 
+                text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium
-            ) 
+            )
         },
         supportingContent = null,
         leadingContent = {
@@ -487,7 +405,7 @@ fun SettingsItem(
             )
         },
         trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyMedium,
@@ -502,9 +420,7 @@ fun SettingsItem(
                 )
             }
         },
-        colors = ListItemDefaults.colors(
-            containerColor = Color.Transparent
-        ),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick)
     )
 }
@@ -520,7 +436,7 @@ fun <T> SelectionBottomSheet(
     labelProvider: @Composable (T) -> String
 ) {
     val sheetState = rememberModalBottomSheetState()
-    
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
@@ -538,7 +454,7 @@ fun <T> SelectionBottomSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
             )
-            
+
             options.forEach { option ->
                 val isSelected = option == selectedOption
                 Row(
@@ -547,7 +463,7 @@ fun <T> SelectionBottomSheet(
                         .clickable { onOptionSelected(option) }
                         .padding(horizontal = 24.dp, vertical = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
                     Text(
                         text = labelProvider(option),
@@ -555,7 +471,7 @@ fun <T> SelectionBottomSheet(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
-                    
+
                     if (isSelected) {
                         Icon(
                             imageVector = Icons.Default.Check,
@@ -593,12 +509,12 @@ private fun IntervalInputDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 OutlinedTextField(
                     value = inputText,
-                    onValueChange = { 
+                    onValueChange = {
                         inputText = it
                         isError = false
                     },
@@ -626,7 +542,7 @@ private fun IntervalInputDialog(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
-                
+
                 if (isError) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -664,9 +580,6 @@ private fun IntervalInputDialog(
     )
 }
 
-/**
- * 退出确认对话框
- */
 @Composable
 private fun ExitConfirmDialog(
     onSaveAndExit: () -> Unit,
@@ -715,3 +628,4 @@ private fun ExitConfirmDialog(
         shape = RoundedCornerShape(20.dp)
     )
 }
+

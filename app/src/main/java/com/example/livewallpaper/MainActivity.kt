@@ -7,7 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.example.livewallpaper.feature.dynamicwallpaper.presentation.viewmodel.SettingsViewModel
-import com.example.livewallpaper.ui.SettingsScreen
+import com.example.livewallpaper.ui.WallpaperHomeScreen
 import com.example.livewallpaper.ui.theme.LiveWallpaperTheme
 import org.koin.androidx.compose.koinViewModel
 
@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
             val uiState by viewModel.uiState.collectAsState()
             
             LiveWallpaperTheme(themeMode = uiState.config.themeMode) {
-                SettingsScreen(viewModel = viewModel)
+                WallpaperHomeScreen(viewModel = viewModel)
             }
         }
     }
