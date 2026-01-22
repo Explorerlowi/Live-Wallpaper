@@ -305,6 +305,7 @@ fun SettingsScreen(
                             ThemeMode.LIGHT -> stringResource(R.string.theme_light)
                             ThemeMode.DARK -> stringResource(R.string.theme_dark)
                             ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
+                            ThemeMode.CLEAR -> stringResource(R.string.theme_clear)
                         }
                         SettingsItem(
                             icon = Icons.Default.ColorLens,
@@ -400,6 +401,7 @@ fun SettingsScreen(
                     ThemeMode.LIGHT -> stringResource(R.string.theme_light)
                     ThemeMode.DARK -> stringResource(R.string.theme_dark)
                     ThemeMode.STARDUST -> stringResource(R.string.theme_stardust)
+                    ThemeMode.CLEAR -> stringResource(R.string.theme_clear)
                 }
             }
         )

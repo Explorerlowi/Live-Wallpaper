@@ -94,6 +94,33 @@ private val StardustColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6)
 )
 
+// 清透主题 (Clear Theme)
+private val ClearColorScheme = lightColorScheme(
+    primary = ClearPurple,                    // 紫色主色 #A49AFF
+    onPrimary = ClearTextPrimary,             // 浅色背景，使用深色文字
+    primaryContainer = ClearPalePurple,       // 浅紫容器 #E4BAFF
+    onPrimaryContainer = ClearTextPrimary,
+    secondary = ClearBlue,                    // 蓝色次要色 #B7E3FF
+    onSecondary = ClearTextPrimary,
+    secondaryContainer = ClearBlue.copy(alpha = 0.7f),
+    onSecondaryContainer = ClearTextPrimary,
+    tertiary = ClearPink,                     // 粉色第三色 #FFCCFF
+    onTertiary = ClearTextPrimary,
+    tertiaryContainer = ClearPink.copy(alpha = 0.7f),
+    onTertiaryContainer = ClearTextPrimary,
+    background = ClearBackground,             // 极浅背景
+    onBackground = ClearTextPrimary,
+    surface = ClearSurface,
+    onSurface = ClearTextPrimary,
+    surfaceVariant = Color(0xFFF0EBF5),       // 浅紫灰变体
+    onSurfaceVariant = ClearTextSecondary,
+    outline = ClearPurple.copy(alpha = 0.5f),
+    error = DeleteRed,
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002)
+)
+
 /**
  * 根据 ThemeMode 判断是否使用深色主题
  */
@@ -104,6 +131,7 @@ fun shouldUseDarkTheme(themeMode: ThemeMode): Boolean {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
         ThemeMode.STARDUST -> true  // 星尘主题是深色系
+        ThemeMode.CLEAR -> false    // 清透主题是浅色系
     }
 }
 
@@ -115,6 +143,7 @@ fun LiveWallpaperTheme(
     val darkTheme = shouldUseDarkTheme(themeMode)
     val colorScheme = when (themeMode) {
         ThemeMode.STARDUST -> StardustColorScheme
+        ThemeMode.CLEAR -> ClearColorScheme
         else -> if (darkTheme) DarkColorScheme else LightColorScheme
     }
 

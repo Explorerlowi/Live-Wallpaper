@@ -96,6 +96,7 @@
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="theme_stardust">星尘</string>
+    <string name="theme_clear">清透</string>
     
     <!-- 退出确认 -->
     <string name="exit_confirm_title">保存更改？</string>

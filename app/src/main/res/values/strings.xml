@@ -94,6 +94,7 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="theme_stardust">Stardust</string>
+    <string name="theme_clear">Clear</string>
     
     <!-- 退出确认 -->
     <string name="exit_confirm_title">Save Changes?</string>

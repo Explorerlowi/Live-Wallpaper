@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.example.livewallpaper.R
 import com.example.livewallpaper.ui.components.AppDropdownMenu
 import com.example.livewallpaper.ui.components.AppMenuItem
@@ -294,6 +296,12 @@ fun ImageSplitExportScreen(
             decorFitsSystemWindows = false
         )
     ) {
+        // 去除 Dialog 的默认灰色蒙版
+        val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
+        SideEffect {
+            dialogWindowProvider?.window?.setDimAmount(0f)
+        }
+
         // 拦截返回键，播放退出动画后返回
         BackHandler {
             handleBack()
@@ -618,13 +626,6 @@ private fun SelectionControlBar(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = stringResource(R.string.split_selected_count, selectedCount, totalCount),
                     style = MaterialTheme.typography.labelMedium,
@@ -674,14 +675,29 @@ private fun TileCarousel(
     // 获取容器宽度，用于计算动态 contentPadding
     var containerWidth by remember { mutableIntStateOf(0) }
     
-    // 动态计算 contentPadding，确保第一张和最后一张图片能居中
-    // 使用容器宽度的一半减去最小卡片宽度的一半
-    val horizontalPadding = remember(containerWidth) {
-        if (containerWidth > 0) {
-            // 确保 padding 足够大，让任意宽度的卡片都能居中
-            (containerWidth / 2).coerceAtLeast(with(density) { 140.dp.roundToPx() })
+    // 计算卡片宽度的辅助函数
+    fun getCardWidth(tile: SplitTile): Float {
+        val aspect = tile.bitmap.width.toFloat() / tile.bitmap.height.coerceAtLeast(1).toFloat()
+        val widthDp = (200.dp * aspect).coerceIn(120.dp, 280.dp)
+        return with(density) { widthDp.toPx() }
+    }
+
+    // 动态计算首尾 padding，确保第一张和最后一张图片能居中
+    val startPadding = remember(containerWidth, tiles) {
+        if (containerWidth > 0 && tiles.isNotEmpty()) {
+            val firstTileWidth = getCardWidth(tiles.first())
+            ((containerWidth - firstTileWidth) / 2f).coerceAtLeast(0f)
         } else {
-            with(density) { 140.dp.roundToPx() }
+            0f
+        }
+    }
+    
+    val endPadding = remember(containerWidth, tiles) {
+        if (containerWidth > 0 && tiles.isNotEmpty()) {
+            val lastTileWidth = getCardWidth(tiles.last())
+            ((containerWidth - lastTileWidth) / 2f).coerceAtLeast(0f)
+        } else {
+            0f
         }
     }
     
@@ -736,10 +752,11 @@ private fun TileCarousel(
             }
         } else {
             // 选中项不在可见范围内，先滚动到该项，再调整居中
-            // 计算 scrollOffset：让 item 的中心对齐 viewport 的中心
-            // 由于不知道 item 的实际宽度，使用平均值估算
+            // 估算滚动偏移量：让 item 在视口中间
             val estimatedItemWidth = with(density) { 180.dp.roundToPx() }
-            val scrollOffset = -(viewportWidth / 2) + horizontalPadding + (estimatedItemWidth / 2)
+            // scrollOffset 是相对于视口起始位置的偏移
+            // 我们希望 item 位于 (viewportWidth - itemWidth) / 2 的位置
+            val scrollOffset = (viewportWidth - estimatedItemWidth) / 2
             
             listState.animateScrollToItem(
                 index = selectedIndex,
@@ -769,7 +786,10 @@ private fun TileCarousel(
             .height(240.dp)
             .onSizeChanged { containerWidth = it.width },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(horizontal = with(density) { horizontalPadding.toDp() }),
+        contentPadding = PaddingValues(
+            start = with(density) { startPadding.toDp() },
+            end = with(density) { endPadding.toDp() }
+        ),
         verticalAlignment = Alignment.CenterVertically,
         flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     ) {
@@ -810,7 +830,7 @@ private fun TileCard(
     // 选中状态的边框宽度（替代阴影，避免透明 PNG 出现灰色）
     // 只有选中导出且是当前浏览项时才显示边框
     val borderWidth by animateDpAsState(
-        targetValue = if (isSelected && isCheckedForExport) 2.dp else 0.dp,
+        targetValue = if (isSelected && isCheckedForExport) 1.5.dp else 0.dp,
         label = "borderWidth"
     )
 
@@ -894,16 +914,34 @@ private fun TileCard(
                 modifier = Modifier.padding(start = 6.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 选中复选框
-                Checkbox(
-                    checked = isCheckedForExport,
-                    onCheckedChange = { onToggleExportSelection() },
-                    modifier = Modifier.size(20.dp),
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                    )
-                )
+                // 选中状态图标（圆圈样式）
+                val selectionColor = if (isCheckedForExport)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onToggleExportSelection() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isCheckedForExport) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawCircle(color = selectionColor)
+                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            tint = selectionColor
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.width(4.dp))
                 // 文件名
                 Text(

@@ -57,3 +57,15 @@ val StardustSurface = Color(0xFF0F2044)       // 表面色 - 比背景稍亮
 val StardustSurfaceVariant = Color(0xFF1A2E5A) // 表面变体
 val StardustOnSurface = Color(0xFFE8F0FF)     // 表面上的文字
 val StardustOutline = Color(0xFF3A60A0)       // 边框色
+
+// ========== 清透色彩主题 (Clear Theme) ==========
+val ClearPink = Color(0xFFFFCCFF)
+val ClearPurple = Color(0xFFA49AFF)
+val ClearBlue = Color(0xFFB7E3FF)
+val ClearPalePurple = Color(0xFFE4BAFF)
+
+// 衍生色
+val ClearBackground = Color(0xFFFAFAFF) // 极浅的蓝紫色背景
+val ClearSurface = Color(0xFFFFFFFF)
+val ClearTextPrimary = Color(0xFF4A4060) // 深紫色文字
+val ClearTextSecondary = Color(0xFF7A7090)
