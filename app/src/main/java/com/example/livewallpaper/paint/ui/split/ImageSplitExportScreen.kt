@@ -8,7 +8,12 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
@@ -257,33 +262,22 @@ fun ImageSplitExportScreen(
         }
     }
     
-    // 滑动进入/退出动画
-    var isVisible by remember { mutableStateOf(false) }
-    var isClosing by remember { mutableStateOf(false) }
-    val slideOffset by animateFloatAsState(
-        targetValue = if (isVisible && !isClosing) 0f else 1f,
-        animationSpec = tween(
-            durationMillis = 300,
-            easing = FastOutSlowInEasing
-        ),
-        finishedListener = { 
-            // 退出动画完成后调用 onBack
-            if (isClosing) {
-                onBack()
-            }
-        },
-        label = "slideOffset"
-    )
-    
-    // 启动时触发进入动画
-    LaunchedEffect(Unit) {
-        isVisible = true
+    // 右侧滑入/滑出 + 淡入/淡出（与 AppSettingsScreen 的转场一致）
+    val visibilityState = remember {
+        MutableTransitionState(false).apply { targetState = true }
     }
-    
+
+    // 退出动画结束后再真正返回（关闭 Dialog）
+    LaunchedEffect(visibilityState.isIdle, visibilityState.currentState, visibilityState.targetState) {
+        if (visibilityState.isIdle && !visibilityState.currentState && !visibilityState.targetState) {
+            onBack()
+        }
+    }
+
     // 带动画的返回处理
     val handleBack: () -> Unit = {
-        if (!isClosing) {
-            isClosing = true
+        if (visibilityState.targetState) {
+            visibilityState.targetState = false
         }
     }
     
@@ -307,25 +301,24 @@ fun ImageSplitExportScreen(
             handleBack()
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = size.width * slideOffset
-                }
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.surface
+        Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visibleState = visibilityState,
+                enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // 顶部栏
-                    ExportTopBar(
-                        onBack = handleBack,
-                        onReset = {
-                            showResetConfirm = true
-                        }
-                    )
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // 顶部栏
+                        ExportTopBar(
+                            onBack = handleBack,
+                            onReset = {
+                                showResetConfirm = true
+                            }
+                        )
 
                     // 中间可滚动区域
                     Column(
@@ -563,6 +556,7 @@ fun ImageSplitExportScreen(
                     }
                 )
             }
+        }
         }
     }
 }
