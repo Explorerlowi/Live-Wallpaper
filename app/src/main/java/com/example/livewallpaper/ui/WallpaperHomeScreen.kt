@@ -1025,19 +1025,19 @@ private fun PhotoCard(
     
     val painter = rememberAsyncImagePainter(imageRequest)
     val painterState = painter.state
-    
-    // 比例计算
-    val aspectRatio = remember {
-        derivedStateOf {
-            when (val state = painterState) {
-                is AsyncImagePainter.State.Success -> {
-                    val size = state.painter.intrinsicSize
-                    if (size.width > 0 && size.height > 0) size.width / size.height else 0.75f
-                }
-                else -> 0.75f
-            }
+
+    // 比例计算：
+    // - 首次进入时图片通常还没解码完成，拿不到宽高，只能先用默认比例占位
+    // - 一旦加载成功，用 drawable 的 intrinsicWidth/Height 更新为真实比例
+    var aspectRatio by remember(uri) { mutableStateOf(0.75f) }
+    if (painterState is AsyncImagePainter.State.Success) {
+        val drawable = painterState.result.drawable
+        val w = drawable.intrinsicWidth
+        val h = drawable.intrinsicHeight
+        if (w > 0 && h > 0) {
+            aspectRatio = w.toFloat() / h.toFloat()
         }
-    }.value
+    }
     
     // 选中状态边框
     val borderColor = MaterialTheme.colorScheme.primary
