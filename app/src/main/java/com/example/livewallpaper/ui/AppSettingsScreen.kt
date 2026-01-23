@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
@@ -54,15 +55,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.livewallpaper.BuildConfig
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
+
+import com.example.livewallpaper.feature.dynamicwallpaper.presentation.state.UpdateStatus
+import androidx.compose.material3.Button
+import androidx.compose.runtime.LaunchedEffect
+import android.widget.Toast
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.compose.ui.window.Dialog
+import androidx.compose.material3.Surface
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,9 +85,12 @@ fun AppSettingsScreen(
     currentPlayMode: PlayMode,
     currentLanguageTag: String?,
     currentThemeMode: ThemeMode,
+    updateStatus: UpdateStatus,
     onConfirm: (interval: Long, scaleMode: ScaleMode, playMode: PlayMode) -> Unit,
     onLanguageChange: (LanguageOption) -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onClearUpdateStatus: () -> Unit,
     onBack: () -> Unit
 ) {
     var intervalValue by remember { mutableFloatStateOf(currentInterval.toFloat()) }
@@ -85,12 +101,15 @@ fun AppSettingsScreen(
     var selectedLanguage by remember { mutableStateOf(initialLanguage) }
     var selectedThemeMode by remember { mutableStateOf(currentThemeMode) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     // Bottom Sheet States
     var showScaleModeSheet by remember { mutableStateOf(false) }
     var showPlayModeSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+
+    val uriHandler = LocalUriHandler.current
 
     // 检查是否有修改
     val hasChanges = remember(intervalValue, selectedScaleMode, selectedPlayMode, selectedLanguage, selectedThemeMode) {
@@ -247,8 +266,105 @@ fun AppSettingsScreen(
                         )
                     }
                 }
+
+                // 关于
+                item {
+                    SettingsGroupCard {
+                        SettingsItem(
+                            icon = Icons.Default.Info,
+                            title = stringResource(R.string.check_update),
+                            value = stringResource(R.string.current_version, BuildConfig.VERSION_NAME),
+                            onClick = onCheckUpdate
+                        )
+                    }
+                }
             }
         }
+    }
+
+    // 检查更新状态处理
+    when (updateStatus) {
+        is UpdateStatus.Checking -> {
+            // 不显示加载弹窗
+        }
+        is UpdateStatus.Success -> {
+            if (updateStatus.hasNewVersion) {
+                Dialog(onDismissRequest = onClearUpdateStatus) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp)
+                        ) {
+                            Text(
+                                text = "发现新版本",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "${BuildConfig.VERSION_NAME} -> ${updateStatus.version ?: ""}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            if (!updateStatus.desc.isNullOrBlank()) {
+                                Text(
+                                    text = updateStatus.desc!!,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    onClearUpdateStatus()
+                                    updateStatus.downloadUrl?.let { uriHandler.openUri(it) }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("立即升级")
+                            }
+                            
+                            Spacer(modifier = Modifier.height(4.dp))
+                            
+                            TextButton(
+                                onClick = onClearUpdateStatus,
+                                modifier = Modifier.height(32.dp) // 减小按钮高度
+                            ) {
+                                Text(
+                                    text = "稍后再说",
+                                    style = MaterialTheme.typography.bodySmall, // 减小字号
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                LaunchedEffect(Unit) {
+                    Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                    onClearUpdateStatus()
+                }
+            }
+        }
+        is UpdateStatus.Error -> {
+            LaunchedEffect(Unit) {
+                Toast.makeText(context, "检查更新失败: ${updateStatus.message}", Toast.LENGTH_SHORT).show()
+                onClearUpdateStatus()
+            }
+        }
+        else -> {}
     }
 
     // 间隔输入对话框

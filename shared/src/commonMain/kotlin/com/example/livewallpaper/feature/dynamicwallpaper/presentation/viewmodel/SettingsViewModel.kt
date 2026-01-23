@@ -12,17 +12,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import com.example.livewallpaper.feature.dynamicwallpaper.presentation.state.UpdateStatus
+
 class SettingsViewModel(
     private val repository: WallpaperRepository
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
+    private val _updateStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.getConfig(),
-        _isLoading
-    ) { config, isLoading ->
-        SettingsUiState(config, isLoading)
+        _isLoading,
+        _updateStatus
+    ) { config, isLoading, updateStatus ->
+        SettingsUiState(config, isLoading, updateStatus)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -43,7 +47,28 @@ class SettingsViewModel(
                 is SettingsEvent.UpdateImageCropParams -> repository.setImageCropParams(event.uri, event.params)
                 is SettingsEvent.UpdateLanguage -> repository.setLanguage(event.languageTag)
                 is SettingsEvent.UpdateThemeMode -> repository.setThemeMode(event.mode)
+                is SettingsEvent.CheckUpdate -> checkUpdate(event)
+                is SettingsEvent.ClearUpdateStatus -> _updateStatus.value = UpdateStatus.Idle
             }
+        }
+    }
+
+    private suspend fun checkUpdate(event: SettingsEvent.CheckUpdate) {
+        _updateStatus.value = UpdateStatus.Checking
+        try {
+            val response = repository.checkAppUpdate(event.apiKey, event.appKey, event.version, event.build)
+            if (response.code == 0 && response.data != null) {
+                _updateStatus.value = UpdateStatus.Success(
+                    hasNewVersion = response.data.buildHaveNewVersion,
+                    version = response.data.buildVersion,
+                    desc = response.data.buildUpdateDescription,
+                    downloadUrl = response.data.downloadURL
+                )
+            } else {
+                _updateStatus.value = UpdateStatus.Error(response.message)
+            }
+        } catch (e: Exception) {
+            _updateStatus.value = UpdateStatus.Error(e.message ?: "Unknown error")
         }
     }
 }

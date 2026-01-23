@@ -141,6 +141,7 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.TextButton
+import com.example.livewallpaper.BuildConfig
 
 /**
  * 检查照片访问权限状态
@@ -507,6 +508,7 @@ fun WallpaperHomeScreen(
                     currentPlayMode = state.config.playMode,
                     currentLanguageTag = state.config.languageTag,
                     currentThemeMode = state.config.themeMode,
+                    updateStatus = state.updateStatus,
                     onConfirm = { interval, scaleMode, playMode ->
                         viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
                         viewModel.onEvent(SettingsEvent.UpdateScaleMode(scaleMode))
@@ -518,6 +520,17 @@ fun WallpaperHomeScreen(
                     },
                     onThemeModeChange = { themeMode ->
                         viewModel.onEvent(SettingsEvent.UpdateThemeMode(themeMode))
+                    },
+                    onCheckUpdate = {
+                        viewModel.onEvent(SettingsEvent.CheckUpdate(
+                            apiKey = BuildConfig.PGYER_API_KEY,
+                            appKey = BuildConfig.PGYER_APP_KEY,
+                            version = BuildConfig.VERSION_NAME,
+                            build = BuildConfig.VERSION_CODE
+                        ))
+                    },
+                    onClearUpdateStatus = {
+                        viewModel.onEvent(SettingsEvent.ClearUpdateStatus)
                     },
                     onBack = { showAppSettings = false }
                 )

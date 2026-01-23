@@ -20,6 +20,17 @@ android {
         versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 读取 local.properties 中的配置
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(FileInputStream(localPropertiesFile))
+        }
+
+        // 注入 Pgyer 配置到 BuildConfig
+        buildConfigField("String", "PGYER_API_KEY", "\"${localProperties.getProperty("PGYER_API_KEY") ?: ""}\"")
+        buildConfigField("String", "PGYER_APP_KEY", "\"${localProperties.getProperty("PGYER_APP_KEY") ?: ""}\"")
     }
 
     // 签名配置
@@ -69,6 +80,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

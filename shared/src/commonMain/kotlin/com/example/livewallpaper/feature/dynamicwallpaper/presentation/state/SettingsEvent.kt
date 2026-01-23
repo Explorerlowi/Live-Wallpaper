@@ -17,5 +17,7 @@ sealed interface SettingsEvent {
     data class UpdateImageCropParams(val uri: String, val params: ImageCropParams) : SettingsEvent
     data class UpdateLanguage(val languageTag: String?) : SettingsEvent
     data class UpdateThemeMode(val mode: ThemeMode) : SettingsEvent
+    data class CheckUpdate(val apiKey: String, val appKey: String, val version: String, val build: Int) : SettingsEvent
+    data object ClearUpdateStatus : SettingsEvent
 }
 

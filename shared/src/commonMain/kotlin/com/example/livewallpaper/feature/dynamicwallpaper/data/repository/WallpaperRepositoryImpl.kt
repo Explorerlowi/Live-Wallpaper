@@ -1,5 +1,7 @@
 package com.example.livewallpaper.feature.dynamicwallpaper.data.repository
 
+import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.AppUpdateService
+import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
@@ -15,7 +17,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class WallpaperRepositoryImpl(
-    private val settings: ObservableSettings
+    private val settings: ObservableSettings,
+    private val appUpdateService: AppUpdateService
 ) : WallpaperRepository {
 
     private val key = "WALLPAPER_CONFIG"
@@ -120,6 +123,15 @@ class WallpaperRepositoryImpl(
     override suspend fun setThemeMode(mode: ThemeMode) {
         val current = getCurrentConfig()
         updateConfig(current.copy(themeMode = mode))
+    }
+
+    override suspend fun checkAppUpdate(
+        apiKey: String,
+        appKey: String,
+        buildVersion: String?,
+        buildBuildVersion: Int?
+    ): PgyerResponse {
+        return appUpdateService.checkUpdate(apiKey, appKey, buildVersion, buildBuildVersion)
     }
 
     private fun getCurrentConfig(): WallpaperConfig {

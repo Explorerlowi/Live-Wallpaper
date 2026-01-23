@@ -261,4 +261,9 @@
     <string name="image_editor_crop">Crop</string>
     <string name="image_editor_flip_horizontal">Flip Horizontal</string>
     <string name="image_editor_flip_vertical">Flip Vertical</string>
+    
+    <!-- About -->
+    <string name="about_label">About</string>
+    <string name="check_update">Check for Updates</string>
+    <string name="current_version">Version %1$s</string>
 </resources>
