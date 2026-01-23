@@ -136,6 +136,18 @@
     <string name="paint_session_name_hint">Enter session name</string>
     <string name="paint_delete">Delete</string>
     <string name="paint_auth_mode">Auth Mode</string>
+    <string name="paint_auth_bearer_token">Bearer Token</string>
+    <string name="paint_auth_official">Official</string>
+    <string name="paint_config_name">Configuration Name</string>
+    <string name="paint_config_name_hint">e.g., My API</string>
+    <string name="paint_api_base_url">API Base URL</string>
+    <string name="paint_api_base_url_hint">https://yunwu.ai</string>
+    <string name="paint_access_token">Access Token</string>
+    <string name="paint_add_config">Add Configuration</string>
+    <string name="paint_update">Update</string>
+    <string name="paint_save">Save</string>
+    <string name="paint_config_default_name">Configuration %1$d</string>
+    <string name="paint_edit">Edit</string>
     <string name="paint_no_config">No configuration</string>
     <string name="paint_delete_config_title">Delete Configuration</string>
     <string name="paint_delete_config_message">Are you sure you want to delete configuration \"%1$s\"?</string>
@@ -264,6 +276,12 @@
     
     <!-- About -->
     <string name="about_label">About</string>
+    <string name="update_new_version_title">New version available</string>
+    <string name="update_upgrade_now">Update now</string>
+    <string name="update_later">Later</string>
+    <string name="update_already_latest">You’re already on the latest version</string>
+    <string name="update_check_failed">Update check failed: %1$s</string>
+    <string name="update_version_change">%1$s → %2$s</string>
     <string name="check_update">Check for Updates</string>
     <string name="current_version">Version %1$s</string>
 </resources>

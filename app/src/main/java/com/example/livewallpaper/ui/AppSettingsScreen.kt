@@ -289,6 +289,7 @@ fun AppSettingsScreen(
         }
         is UpdateStatus.Success -> {
             if (updateStatus.hasNewVersion) {
+                val targetVersion = updateStatus.version.orEmpty()
                 Dialog(onDismissRequest = onClearUpdateStatus) {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
@@ -303,14 +304,18 @@ fun AppSettingsScreen(
                                 .padding(24.dp)
                         ) {
                             Text(
-                                text = "发现新版本",
+                                text = stringResource(R.string.update_new_version_title),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "${BuildConfig.VERSION_NAME} -> ${updateStatus.version ?: ""}",
+                                text = stringResource(
+                                    R.string.update_version_change,
+                                    BuildConfig.VERSION_NAME,
+                                    targetVersion
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -333,7 +338,7 @@ fun AppSettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("立即升级")
+                                Text(stringResource(R.string.update_upgrade_now))
                             }
                             
                             Spacer(modifier = Modifier.height(4.dp))
@@ -343,7 +348,7 @@ fun AppSettingsScreen(
                                 modifier = Modifier.height(32.dp) // 减小按钮高度
                             ) {
                                 Text(
-                                    text = "稍后再说",
+                                    text = stringResource(R.string.update_later),
                                     style = MaterialTheme.typography.bodySmall, // 减小字号
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
@@ -352,15 +357,17 @@ fun AppSettingsScreen(
                     }
                 }
             } else {
+                val latestToast = stringResource(R.string.update_already_latest)
                 LaunchedEffect(Unit) {
-                    Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, latestToast, Toast.LENGTH_SHORT).show()
                     onClearUpdateStatus()
                 }
             }
         }
         is UpdateStatus.Error -> {
+            val failedToast = stringResource(R.string.update_check_failed, updateStatus.message)
             LaunchedEffect(Unit) {
-                Toast.makeText(context, "检查更新失败: ${updateStatus.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, failedToast, Toast.LENGTH_SHORT).show()
                 onClearUpdateStatus()
             }
         }

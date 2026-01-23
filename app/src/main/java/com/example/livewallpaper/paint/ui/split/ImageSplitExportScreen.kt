@@ -154,19 +154,33 @@ fun ImageSplitExportScreen(
     // 图片编辑器状态
     var showImageEditor by remember { mutableStateOf(false) }
     var editingTileIndex by remember { mutableIntStateOf(-1) }
+
+    /**
+     * 去掉「旧逻辑自动追加的末尾 _序号」。
+     *
+     * 例如：
+     * - Tile_01 -> 不处理（这是初始的 _数字）
+     * - sticker_01_01 -> sticker_01（末尾 _01 是自动追加的）
+     * - Tile_happy_01 -> Tile_happy（末尾 _01 是自动追加的）
+     */
+    fun stripTrailingAutoIndex(name: String, index: Int): String {
+        val auto = "_${String.format("%02d", index + 1)}"
+        if (!name.endsWith(auto)) return name
+        val without = name.removeSuffix(auto)
+        // 只有当去掉后仍然包含 '_' 时，才认为是“自动追加的末尾 _序号”
+        return if (without.contains("_")) without else name
+    }
     
     // 更新单个图块的前缀
     fun updatePrefixForTile(index: Int, prefix: String) {
         val newTiles = mutableTiles.toMutableList()
         val currentTile = newTiles[index]
-        // 从当前文件名中提取后缀部分，如果没有则使用默认后缀
-        val currentSuffix = if (currentTile.fileName.contains("_")) {
-            currentTile.fileName.substringAfter("_").substringBefore("_")
-        } else {
-            suffixValue
-        }
+        val baseName = stripTrailingAutoIndex(currentTile.fileName, index)
+        // 前缀：替换首段（初始是 Tile），其余部分原样保留（不再自动追加 _数字）
+        val rest = baseName.substringAfter("_", missingDelimiterValue = "")
+        val newName = if (rest.isNotBlank()) "${prefix}_${rest}" else prefix
         newTiles[index] = currentTile.copy(
-            fileName = "${prefix}_${currentSuffix}_${String.format("%02d", index + 1)}"
+            fileName = newName
         )
         mutableTiles = newTiles
     }
@@ -175,14 +189,17 @@ fun ImageSplitExportScreen(
     fun updateSuffixForTile(index: Int, suffix: String) {
         val newTiles = mutableTiles.toMutableList()
         val currentTile = newTiles[index]
-        // 从当前文件名中提取前缀部分，如果没有则使用默认前缀
-        val currentPrefix = if (currentTile.fileName.contains("_")) {
-            currentTile.fileName.substringBefore("_")
+        val baseName = stripTrailingAutoIndex(currentTile.fileName, index)
+        // 后缀：替换末段（初始是 _数字），不再自动追加 _数字
+        val hasUnderscore = baseName.contains("_")
+        val left = if (hasUnderscore) {
+            baseName.substringBeforeLast("_")
         } else {
-            prefixValue
+            baseName.ifBlank { prefixValue }
         }
+        val newName = "${left}_${suffix}"
         newTiles[index] = currentTile.copy(
-            fileName = "${currentPrefix}_${suffix}_${String.format("%02d", index + 1)}"
+            fileName = newName
         )
         mutableTiles = newTiles
     }
@@ -190,26 +207,25 @@ fun ImageSplitExportScreen(
     // 应用前缀到所有
     fun applyPrefixToAll(prefix: String) {
         mutableTiles = mutableTiles.mapIndexed { index, tile ->
-            // 从当前文件名中提取后缀部分，如果没有则使用默认后缀
-            val currentSuffix = if (tile.fileName.contains("_")) {
-                tile.fileName.substringAfter("_").substringBefore("_")
-            } else {
-                suffixValue
-            }
-            tile.copy(fileName = "${prefix}_${currentSuffix}_${String.format("%02d", index + 1)}")
+            val baseName = stripTrailingAutoIndex(tile.fileName, index)
+            val rest = baseName.substringAfter("_", missingDelimiterValue = "")
+            val newName = if (rest.isNotBlank()) "${prefix}_${rest}" else prefix
+            tile.copy(fileName = newName)
         }
     }
     
     // 应用后缀到所有
     fun applySuffixToAll(suffix: String) {
         mutableTiles = mutableTiles.mapIndexed { index, tile ->
-            // 从当前文件名中提取前缀部分，如果没有则使用默认前缀
-            val currentPrefix = if (tile.fileName.contains("_")) {
-                tile.fileName.substringBefore("_")
+            val baseName = stripTrailingAutoIndex(tile.fileName, index)
+            val hasUnderscore = baseName.contains("_")
+            val left = if (hasUnderscore) {
+                baseName.substringBeforeLast("_")
             } else {
-                prefixValue
+                baseName.ifBlank { prefixValue }
             }
-            tile.copy(fileName = "${currentPrefix}_${suffix}_${String.format("%02d", index + 1)}")
+            val newName = "${left}_${suffix}"
+            tile.copy(fileName = newName)
         }
     }
     
@@ -246,7 +262,7 @@ fun ImageSplitExportScreen(
                         context.getString(R.string.split_export_success, tilesToExport.size),
                         Toast.LENGTH_SHORT
                     ).show()
-                    onDismiss()
+                    // 导出成功后保持在当前界面，不自动关闭
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -1492,6 +1508,15 @@ private suspend fun exportAsZip(
 ): Boolean {
     val timestamp = System.currentTimeMillis()
     val zipFileName = "Tiles_$timestamp.zip"
+
+    // ZIP 内不允许重复 entryName：这里统一做去重，按 (1)(2)... 递增
+    val usedBaseNames = mutableMapOf<String, Int>()
+    fun uniqueBaseName(raw: String): String {
+        val base = raw.ifBlank { "Tile" }
+        val count = usedBaseNames[base] ?: 0
+        usedBaseNames[base] = count + 1
+        return if (count == 0) base else "$base($count)"
+    }
     
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val contentValues = ContentValues().apply {
@@ -1508,7 +1533,8 @@ private suspend fun exportAsZip(
         context.contentResolver.openOutputStream(uri)?.use { outputStream ->
             ZipOutputStream(outputStream).use { zipOut ->
                 tiles.forEach { tile ->
-                    val entryName = "${tile.fileName}.${format.extension}"
+                    val entryBase = uniqueBaseName(tile.fileName)
+                    val entryName = "$entryBase.${format.extension}"
                     zipOut.putNextEntry(ZipEntry(entryName))
                     tile.bitmap.compress(
                         if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
@@ -1528,7 +1554,8 @@ private suspend fun exportAsZip(
         FileOutputStream(zipFile).use { fos ->
             ZipOutputStream(fos).use { zipOut ->
                 tiles.forEach { tile ->
-                    val entryName = "${tile.fileName}.${format.extension}"
+                    val entryBase = uniqueBaseName(tile.fileName)
+                    val entryName = "$entryBase.${format.extension}"
                     zipOut.putNextEntry(ZipEntry(entryName))
                     tile.bitmap.compress(
                         if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
@@ -1549,8 +1576,18 @@ private suspend fun exportIndividually(
     tiles: List<SplitTile>,
     format: ExportFormat
 ): Boolean {
+    // 同批次导出时去重：按 (1)(2)... 递增
+    val usedBaseNames = mutableMapOf<String, Int>()
+    fun uniqueBaseName(raw: String): String {
+        val base = raw.ifBlank { "Tile" }
+        val count = usedBaseNames[base] ?: 0
+        usedBaseNames[base] = count + 1
+        return if (count == 0) base else "$base($count)"
+    }
+
     tiles.forEach { tile ->
-        val fileName = "${tile.fileName}.${format.extension}"
+        val uniqueBase = uniqueBaseName(tile.fileName)
+        val fileName = "$uniqueBase.${format.extension}"
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val contentValues = ContentValues().apply {
@@ -1576,7 +1613,16 @@ private suspend fun exportIndividually(
             val splitDir = File(picturesDir, "ImageSplit")
             splitDir.mkdirs()
             
-            val file = File(splitDir, fileName)
+            // 避免覆盖已有文件：如果存在则继续追加 (n)
+            val ext = format.extension
+            val base = uniqueBase
+            var candidate = "$base.$ext"
+            var counter = 1
+            while (File(splitDir, candidate).exists()) {
+                candidate = "$base($counter).$ext"
+                counter++
+            }
+            val file = File(splitDir, candidate)
             FileOutputStream(file).use { fos ->
                 tile.bitmap.compress(
                     if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,

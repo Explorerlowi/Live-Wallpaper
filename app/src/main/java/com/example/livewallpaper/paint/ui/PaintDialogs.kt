@@ -541,8 +541,8 @@ fun ApiSettingsDialog(
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
-                            label = { Text("配置名称") },
-                            placeholder = { Text("例如：我的API") },
+                            label = { Text(stringResource(R.string.paint_config_name)) },
+                            placeholder = { Text(stringResource(R.string.paint_config_name_hint)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = false,
                             maxLines = 4
@@ -551,8 +551,8 @@ fun ApiSettingsDialog(
                         OutlinedTextField(
                             value = baseUrl,
                             onValueChange = { baseUrl = it },
-                            label = { Text("API Base URL") },
-                            placeholder = { Text("https://yunwu.ai") },
+                            label = { Text(stringResource(R.string.paint_api_base_url)) },
+                            placeholder = { Text(stringResource(R.string.paint_api_base_url_hint)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = false,
                             maxLines = 4
@@ -561,7 +561,7 @@ fun ApiSettingsDialog(
                         OutlinedTextField(
                             value = token,
                             onValueChange = { token = it },
-                            label = { Text("访问令牌 (Token)") },
+                            label = { Text(stringResource(R.string.paint_access_token)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = false,
                             maxLines = 4,
@@ -584,22 +584,24 @@ fun ApiSettingsDialog(
                             FilterChip(
                                 selected = authMode == AuthMode.BEARER,
                                 onClick = { authMode = AuthMode.BEARER },
-                                label = { Text("Bearer Token") }
+                                label = { Text(stringResource(R.string.paint_auth_bearer_token)) }
                             )
                             FilterChip(
                                 selected = authMode == AuthMode.OFFICIAL,
                                 onClick = { authMode = AuthMode.OFFICIAL },
-                                label = { Text("API Key") }
+                                label = { Text(stringResource(R.string.paint_auth_official)) }
                             )
                         }
                         
                         Spacer(modifier = Modifier.height(16.dp))
+                        val defaultProfileName =
+                            stringResource(R.string.paint_config_default_name, profiles.size + 1)
                         
                         Button(
                             onClick = {
                                 val profile = ApiProfile(
                                     id = editingProfile?.id ?: "${System.currentTimeMillis()}-${Random.nextInt(1000)}",
-                                    name = name.ifEmpty { "配置 ${profiles.size + 1}" },
+                                    name = name.ifEmpty { defaultProfileName },
                                     baseUrl = baseUrl.trimEnd('/'),
                                     token = token,
                                     authMode = authMode
@@ -610,7 +612,7 @@ fun ApiSettingsDialog(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = token.isNotEmpty()
                         ) {
-                            Text(if (editingProfile != null) "更新" else "保存")
+                            Text(if (editingProfile != null) stringResource(R.string.paint_update) else stringResource(R.string.paint_save))
                         }
                     }
                 } else {
@@ -636,7 +638,7 @@ fun ApiSettingsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 TextButton(onClick = { showForm = true }) {
-                                    Text("添加配置")
+                                    Text(stringResource(R.string.paint_add_config))
                                 }
                             }
                         }
@@ -725,14 +727,14 @@ private fun ApiProfileItem(
                 IconButton(onClick = onEdit) {
                     Icon(
                         Icons.Default.Edit,
-                        contentDescription = "编辑",
+                        contentDescription = stringResource(R.string.paint_edit),
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "删除",
+                        contentDescription = stringResource(R.string.paint_delete),
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
                         modifier = Modifier.size(20.dp)
                     )

@@ -138,6 +138,18 @@
     <string name="paint_session_name_hint">输入会话名称</string>
     <string name="paint_delete">删除</string>
     <string name="paint_auth_mode">鉴权方式</string>
+    <string name="paint_auth_bearer_token">Bearer Token</string>
+    <string name="paint_auth_official">官方</string>
+    <string name="paint_config_name">配置名称</string>
+    <string name="paint_config_name_hint">例如：我的API</string>
+    <string name="paint_api_base_url">API Base URL</string>
+    <string name="paint_api_base_url_hint">https://yunwu.ai</string>
+    <string name="paint_access_token">访问令牌 (Token)</string>
+    <string name="paint_add_config">添加配置</string>
+    <string name="paint_update">更新</string>
+    <string name="paint_save">保存</string>
+    <string name="paint_config_default_name">配置 %1$d</string>
+    <string name="paint_edit">编辑</string>
     <string name="paint_no_config">暂无配置</string>
     <string name="paint_delete_config_title">删除配置</string>
     <string name="paint_delete_config_message">确定要删除配置「%1$s」吗？</string>
@@ -266,6 +278,12 @@
     
     <!-- 关于 -->
     <string name="about_label">关于</string>
+    <string name="update_new_version_title">发现新版本</string>
+    <string name="update_upgrade_now">立即升级</string>
+    <string name="update_later">稍后再说</string>
+    <string name="update_already_latest">当前已是最新版本</string>
+    <string name="update_check_failed">检查更新失败：%1$s</string>
+    <string name="update_version_change">%1$s → %2$s</string>
     <string name="check_update">检查更新</string>
     <string name="current_version">当前版本 %1$s</string>
 </resources>
