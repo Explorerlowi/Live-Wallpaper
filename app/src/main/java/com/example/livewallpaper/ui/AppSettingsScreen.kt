@@ -76,6 +76,13 @@ import androidx.compose.ui.platform.LocalContext
 
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.Surface
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.material.icons.filled.Storage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,6 +115,9 @@ fun AppSettingsScreen(
     var showPlayModeSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    
+    // 缓存管理界面状态
+    var showCacheManagement by remember { mutableStateOf(false) }
 
     val uriHandler = LocalUriHandler.current
 
@@ -263,6 +273,19 @@ fun AppSettingsScreen(
                             title = stringResource(R.string.language_label),
                             value = stringResource(selectedLanguage.labelRes),
                             onClick = { showLanguageSheet = true }
+                        )
+                    }
+                }
+
+                // 存储设置组
+                item {
+                    SettingsGroupCard {
+                        // 缓存管理
+                        SettingsItem(
+                            icon = Icons.Default.Storage,
+                            title = stringResource(R.string.cache_management),
+                            value = "",
+                            onClick = { showCacheManagement = true }
                         )
                     }
                 }
@@ -487,6 +510,23 @@ fun AppSettingsScreen(
                 onBack()
             },
             onDismiss = { showExitConfirmDialog = false }
+        )
+    }
+    
+    // 缓存管理全屏覆盖界面
+    AnimatedVisibility(
+        visible = showCacheManagement,
+        enter = slideInHorizontally(
+            initialOffsetX = { it },
+            animationSpec = tween(300)
+        ) + fadeIn(animationSpec = tween(300)),
+        exit = slideOutHorizontally(
+            targetOffsetX = { it },
+            animationSpec = tween(300)
+        ) + fadeOut(animationSpec = tween(300))
+    ) {
+        CacheManagementScreen(
+            onBack = { showCacheManagement = false }
         )
     }
 }

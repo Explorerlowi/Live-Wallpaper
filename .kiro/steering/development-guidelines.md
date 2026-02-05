@@ -1,5 +1,5 @@
 ---
-inclusion: always
+alwaysApply: true
 ---
 # 项目开发规范（Kotlin Multiplatform App）
 
@@ -202,6 +202,23 @@ inclusion: always
 
 ---
 
+### 9. Swift 互操作性与 iOS 适配
+* **Flow 适配**
+  * Kotlin 的 `Flow` 在 Swift 中无法直接作为 Publisher 使用。
+  * 推荐方案：使用 **SKIE** 插件自动生成适配代码，或使用 `KMP-NativeCoroutines` 将 Flow 转换为 Swift Concurrency (async/await)。
+* **命名冲突**
+  * 避免在 Kotlin `commonMain` 中使用 Swift 的保留关键字（如 `default`, `in`, `func`）作为参数名。
+
+---
+
+### 10. 环境配置管理
+* **多环境支持**
+  * 使用 `gmazzo.buildconfig` 或 `BuildKonfig` 插件生成 `BuildConfig` 类。
+  * 区分 `dev`, `staging`, `prod` 环境，通过 Gradle 属性注入 API Base URL。
+  * 禁止将敏感 Key 直接硬编码在源码中。
+
+---
+
 ## 二、代码风格规范
 
 ### 1. 命名规范
@@ -211,6 +228,7 @@ inclusion: always
   * 类 / 接口：`UpperCamelCase`（如 `LoginViewModel`, `UserRepository`）；
   * 函数 / 变量：`lowerCamelCase`（如 `getUser`, `userName`)；
   * 常量：`UPPER_SNAKE_CASE`（如 `MAX_RETRY_COUNT`）。
+  * 资源文件（图片/图标）：`ic_snake_case`（如 `ic_login_logo`），确保 Android drawable 与 iOS Assets 命名一致。
 
 * KMP 相关命名：
 
@@ -427,6 +445,10 @@ abstract class BaseViewModel<STATE, EVENT, EFFECT>(
 
   * 只依赖 Domain 层（UseCase）；
   * 不允许直接依赖 Remote / Local DataSource。
+* **导航与副作用**
+  * 明确 **导航是副作用 (Side Effect)** 的一种；
+  * ViewModel **禁止持有** 任何平台相关的导航控制器（如 `NavController`, `UINavigationController`）；
+  * ViewModel 仅通过 `SharedFlow` 发射 `NavigateTo(route)` 事件，由 UI 层监听并执行跳转。
 
 ---
 
@@ -496,5 +518,118 @@ expect class PlatformLogger() {
 
   * `commonTest` 目录放通用测试；
   * Android / iOS 特有行为放在各自 `androidTest` / `iosTest`。
+
+---
+
+### 6. 全屏覆盖界面动画规范（Android Compose）
+
+当需要从当前界面打开一个全屏编辑/详情界面时，必须遵循以下标准实现：
+
+* **界面层级**
+
+  * 全屏覆盖界面必须放在父 Composable 的 **最外层**（`Scaffold` 之后），确保覆盖整个屏幕；
+  * 使用 `AnimatedVisibility` 包裹全屏界面，通过状态变量控制显示/隐藏；
+  * 覆盖界面内部使用独立的 `Scaffold`，拥有自己的 `TopAppBar` 和 `BottomBar`。
+
+* **动画参数**
+
+  * 进入动画：`slideInHorizontally` + `fadeIn`（从右侧滑入）；
+  * 退出动画：`slideOutHorizontally` + `fadeOut`（向右侧滑出）；
+  * 动画时长：**300ms**，使用 `tween` 缓动函数；
+  * 滑动偏移量：使用 `{ it }`（即屏幕宽度）作为初始/目标偏移。
+
+* **标准代码模板**
+
+```kotlin
+// 状态控制
+var showFullScreenEdit by remember { mutableStateOf(false) }
+var editingItemIndex by remember { mutableStateOf(-1) }
+
+// 主界面 Scaffold
+Scaffold(
+    topBar = { /* ... */ },
+    bottomBar = { /* ... */ }
+) { padding ->
+    // 主界面内容
+}
+
+// 全屏覆盖界面（放在 Scaffold 之后，与 Scaffold 同级）
+AnimatedVisibility(
+    visible = showFullScreenEdit && editingItemIndex >= 0,
+    enter = slideInHorizontally(
+        initialOffsetX = { it },  // 从右侧滑入
+        animationSpec = tween(300)
+    ) + fadeIn(animationSpec = tween(300)),
+    exit = slideOutHorizontally(
+        targetOffsetX = { it },   // 向右侧滑出
+        animationSpec = tween(300)
+    ) + fadeOut(animationSpec = tween(300))
+) {
+    FullScreenEditScreen(
+        onNavigateBack = { showFullScreenEdit = false },
+        onConfirm = { result ->
+            // 处理结果
+            showFullScreenEdit = false
+        }
+    )
+}
+```
+
+* **返回键处理**
+
+  * 全屏覆盖界面必须使用 `BackHandler` 拦截系统返回键；
+  * 返回时关闭覆盖界面，而非退出整个页面。
+
+```kotlin
+@Composable
+fun FullScreenEditScreen(
+    onNavigateBack: () -> Unit,
+    onConfirm: (Result) -> Unit
+) {
+    BackHandler { onNavigateBack() }
+    
+    Scaffold(/* ... */) { /* ... */ }
+}
+```
+
+* **禁止事项**
+
+  * 禁止使用 Navigation 组件跳转到全屏编辑界面（会导致页面栈管理复杂化）；
+  * 禁止使用 Dialog 或 BottomSheet 实现全屏编辑（无法获得正确的全屏体验）；
+  * 禁止在动画过程中允许用户交互（可能导致状态不一致）。
+
+---
+
+### 7. 选择器组件交互规范（Android Compose）
+
+对于表单中的选择器组件，需要区分两种类型并采用不同的交互方式：
+
+* **只读展示标签（Read-only Tags）**
+
+  * 用于纯展示属性信息，不可交互；
+  * 使用 `Surface` + `Text` 组合，不添加 `clickable` 修饰符；
+
+* **可选择标签（Selectable Tags/Chips）**
+
+  * 用于表单中的单选/多选场景；
+  * **必须禁用涟漪效果（Ripple Effect）**，仅通过颜色/边框变化反馈选中状态；
+  * 使用以下方式禁用涟漪：
+
+```kotlin
+Surface(
+    modifier = Modifier.clickable(
+        onClick = onClick,
+        indication = null,  // 禁用涟漪效果
+        interactionSource = remember { MutableInteractionSource() }
+    ),
+    // ...
+)
+```
+
+* **设计原则**
+
+  * 选择器组件通过 **视觉状态变化**（背景色、边框、阴影）反馈选中状态，而非点击动效；
+  * 涟漪效果仅用于明确的「按钮」类组件（如提交按钮、导航按钮）；
+  * 保持选择器组件的轻量感，避免过度的交互反馈干扰用户操作。
 
 ---

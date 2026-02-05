@@ -151,6 +151,24 @@ fun ImageSplitExportScreen(
     var showSuffixDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     
+    // 命名历史记录（用于回退功能）
+    var namingHistory by remember { mutableStateOf<List<List<SplitTile>>>(emptyList()) }
+    val canUndoNaming = namingHistory.isNotEmpty()
+    
+    // 保存当前命名状态到历史记录
+    fun saveNamingHistory() {
+        namingHistory = namingHistory + listOf(mutableTiles.map { it.copy() })
+    }
+    
+    // 回退命名
+    fun undoNaming(): Boolean {
+        if (namingHistory.isEmpty()) return false
+        val previousState = namingHistory.last()
+        mutableTiles = previousState
+        namingHistory = namingHistory.dropLast(1)
+        return true
+    }
+    
     // 图片编辑器状态
     var showImageEditor by remember { mutableStateOf(false) }
     var editingTileIndex by remember { mutableIntStateOf(-1) }
@@ -407,8 +425,18 @@ fun ImageSplitExportScreen(
                         NamingRuleSection(
                             prefixValue = prefixValue,
                             suffixValue = suffixValue,
+                            canUndo = canUndoNaming,
                             onPrefixClick = { showPrefixDialog = true },
-                            onSuffixClick = { showSuffixDialog = true }
+                            onSuffixClick = { showSuffixDialog = true },
+                            onUndo = {
+                                if (undoNaming()) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.split_naming_undone),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                         )
 
                         Spacer(modifier = Modifier.height(20.dp))
@@ -469,8 +497,10 @@ fun ImageSplitExportScreen(
                     onValueSelect = { value, applyToAll ->
                         prefixValue = value
                         if (applyToAll) {
+                            saveNamingHistory() // 保存历史记录以便回退
                             applyPrefixToAll(value)
                         } else {
+                            saveNamingHistory() // 保存历史记录以便回退
                             updatePrefixForTile(selectedIndex, value)
                         }
                     },
@@ -493,8 +523,10 @@ fun ImageSplitExportScreen(
                     onValueSelect = { value, applyToAll ->
                         suffixValue = value
                         if (applyToAll) {
+                            saveNamingHistory() // 保存历史记录以便回退
                             applySuffixToAll(value)
                         } else {
+                            saveNamingHistory() // 保存历史记录以便回退
                             updateSuffixForTile(selectedIndex, value)
                         }
                     },
@@ -1055,15 +1087,67 @@ private fun ExportFormatSection(
 private fun NamingRuleSection(
     prefixValue: String,
     suffixValue: String,
+    canUndo: Boolean,
     onPrefixClick: () -> Unit,
-    onSuffixClick: () -> Unit
+    onSuffixClick: () -> Unit,
+    onUndo: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = stringResource(R.string.split_naming_rules),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Medium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.split_naming_rules),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium
+            )
+            
+            // 回退按钮
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        enabled = canUndo,
+                        onClick = onUndo,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ),
+                color = if (canUndo) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Undo,
+                        contentDescription = stringResource(R.string.split_undo_naming_hint),
+                        modifier = Modifier.size(16.dp),
+                        tint = if (canUndo) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        }
+                    )
+                    Text(
+                        text = stringResource(R.string.split_undo_naming),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (canUndo) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        }
+                    )
+                }
+            }
+        }
         
         Spacer(modifier = Modifier.height(12.dp))
         

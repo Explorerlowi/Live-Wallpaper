@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1391,6 +1392,7 @@ private fun MessageLocalImage(
     }
     
     var isLoading by remember { mutableStateOf(true) }
+    var isError by remember { mutableStateOf(false) }
     
     Box(
         modifier = placeholderModifier
@@ -1398,43 +1400,57 @@ private fun MessageLocalImage(
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        AsyncImage(
-            model = path,
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                ),
-            contentScale = ContentScale.Fit,
-            onSuccess = { state ->
-                isLoading = false
-                // 如果没有预设宽高，从加载结果获取并回调
-                if (presetAspectRatio == null) {
-                    val painter = state.painter
-                    val intrinsicSize = painter.intrinsicSize
-                    if (intrinsicSize.width > 0 && intrinsicSize.height > 0) {
-                        loadedAspectRatio = intrinsicSize.width / intrinsicSize.height
-                        onDimensionsLoaded?.invoke(
-                            intrinsicSize.width.toInt(),
-                            intrinsicSize.height.toInt()
-                        )
-                    }
-                }
-            },
-            onLoading = { isLoading = true },
-            onError = { isLoading = false }
-        )
-        
-        // 加载中显示图片图标
-        if (isLoading) {
-            Icon(
-                imageVector = Icons.Default.Image,
+        if (isError) {
+            // 图片已删除，显示占位图，点击无反应
+            Image(
+                painter = painterResource(id = R.drawable.ic_image_deleted),
                 contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
             )
+        } else {
+            AsyncImage(
+                model = path,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    ),
+                contentScale = ContentScale.Fit,
+                onSuccess = { state ->
+                    isLoading = false
+                    isError = false
+                    // 如果没有预设宽高，从加载结果获取并回调
+                    if (presetAspectRatio == null) {
+                        val painter = state.painter
+                        val intrinsicSize = painter.intrinsicSize
+                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0) {
+                            loadedAspectRatio = intrinsicSize.width / intrinsicSize.height
+                            onDimensionsLoaded?.invoke(
+                                intrinsicSize.width.toInt(),
+                                intrinsicSize.height.toInt()
+                            )
+                        }
+                    }
+                },
+                onLoading = { isLoading = true },
+                onError = { 
+                    isLoading = false
+                    isError = true
+                }
+            )
+            
+            // 加载中显示图片图标
+            if (isLoading) {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
         }
     }
 }

@@ -262,6 +262,10 @@
     <string name="split_apply_all">Apply to All</string>
     <string name="split_save_new">Save</string>
     <string name="split_apply">Apply</string>
+    <string name="split_undo_naming">Undo</string>
+    <string name="split_undo_naming_hint">Undo last naming change</string>
+    <string name="split_no_undo_history">No changes to undo</string>
+    <string name="split_naming_undone">Naming undone</string>
     <string name="split_export_success">%1$d tiles exported successfully</string>
     <string name="split_export_failed">Export failed</string>
     <string name="split_image">Split Image</string>
@@ -273,6 +277,20 @@
     <string name="image_editor_crop">Crop</string>
     <string name="image_editor_flip_horizontal">Flip Horizontal</string>
     <string name="image_editor_flip_vertical">Flip Vertical</string>
+    
+    <!-- Cache Management -->
+    <string name="cache_management">Cache Management</string>
+    <string name="cache_total_size">Total cache: %1$s</string>
+    <string name="cache_image_count">%1$d images loaded</string>
+    <string name="cache_loading">Loading cache...</string>
+    <string name="cache_empty">No cached images</string>
+    <string name="cache_selected_size">Selected: %1$s</string>
+    <string name="cache_sort_by_size">Sort by Size</string>
+    <string name="cache_sort_by_time">Sort by Time</string>
+    <string name="cache_delete_selected">Delete</string>
+    <string name="cache_delete_confirm_title">Delete Cache</string>
+    <string name="cache_delete_confirm_message">Are you sure you want to delete %1$d cached images (%2$s)?</string>
+    <string name="cache_deleted_success">Deleted %1$d cached images</string>
     
     <!-- About -->
     <string name="about_label">About</string>

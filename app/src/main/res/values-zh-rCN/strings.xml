@@ -264,6 +264,10 @@
     <string name="split_apply_all">应用到全部</string>
     <string name="split_save_new">保存</string>
     <string name="split_apply">应用</string>
+    <string name="split_undo_naming">回退</string>
+    <string name="split_undo_naming_hint">撤销上次命名更改</string>
+    <string name="split_no_undo_history">没有可撤销的更改</string>
+    <string name="split_naming_undone">已撤销命名</string>
     <string name="split_export_success">成功导出 %1$d 个图块</string>
     <string name="split_export_failed">导出失败</string>
     <string name="split_image">图片切分</string>
@@ -275,6 +279,20 @@
     <string name="image_editor_crop">裁剪</string>
     <string name="image_editor_flip_horizontal">水平翻转</string>
     <string name="image_editor_flip_vertical">垂直翻转</string>
+    
+    <!-- 缓存管理 -->
+    <string name="cache_management">缓存管理</string>
+    <string name="cache_total_size">缓存总大小：%1$s</string>
+    <string name="cache_image_count">已加载 %1$d 张图片</string>
+    <string name="cache_loading">正在加载缓存...</string>
+    <string name="cache_empty">暂无缓存图片</string>
+    <string name="cache_selected_size">已选 %1$s</string>
+    <string name="cache_sort_by_size">按大小排序</string>
+    <string name="cache_sort_by_time">按时间排序</string>
+    <string name="cache_delete_selected">删除</string>
+    <string name="cache_delete_confirm_title">删除缓存</string>
+    <string name="cache_delete_confirm_message">确定要删除 %1$d 张缓存图片（%2$s）吗？</string>
+    <string name="cache_deleted_success">已删除 %1$d 张缓存图片</string>
     
     <!-- 关于 -->
     <string name="about_label">关于</string>
