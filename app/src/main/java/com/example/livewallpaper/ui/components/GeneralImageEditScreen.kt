@@ -24,7 +24,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -35,7 +34,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +66,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,10 +83,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.layout.ContentScale
@@ -145,7 +145,27 @@ enum class BrushShape {
 }
 
 /**
+ * 拖拽交互类型
+ */
+private enum class DragAction {
+    /** 无操作 */
+    NONE,
+    /** 移动整个图形 */
+    MOVE,
+    /** 缩放（右下角白点） */
+    SCALE,
+    /** 旋转（左上角旋转按钮） */
+    ROTATE,
+    /** 拖动箭头起点 */
+    ARROW_START,
+    /** 拖动箭头终点 */
+    ARROW_END
+}
+
+/**
  * 绘制操作记录（用于撤销）
+ *
+ * 矩形/圆形/箭头支持变换属性（偏移、缩放、旋转），用于选中后的交互编辑。
  */
 sealed class DrawOperation {
     /** 自由画笔路径 */
@@ -155,28 +175,35 @@ sealed class DrawOperation {
         val strokeWidth: Float
     ) : DrawOperation()
 
-    /** 矩形 */
+    /** 矩形（支持变换） */
     data class RectStroke(
         val start: Offset,
         val end: Offset,
         val color: Color,
-        val strokeWidth: Float
+        val strokeWidth: Float,
+        val translateOffset: Offset = Offset.Zero,
+        val scaleFactor: Float = 1f,
+        val rotationDeg: Float = 0f
     ) : DrawOperation()
 
-    /** 圆形 */
+    /** 圆形（支持变换） */
     data class CircleStroke(
         val start: Offset,
         val end: Offset,
         val color: Color,
-        val strokeWidth: Float
+        val strokeWidth: Float,
+        val translateOffset: Offset = Offset.Zero,
+        val scaleFactor: Float = 1f,
+        val rotationDeg: Float = 0f
     ) : DrawOperation()
 
-    /** 箭头 */
+    /** 箭头（两端可独立拖动，支持平移） */
     data class ArrowStroke(
         val start: Offset,
         val end: Offset,
         val color: Color,
-        val strokeWidth: Float
+        val strokeWidth: Float,
+        val translateOffset: Offset = Offset.Zero
     ) : DrawOperation()
 }
 
@@ -202,6 +229,246 @@ private val BRUSH_COLORS = listOf(
     Color(0xFF808080)   // 灰色
 )
 
+/** 控制手柄半径（Canvas 坐标，绘制用） */
+private const val HANDLE_RADIUS = 10f
+/** 旋转按钮半径（比普通手柄大） */
+private const val ROTATE_HANDLE_RADIUS = 32f
+/** 控制手柄命中检测半径 */
+private const val HANDLE_HIT_RADIUS = 22f
+/** 旋转按钮命中检测半径 */
+private const val ROTATE_HIT_RADIUS = 40f
+/** 命中检测容差 */
+private const val HIT_TOLERANCE = 30f
+
+
+// ==================== 命中检测工具 ====================
+
+/**
+ * 计算点到线段的最短距离
+ */
+private fun pointToSegmentDistance(p: Offset, a: Offset, b: Offset): Float {
+    val ab = b - a
+    val ap = p - a
+    val t = ((ap.x * ab.x + ap.y * ab.y) / (ab.x * ab.x + ab.y * ab.y)).coerceIn(0f, 1f)
+    val proj = Offset(a.x + t * ab.x, a.y + t * ab.y)
+    val dx = p.x - proj.x
+    val dy = p.y - proj.y
+    return sqrt(dx * dx + dy * dy)
+}
+
+/**
+ * 获取矩形/圆形操作经过变换后的中心点
+ */
+private fun getShapeCenter(start: Offset, end: Offset, translate: Offset): Offset {
+    val cx = (start.x + end.x) / 2f + translate.x
+    val cy = (start.y + end.y) / 2f + translate.y
+    return Offset(cx, cy)
+}
+
+/**
+ * 获取矩形/圆形操作经过变换后的四个角（考虑旋转和缩放）
+ * 返回顺序：左上、右上、右下、左下
+ */
+private fun getTransformedCorners(
+    start: Offset, end: Offset,
+    translate: Offset, scaleFactor: Float, rotationDeg: Float
+): List<Offset> {
+    val cx = (start.x + end.x) / 2f
+    val cy = (start.y + end.y) / 2f
+    val hw = kotlin.math.abs(end.x - start.x) / 2f * scaleFactor
+    val hh = kotlin.math.abs(end.y - start.y) / 2f * scaleFactor
+    val rad = Math.toRadians(rotationDeg.toDouble())
+    val cosR = cos(rad).toFloat()
+    val sinR = sin(rad).toFloat()
+
+    fun rotate(lx: Float, ly: Float): Offset {
+        return Offset(
+            cx + translate.x + lx * cosR - ly * sinR,
+            cy + translate.y + lx * sinR + ly * cosR
+        )
+    }
+    return listOf(
+        rotate(-hw, -hh), // 左上
+        rotate(hw, -hh),  // 右上
+        rotate(hw, hh),   // 右下
+        rotate(-hw, hh)   // 左下
+    )
+}
+
+/**
+ * 判断点是否在凸四边形内（使用叉积法）
+ */
+private fun isPointInQuad(p: Offset, corners: List<Offset>): Boolean {
+    var sign = 0
+    for (i in corners.indices) {
+        val a = corners[i]
+        val b = corners[(i + 1) % corners.size]
+        val cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+        if (cross > 0) {
+            if (sign < 0) return false
+            sign = 1
+        } else if (cross < 0) {
+            if (sign > 0) return false
+            sign = -1
+        }
+    }
+    return true
+}
+
+/**
+ * 判断点是否在椭圆边框附近或内部（用于圆形选中检测）
+ */
+private fun isPointNearEllipse(
+    p: Offset, start: Offset, end: Offset,
+    translate: Offset, scaleFactor: Float, rotationDeg: Float,
+    tolerance: Float
+): Boolean {
+    val cx = (start.x + end.x) / 2f + translate.x
+    val cy = (start.y + end.y) / 2f + translate.y
+    val a = kotlin.math.abs(end.x - start.x) / 2f * scaleFactor + tolerance
+    val b = kotlin.math.abs(end.y - start.y) / 2f * scaleFactor + tolerance
+    if (a < 1f || b < 1f) return false
+
+    // 反旋转点到椭圆局部坐标
+    val rad = Math.toRadians(-rotationDeg.toDouble())
+    val cosR = cos(rad).toFloat()
+    val sinR = sin(rad).toFloat()
+    val dx = p.x - cx
+    val dy = p.y - cy
+    val lx = dx * cosR - dy * sinR
+    val ly = dx * sinR + dy * cosR
+
+    return (lx * lx) / (a * a) + (ly * ly) / (b * b) <= 1f
+}
+
+/**
+ * 检测点击位置命中了哪个操作（从后往前检测，后绘制的优先）
+ * 仅检测矩形、圆形、箭头（PEN 不可选中）
+ *
+ * @return 命中的操作在 drawHistory 中的索引，-1 表示未命中
+ */
+private fun hitTestOperation(
+    canvasPos: Offset,
+    drawHistory: List<DrawOperation>,
+    selectedBrushShape: BrushShape
+): Int {
+    // 只有在画圆/框/箭头模式下才可选中
+    if (selectedBrushShape == BrushShape.PEN) return -1
+
+    for (i in drawHistory.indices.reversed()) {
+        val op = drawHistory[i]
+        val hit = when (op) {
+            is DrawOperation.RectStroke -> {
+                val corners = getTransformedCorners(
+                    op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
+                )
+                isPointInQuad(canvasPos, corners)
+            }
+            is DrawOperation.CircleStroke -> {
+                isPointNearEllipse(
+                    canvasPos, op.start, op.end,
+                    op.translateOffset, op.scaleFactor, op.rotationDeg,
+                    HIT_TOLERANCE
+                )
+            }
+            is DrawOperation.ArrowStroke -> {
+                val s = op.start + op.translateOffset
+                val e = op.end + op.translateOffset
+                pointToSegmentDistance(canvasPos, s, e) < HIT_TOLERANCE
+            }
+            is DrawOperation.PenStroke -> false
+        }
+        if (hit) return i
+    }
+    return -1
+}
+
+/**
+ * 检测点击位置命中了选中图形的哪个控制手柄
+ */
+private fun hitTestHandle(
+    canvasPos: Offset,
+    op: DrawOperation,
+    handleHitRadius: Float
+): DragAction {
+    when (op) {
+        is DrawOperation.RectStroke -> {
+            val corners = getTransformedCorners(
+                op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
+            )
+            // 右下角缩放白点（优先级最高）
+            if (distanceBetween(canvasPos, corners[2]) < handleHitRadius) {
+                return DragAction.SCALE
+            }
+            // 左上角旋转按钮（更大的命中区域）
+            val rotatePos = getRotateHandlePosition(corners[0], corners)
+            if (distanceBetween(canvasPos, rotatePos) < ROTATE_HIT_RADIUS) {
+                return DragAction.ROTATE
+            }
+            // 在图形内部 → 移动
+            if (isPointInQuad(canvasPos, corners)) {
+                return DragAction.MOVE
+            }
+        }
+        is DrawOperation.CircleStroke -> {
+            val corners = getTransformedCorners(
+                op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
+            )
+            // 右下角缩放白点
+            if (distanceBetween(canvasPos, corners[2]) < handleHitRadius) {
+                return DragAction.SCALE
+            }
+            // 左上角旋转按钮（更大的命中区域）
+            val rotatePos = getRotateHandlePosition(corners[0], corners)
+            if (distanceBetween(canvasPos, rotatePos) < ROTATE_HIT_RADIUS) {
+                return DragAction.ROTATE
+            }
+            // 在椭圆内部 → 移动（用边界框检测，更宽松）
+            if (isPointNearEllipse(
+                    canvasPos, op.start, op.end,
+                    op.translateOffset, op.scaleFactor, op.rotationDeg, HIT_TOLERANCE
+                )
+            ) {
+                return DragAction.MOVE
+            }
+        }
+        is DrawOperation.ArrowStroke -> {
+            val s = op.start + op.translateOffset
+            val e = op.end + op.translateOffset
+            // 起点白点
+            if (distanceBetween(canvasPos, s) < handleHitRadius) {
+                return DragAction.ARROW_START
+            }
+            // 终点白点
+            if (distanceBetween(canvasPos, e) < handleHitRadius) {
+                return DragAction.ARROW_END
+            }
+            // 线段上 → 移动
+            if (pointToSegmentDistance(canvasPos, s, e) < HIT_TOLERANCE) {
+                return DragAction.MOVE
+            }
+        }
+        else -> {}
+    }
+    return DragAction.NONE
+}
+
+private fun distanceBetween(a: Offset, b: Offset): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return sqrt(dx * dx + dy * dy)
+}
+
+/**
+ * 旋转手柄位置：直接在左上角
+ */
+private fun getRotateHandlePosition(topLeft: Offset, @Suppress("UNUSED_PARAMETER") corners: List<Offset>): Offset {
+    return topLeft
+}
+
+
+// ==================== 公开入口 ====================
+
 /**
  * 通用图片编辑界面（全屏 Dialog）
  *
@@ -214,6 +481,7 @@ private val BRUSH_COLORS = listOf(
  * - 支持自由画笔、矩形、圆形、箭头四种形状
  * - 支持多种颜色选择
  * - 支持撤销操作
+ * - 矩形/圆形/箭头支持选中后移动、缩放、旋转
  *
  * @param imageSource 图片来源（URI 字符串、文件路径或网络 URL）
  * @param onNavigateBack 返回回调
@@ -269,6 +537,7 @@ fun GeneralImageEditScreen(
         )
     }
 }
+
 
 // ==================== 内部实现 ====================
 
@@ -342,6 +611,14 @@ private fun ImageEditBody(
     var currentDrawEnd by remember { mutableStateOf<Offset?>(null) }
     var currentPenPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
+    // ── 选中状态 ──
+    var selectedIndex by remember { mutableIntStateOf(-1) }
+
+    // 切换画笔形状或退出画笔模式时取消选中
+    LaunchedEffect(selectedBrushShape, isBrushMode) {
+        selectedIndex = -1
+    }
+
     val brushStrokeWidth = 6f
 
     fun clampOffset(targetOffset: Offset, targetScale: Float): Offset {
@@ -375,7 +652,7 @@ private fun ImageEditBody(
                 }
         )
 
-        // ── 绘制层：始终渲染绘制历史 ──
+        // ── 绘制层：始终渲染绘制历史 + 选中手柄 ──
         if (drawHistory.isNotEmpty() || (isBrushMode && currentDrawStart != null)) {
             Canvas(
                 modifier = Modifier
@@ -387,7 +664,14 @@ private fun ImageEditBody(
                         translationY = offset.y
                     }
             ) {
-                drawHistory.forEach { op -> drawOperation(op) }
+                drawHistory.forEachIndexed { index, op ->
+                    drawOperationWithTransform(op)
+                    // 绘制选中手柄
+                    if (index == selectedIndex) {
+                        drawSelectionHandles(op)
+                    }
+                }
+                // 绘制当前正在创建的临时图形
                 val start = currentDrawStart
                 val end = currentDrawEnd
                 if (start != null && end != null) {
@@ -406,8 +690,6 @@ private fun ImageEditBody(
         }
 
         // ── 统一手势层 ──
-        // 画笔模式：单指绘制 + 双指缩放/平移，全部在同一个 awaitEachGesture 中处理
-        // 非画笔模式：双指缩放/平移 + 单击/双击，使用原有的 detect* API
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -428,110 +710,193 @@ private fun ImageEditBody(
                                     )
                                 }
 
-                                val canvasStart = screenToCanvas(down.position)
-                                currentDrawStart = canvasStart
-                                currentDrawEnd = canvasStart
-                                if (selectedBrushShape == BrushShape.PEN) {
-                                    currentPenPoints = listOf(canvasStart)
+                                val canvasDown = screenToCanvas(down.position)
+
+                                // ── 优先检测：是否点击了选中图形的控制手柄 ──
+                                val selOp = if (selectedIndex in drawHistory.indices) drawHistory[selectedIndex] else null
+                                var dragAction = DragAction.NONE
+                                if (selOp != null) {
+                                    dragAction = hitTestHandle(canvasDown, selOp, HANDLE_HIT_RADIUS)
                                 }
 
-                                // 是否已切换到缩放模式
-                                var isZooming = false
-                                var prevCentroid = Offset.Unspecified
-                                var prevSpread = 0f
+                                if (dragAction != DragAction.NONE && selOp != null) {
+                                    // ── 拖拽控制手柄 ──
+                                    val dragIdx = selectedIndex
+                                    var prevCanvas = canvasDown
 
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pressed = event.changes.filter { it.pressed }
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val pressed = event.changes.filter { it.pressed }
+                                        if (pressed.isEmpty()) break
 
-                                    if (pressed.isEmpty()) {
-                                        // 所有手指抬起
-                                        if (!isZooming) {
-                                            // 完成绘制
-                                            val s = currentDrawStart
-                                            val e = currentDrawEnd
-                                            if (s != null && e != null) {
-                                                val op = when (selectedBrushShape) {
-                                                    BrushShape.PEN -> DrawOperation.PenStroke(
-                                                        points = currentPenPoints.toList(),
-                                                        color = selectedColor,
-                                                        strokeWidth = brushStrokeWidth
-                                                    )
-                                                    BrushShape.RECT -> DrawOperation.RectStroke(
-                                                        start = s, end = e,
-                                                        color = selectedColor,
-                                                        strokeWidth = brushStrokeWidth
-                                                    )
-                                                    BrushShape.CIRCLE -> DrawOperation.CircleStroke(
-                                                        start = s, end = e,
-                                                        color = selectedColor,
-                                                        strokeWidth = brushStrokeWidth
-                                                    )
-                                                    BrushShape.ARROW -> DrawOperation.ArrowStroke(
-                                                        start = s, end = e,
-                                                        color = selectedColor,
-                                                        strokeWidth = brushStrokeWidth
-                                                    )
-                                                }
-                                                drawHistory.add(op)
-                                            }
-                                        }
-                                        currentDrawStart = null
-                                        currentDrawEnd = null
-                                        currentPenPoints = emptyList()
-                                        prevCentroid = Offset.Unspecified
-                                        break
-                                    }
-
-                                    if (pressed.size >= 2) {
-                                        // 双指：切换到缩放模式
-                                        if (!isZooming) {
-                                            // 首次检测到双指，取消当前绘制
-                                            isZooming = true
-                                            currentDrawStart = null
-                                            currentDrawEnd = null
-                                            currentPenPoints = emptyList()
-                                        }
-
-                                        // 计算双指中心和间距
-                                        val p1 = pressed[0].position
-                                        val p2 = pressed[1].position
-                                        val centroid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
-                                        val dx = p2.x - p1.x
-                                        val dy = p2.y - p1.y
-                                        val spread = sqrt(dx * dx + dy * dy)
-
-                                        if (prevCentroid != Offset.Unspecified && prevSpread > 0f) {
-                                            val zoom = spread / prevSpread
-                                            val pan = centroid - prevCentroid
-                                            val newScale = (scale * zoom).coerceIn(1f, 5f)
-                                            val newOffset = if (newScale > 1f) {
-                                                clampOffset(offset + pan, newScale)
-                                            } else {
-                                                Offset.Zero
-                                            }
-                                            scale = newScale
-                                            offset = newOffset
-                                        }
-                                        prevCentroid = centroid
-                                        prevSpread = spread
-
-                                        // 消费所有事件，防止穿透
-                                        event.changes.forEach { it.consume() }
-                                    } else if (!isZooming) {
-                                        // 单指且未进入缩放模式：绘制
                                         val change = pressed.first()
-                                        val pos = screenToCanvas(change.position)
-                                        currentDrawEnd = pos
-                                        if (selectedBrushShape == BrushShape.PEN) {
-                                            currentPenPoints = currentPenPoints + pos
-                                        }
+                                        val curCanvas = screenToCanvas(change.position)
+                                        val delta = curCanvas - prevCanvas
+                                        prevCanvas = curCanvas
+
+                                        val currentOp = drawHistory[dragIdx]
+                                        drawHistory[dragIdx] = applyDragAction(
+                                            currentOp, dragAction, delta, curCanvas
+                                        )
                                         change.consume()
+                                    }
+                                } else {
+                                    // ── 检测是否点击了某个可选中的图形 ──
+                                    val hitIdx = hitTestOperation(canvasDown, drawHistory, selectedBrushShape)
+
+                                    if (hitIdx >= 0 && hitIdx != selectedIndex) {
+                                        // 选中新图形，消费本次手势
+                                        selectedIndex = hitIdx
+                                        // 等待抬起
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes.filter { it.pressed }
+                                            event.changes.forEach { it.consume() }
+                                            if (pressed.isEmpty()) break
+                                        }
+                                    } else if (hitIdx >= 0 && hitIdx == selectedIndex) {
+                                        // 已选中的图形上再次按下 → 移动
+                                        val dragIdx = selectedIndex
+                                        var prevCanvas = canvasDown
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes.filter { it.pressed }
+                                            if (pressed.isEmpty()) break
+
+                                            val change = pressed.first()
+                                            val curCanvas = screenToCanvas(change.position)
+                                            val delta = curCanvas - prevCanvas
+                                            prevCanvas = curCanvas
+
+                                            val currentOp = drawHistory[dragIdx]
+                                            drawHistory[dragIdx] = applyDragAction(
+                                                currentOp, DragAction.MOVE, delta, curCanvas
+                                            )
+                                            change.consume()
+                                        }
+                                    } else if (selectedIndex >= 0) {
+                                        // ── 未命中任何图形但有选中 → 仅取消选中，不绘制 ──
+                                        selectedIndex = -1
+                                        // 等待抬起
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes.filter { it.pressed }
+                                            event.changes.forEach { it.consume() }
+                                            if (pressed.isEmpty()) break
+                                        }
                                     } else {
-                                        // 缩放模式中只剩一指，重置 prevCentroid 等待下次双指
-                                        prevCentroid = Offset.Unspecified
-                                        prevSpread = 0f
-                                        event.changes.forEach { it.consume() }
+
+                                        currentDrawStart = canvasDown
+                                        currentDrawEnd = canvasDown
+                                        if (selectedBrushShape == BrushShape.PEN) {
+                                            currentPenPoints = listOf(canvasDown)
+                                        }
+
+                                        // 是否已切换到缩放模式
+                                        var isZooming = false
+                                        var prevCentroid = Offset.Unspecified
+                                        var prevSpread = 0f
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes.filter { it.pressed }
+
+                                            if (pressed.isEmpty()) {
+                                                if (!isZooming) {
+                                                    val s = currentDrawStart
+                                                    val e = currentDrawEnd
+                                                    if (s != null && e != null) {
+                                                        val op = when (selectedBrushShape) {
+                                                            BrushShape.PEN -> DrawOperation.PenStroke(
+                                                                points = currentPenPoints.toList(),
+                                                                color = selectedColor,
+                                                                strokeWidth = brushStrokeWidth
+                                                            )
+                                                            BrushShape.RECT -> DrawOperation.RectStroke(
+                                                                start = s, end = e,
+                                                                color = selectedColor,
+                                                                strokeWidth = brushStrokeWidth
+                                                            )
+                                                            BrushShape.CIRCLE -> DrawOperation.CircleStroke(
+                                                                start = s, end = e,
+                                                                color = selectedColor,
+                                                                strokeWidth = brushStrokeWidth
+                                                            )
+                                                            BrushShape.ARROW -> DrawOperation.ArrowStroke(
+                                                                start = s, end = e,
+                                                                color = selectedColor,
+                                                                strokeWidth = brushStrokeWidth
+                                                            )
+                                                        }
+                                                        // 过滤掉尺寸过小的图形（点击未拖动产生的）
+                                                        val minSize = 10f
+                                                        val tooSmall = when (op) {
+                                                            is DrawOperation.PenStroke -> op.points.size < 2
+                                                            is DrawOperation.RectStroke ->
+                                                                kotlin.math.abs(op.end.x - op.start.x) < minSize &&
+                                                                kotlin.math.abs(op.end.y - op.start.y) < minSize
+                                                            is DrawOperation.CircleStroke ->
+                                                                kotlin.math.abs(op.end.x - op.start.x) < minSize &&
+                                                                kotlin.math.abs(op.end.y - op.start.y) < minSize
+                                                            is DrawOperation.ArrowStroke ->
+                                                                distanceBetween(op.start, op.end) < minSize
+                                                        }
+                                                        if (!tooSmall) {
+                                                            drawHistory.add(op)
+                                                        }
+                                                    }
+                                                }
+                                                currentDrawStart = null
+                                                currentDrawEnd = null
+                                                currentPenPoints = emptyList()
+                                                break
+                                            }
+
+                                            if (pressed.size >= 2) {
+                                                if (!isZooming) {
+                                                    isZooming = true
+                                                    currentDrawStart = null
+                                                    currentDrawEnd = null
+                                                    currentPenPoints = emptyList()
+                                                }
+                                                val p1 = pressed[0].position
+                                                val p2 = pressed[1].position
+                                                val centroid = Offset(
+                                                    (p1.x + p2.x) / 2f,
+                                                    (p1.y + p2.y) / 2f
+                                                )
+                                                val dx = p2.x - p1.x
+                                                val dy = p2.y - p1.y
+                                                val spread = sqrt(dx * dx + dy * dy)
+
+                                                if (prevCentroid != Offset.Unspecified && prevSpread > 0f) {
+                                                    val zoom = spread / prevSpread
+                                                    val pan = centroid - prevCentroid
+                                                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                                                    val newOffset = if (newScale > 1f) {
+                                                        clampOffset(offset + pan, newScale)
+                                                    } else Offset.Zero
+                                                    scale = newScale
+                                                    offset = newOffset
+                                                }
+                                                prevCentroid = centroid
+                                                prevSpread = spread
+                                                event.changes.forEach { it.consume() }
+                                            } else if (!isZooming) {
+                                                val change = pressed.first()
+                                                val pos = screenToCanvas(change.position)
+                                                currentDrawEnd = pos
+                                                if (selectedBrushShape == BrushShape.PEN) {
+                                                    currentPenPoints = currentPenPoints + pos
+                                                }
+                                                change.consume()
+                                            } else {
+                                                prevCentroid = Offset.Unspecified
+                                                prevSpread = 0f
+                                                event.changes.forEach { it.consume() }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -544,9 +909,7 @@ private fun ImageEditBody(
                                     val newScale = (scale * zoom).coerceIn(1f, 5f)
                                     val newOffset = if (newScale > 1f) {
                                         clampOffset(offset + pan, newScale)
-                                    } else {
-                                        Offset.Zero
-                                    }
+                                    } else Offset.Zero
                                     scale = newScale
                                     offset = newOffset
                                 }
@@ -563,10 +926,7 @@ private fun ImageEditBody(
                                                 }
                                                 launch {
                                                     animatableOffset.snapTo(offset)
-                                                    animatableOffset.animateTo(
-                                                        Offset.Zero,
-                                                        tween(300)
-                                                    )
+                                                    animatableOffset.animateTo(Offset.Zero, tween(300))
                                                 }
                                                 scale = 1f
                                                 offset = Offset.Zero
@@ -577,23 +937,14 @@ private fun ImageEditBody(
                                                 val focusY =
                                                     (containerSize.height / 2f - it.y) * (targetScale - 1f)
                                                 val targetOffset =
-                                                    clampOffset(
-                                                        Offset(focusX, focusY),
-                                                        targetScale
-                                                    )
+                                                    clampOffset(Offset(focusX, focusY), targetScale)
                                                 launch {
                                                     animatableScale.snapTo(scale)
-                                                    animatableScale.animateTo(
-                                                        targetScale,
-                                                        tween(300)
-                                                    )
+                                                    animatableScale.animateTo(targetScale, tween(300))
                                                 }
                                                 launch {
                                                     animatableOffset.snapTo(offset)
-                                                    animatableOffset.animateTo(
-                                                        targetOffset,
-                                                        tween(300)
-                                                    )
+                                                    animatableOffset.animateTo(targetOffset, tween(300))
                                                 }
                                                 scale = targetScale
                                                 offset = targetOffset
@@ -642,7 +993,7 @@ private fun ImageEditBody(
                     .fillMaxWidth()
                     .padding(bottom = navInset + 12.dp)
             ) {
-                // 形状选择面板（点击画笔选择按钮后展开）
+                // 形状选择面板
                 AnimatedVisibility(
                     visible = isBrushMode && showShapePicker,
                     enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
@@ -670,7 +1021,13 @@ private fun ImageEditBody(
                         onColorSelected = { selectedColor = it },
                         onUndo = {
                             if (drawHistory.isNotEmpty()) {
+                                if (selectedIndex == drawHistory.lastIndex) {
+                                    selectedIndex = -1
+                                }
                                 drawHistory.removeAt(drawHistory.lastIndex)
+                                if (selectedIndex >= drawHistory.size) {
+                                    selectedIndex = -1
+                                }
                             }
                         }
                     )
@@ -703,18 +1060,287 @@ private fun ImageEditBody(
     }
 }
 
+
+// ==================== 拖拽变换应用 ====================
+
+/**
+ * 根据拖拽类型更新操作的变换属性
+ */
+private fun applyDragAction(
+    op: DrawOperation,
+    action: DragAction,
+    delta: Offset,
+    currentPos: Offset
+): DrawOperation {
+    return when (op) {
+        is DrawOperation.RectStroke -> {
+            when (action) {
+                DragAction.MOVE -> op.copy(
+                    translateOffset = op.translateOffset + delta
+                )
+                DragAction.SCALE -> {
+                    val center = getShapeCenter(op.start, op.end, op.translateOffset)
+                    val prevDist = distanceBetween(currentPos - delta, center)
+                    val curDist = distanceBetween(currentPos, center)
+                    if (prevDist > 1f) {
+                        val ratio = curDist / prevDist
+                        op.copy(scaleFactor = (op.scaleFactor * ratio).coerceIn(0.3f, 5f))
+                    } else op
+                }
+                DragAction.ROTATE -> {
+                    val center = getShapeCenter(op.start, op.end, op.translateOffset)
+                    val prevAngle = atan2(
+                        (currentPos.y - delta.y) - center.y,
+                        (currentPos.x - delta.x) - center.x
+                    )
+                    val curAngle = atan2(
+                        currentPos.y - center.y,
+                        currentPos.x - center.x
+                    )
+                    val angleDelta = Math.toDegrees((curAngle - prevAngle).toDouble()).toFloat()
+                    op.copy(rotationDeg = op.rotationDeg + angleDelta)
+                }
+                else -> op
+            }
+        }
+        is DrawOperation.CircleStroke -> {
+            when (action) {
+                DragAction.MOVE -> op.copy(
+                    translateOffset = op.translateOffset + delta
+                )
+                DragAction.SCALE -> {
+                    val center = getShapeCenter(op.start, op.end, op.translateOffset)
+                    val prevDist = distanceBetween(currentPos - delta, center)
+                    val curDist = distanceBetween(currentPos, center)
+                    if (prevDist > 1f) {
+                        val ratio = curDist / prevDist
+                        op.copy(scaleFactor = (op.scaleFactor * ratio).coerceIn(0.3f, 5f))
+                    } else op
+                }
+                DragAction.ROTATE -> {
+                    val center = getShapeCenter(op.start, op.end, op.translateOffset)
+                    val prevAngle = atan2(
+                        (currentPos.y - delta.y) - center.y,
+                        (currentPos.x - delta.x) - center.x
+                    )
+                    val curAngle = atan2(
+                        currentPos.y - center.y,
+                        currentPos.x - center.x
+                    )
+                    val angleDelta = Math.toDegrees((curAngle - prevAngle).toDouble()).toFloat()
+                    op.copy(rotationDeg = op.rotationDeg + angleDelta)
+                }
+                else -> op
+            }
+        }
+        is DrawOperation.ArrowStroke -> {
+            when (action) {
+                DragAction.MOVE -> op.copy(
+                    translateOffset = op.translateOffset + delta
+                )
+                DragAction.ARROW_START -> op.copy(
+                    start = op.start + delta
+                )
+                DragAction.ARROW_END -> op.copy(
+                    end = op.end + delta
+                )
+                else -> op
+            }
+        }
+        else -> op
+    }
+}
+
 // ==================== 绘制辅助函数 ====================
 
 /**
- * 根据操作类型分发绘制
+ * 绘制操作（带变换支持）
  */
-private fun DrawScope.drawOperation(op: DrawOperation) {
+private fun DrawScope.drawOperationWithTransform(op: DrawOperation) {
     when (op) {
         is DrawOperation.PenStroke -> drawPenPath(op.points, op.color, op.strokeWidth)
-        is DrawOperation.RectStroke -> drawRectShape(op.start, op.end, op.color, op.strokeWidth)
-        is DrawOperation.CircleStroke -> drawCircleShape(op.start, op.end, op.color, op.strokeWidth)
-        is DrawOperation.ArrowStroke -> drawArrowShape(op.start, op.end, op.color, op.strokeWidth)
+        is DrawOperation.RectStroke -> {
+            val cx = (op.start.x + op.end.x) / 2f + op.translateOffset.x
+            val cy = (op.start.y + op.end.y) / 2f + op.translateOffset.y
+            rotate(degrees = op.rotationDeg, pivot = Offset(cx, cy)) {
+                val hw = kotlin.math.abs(op.end.x - op.start.x) / 2f * op.scaleFactor
+                val hh = kotlin.math.abs(op.end.y - op.start.y) / 2f * op.scaleFactor
+                val topLeft = Offset(cx - hw, cy - hh)
+                val rectSize = Size(hw * 2f, hh * 2f)
+                drawRect(
+                    color = op.color,
+                    topLeft = topLeft,
+                    size = rectSize,
+                    style = Stroke(
+                        width = op.strokeWidth,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+            }
+        }
+        is DrawOperation.CircleStroke -> {
+            val cx = (op.start.x + op.end.x) / 2f + op.translateOffset.x
+            val cy = (op.start.y + op.end.y) / 2f + op.translateOffset.y
+            rotate(degrees = op.rotationDeg, pivot = Offset(cx, cy)) {
+                val hw = kotlin.math.abs(op.end.x - op.start.x) / 2f * op.scaleFactor
+                val hh = kotlin.math.abs(op.end.y - op.start.y) / 2f * op.scaleFactor
+                val topLeft = Offset(cx - hw, cy - hh)
+                val ovalSize = Size(hw * 2f, hh * 2f)
+                drawOval(
+                    color = op.color,
+                    topLeft = topLeft,
+                    size = ovalSize,
+                    style = Stroke(
+                        width = op.strokeWidth,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+            }
+        }
+        is DrawOperation.ArrowStroke -> {
+            val s = op.start + op.translateOffset
+            val e = op.end + op.translateOffset
+            drawArrowShape(s, e, op.color, op.strokeWidth)
+        }
     }
+}
+
+/**
+ * 绘制选中图形的控制手柄
+ */
+private fun DrawScope.drawSelectionHandles(op: DrawOperation) {
+    when (op) {
+        is DrawOperation.RectStroke -> {
+            val corners = getTransformedCorners(
+                op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
+            )
+            drawShapeSelectionHandles(corners)
+        }
+        is DrawOperation.CircleStroke -> {
+            val corners = getTransformedCorners(
+                op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
+            )
+            drawShapeSelectionHandles(corners)
+        }
+        is DrawOperation.ArrowStroke -> {
+            val s = op.start + op.translateOffset
+            val e = op.end + op.translateOffset
+
+            // 两端之间的白色连线
+            drawLine(
+                color = Color.White.copy(alpha = 0.6f),
+                start = s,
+                end = e,
+                strokeWidth = 1.5f,
+                cap = StrokeCap.Round
+            )
+
+            // 起点白点
+            drawCircle(
+                color = Color.White,
+                radius = HANDLE_RADIUS,
+                center = s
+            )
+            drawCircle(
+                color = Color.Gray,
+                radius = HANDLE_RADIUS,
+                center = s,
+                style = Stroke(width = 1.5f)
+            )
+
+            // 终点白点
+            drawCircle(
+                color = Color.White,
+                radius = HANDLE_RADIUS,
+                center = e
+            )
+            drawCircle(
+                color = Color.Gray,
+                radius = HANDLE_RADIUS,
+                center = e,
+                style = Stroke(width = 1.5f)
+            )
+        }
+        else -> {}
+    }
+}
+
+/**
+ * 绘制矩形/圆形选中时的边框、缩放手柄和旋转按钮
+ */
+private fun DrawScope.drawShapeSelectionHandles(corners: List<Offset>) {
+    // 绘制边框
+    for (i in corners.indices) {
+        val a = corners[i]
+        val b = corners[(i + 1) % corners.size]
+        drawLine(
+            color = Color.White.copy(alpha = 0.6f),
+            start = a,
+            end = b,
+            strokeWidth = 1.5f,
+            cap = StrokeCap.Round
+        )
+    }
+
+    // 右下角缩放白点
+    drawCircle(
+        color = Color.White,
+        radius = HANDLE_RADIUS,
+        center = corners[2]
+    )
+    drawCircle(
+        color = Color.Gray,
+        radius = HANDLE_RADIUS,
+        center = corners[2],
+        style = Stroke(width = 1.5f)
+    )
+
+    // 左上角旋转按钮（直接在角上，更大）
+    val rotatePos = getRotateHandlePosition(corners[0], corners)
+    drawCircle(
+        color = Color.White,
+        radius = ROTATE_HANDLE_RADIUS,
+        center = rotatePos
+    )
+    drawCircle(
+        color = Color.Gray.copy(alpha = 0.4f),
+        radius = ROTATE_HANDLE_RADIUS,
+        center = rotatePos,
+        style = Stroke(width = 1.5f)
+    )
+    drawRotateIcon(rotatePos, ROTATE_HANDLE_RADIUS)
+}
+
+/**
+ * 在指定位置绘制旋转图标（Material Refresh 图标 path）
+ */
+private fun DrawScope.drawRotateIcon(center: Offset, radius: Float) {
+    val iconColor = Color(0xFF444444)
+    val s = radius / 12f  // 24x24 viewBox，中心 12,12
+
+    // Material Icons "Refresh" path，坐标已相对于 center 做偏移和缩放
+    fun px(x: Float) = center.x + (x - 12f) * s
+    fun py(y: Float) = center.y + (y - 12f) * s
+
+    val refreshPath = Path().apply {
+        moveTo(px(17.65f), py(6.35f))
+        cubicTo(px(16.2f), py(4.9f), px(14.21f), py(4f), px(12f), py(4f))
+        cubicTo(px(7.58f), py(4f), px(4.01f), py(7.58f), px(4.01f), py(12f))
+        cubicTo(px(4.01f), py(16.42f), px(7.58f), py(20f), px(12f), py(20f))
+        cubicTo(px(15.73f), py(20f), px(18.84f), py(17.45f), px(19.73f), py(14f))
+        lineTo(px(17.65f), py(14f))
+        cubicTo(px(16.83f), py(16.33f), px(14.61f), py(18f), px(12f), py(18f))
+        cubicTo(px(8.69f), py(18f), px(6f), py(15.31f), px(6f), py(12f))
+        cubicTo(px(6f), py(8.69f), px(8.69f), py(6f), px(12f), py(6f))
+        cubicTo(px(13.66f), py(6f), px(15.14f), py(6.69f), px(16.22f), py(7.78f))
+        lineTo(px(13f), py(11f))
+        lineTo(px(20f), py(11f))
+        lineTo(px(20f), py(4f))
+        close()
+    }
+    drawPath(refreshPath, iconColor)
 }
 
 /**
@@ -740,7 +1366,7 @@ private fun DrawScope.drawPenPath(points: List<Offset>, color: Color, strokeWidt
 }
 
 /**
- * 绘制矩形
+ * 绘制矩形（无变换，用于临时绘制预览）
  */
 private fun DrawScope.drawRectShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
     val topLeft = Offset(minOf(start.x, end.x), minOf(start.y, end.y))
@@ -757,7 +1383,7 @@ private fun DrawScope.drawRectShape(start: Offset, end: Offset, color: Color, st
 }
 
 /**
- * 绘制圆形（椭圆，由起点和终点确定的矩形内切）
+ * 绘制圆形（无变换，用于临时绘制预览）
  */
 private fun DrawScope.drawCircleShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
     val topLeft = Offset(minOf(start.x, end.x), minOf(start.y, end.y))
@@ -777,7 +1403,6 @@ private fun DrawScope.drawCircleShape(start: Offset, end: Offset, color: Color, 
  * 绘制箭头（线段 + 箭头尖端）
  */
 private fun DrawScope.drawArrowShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
-    // 主线段
     drawLine(
         color = color,
         start = start,
@@ -785,7 +1410,6 @@ private fun DrawScope.drawArrowShape(start: Offset, end: Offset, color: Color, s
         strokeWidth = strokeWidth,
         cap = StrokeCap.Round
     )
-    // 箭头尖端
     val dx = end.x - start.x
     val dy = end.y - start.y
     val length = sqrt(dx * dx + dy * dy)
@@ -813,11 +1437,11 @@ private fun DrawScope.drawArrowShape(start: Offset, end: Offset, color: Color, s
     )
 }
 
+
 // ==================== UI 组件 ====================
 
 /**
  * 形状选择面板
- * 参考第二张截图：画笔、方形、圆形、箭头 四个图标横排
  */
 @Composable
 private fun ShapePickerBar(
@@ -892,7 +1516,6 @@ private fun ShapeItem(
             val stroke = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             when (shape) {
                 BrushShape.PEN -> {
-                    // 画笔图标：一条曲线
                     val path = Path().apply {
                         moveTo(w * 0.15f, h * 0.85f)
                         cubicTo(w * 0.3f, h * 0.3f, w * 0.7f, h * 0.7f, w * 0.85f, h * 0.15f)
@@ -916,7 +1539,6 @@ private fun ShapeItem(
                     )
                 }
                 BrushShape.ARROW -> {
-                    // 箭头图标
                     drawLine(tint, Offset(w * 0.15f, h * 0.85f), Offset(w * 0.85f, h * 0.15f), strokeWidth = 2f, cap = StrokeCap.Round)
                     val path = Path().apply {
                         moveTo(w * 0.85f, h * 0.15f)
@@ -933,7 +1555,6 @@ private fun ShapeItem(
 
 /**
  * 画笔工具栏：画笔选择按钮 + 颜色列表 + 撤销按钮
- * 参考第一张截图的中间行
  */
 @Composable
 private fun BrushToolBar(
@@ -949,7 +1570,6 @@ private fun BrushToolBar(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 画笔选择按钮（带选中圈）
         Box(
             modifier = Modifier
                 .size(32.dp)
@@ -972,7 +1592,6 @@ private fun BrushToolBar(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // 颜色选择列表（可横向滚动）
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -988,18 +1607,14 @@ private fun BrushToolBar(
                         .then(
                             if (isSelected) {
                                 Modifier.border(2.dp, Color.White, RoundedCornerShape(4.dp))
-                            } else {
-                                Modifier
-                            }
+                            } else Modifier
                         )
                         .clip(RoundedCornerShape(4.dp))
                         .background(color)
                         .then(
                             if (color == Color.White) {
                                 Modifier.border(0.5.dp, Color.Gray, RoundedCornerShape(4.dp))
-                            } else {
-                                Modifier
-                            }
+                            } else Modifier
                         )
                         .clickable(
                             onClick = { onColorSelected(color) },
@@ -1012,7 +1627,6 @@ private fun BrushToolBar(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // 撤销按钮
         IconButton(
             onClick = onUndo,
             enabled = canUndo,
@@ -1257,6 +1871,7 @@ private fun ToolIcon(
         )
     }
 }
+
 
 // ==================== 图片保存工具 ====================
 
