@@ -566,19 +566,6 @@ private fun ImageEditBody(
         }
     }
 
-    val onDownload: () -> Unit = {
-        if (saveState != SaveState.SAVING) {
-            scope.launch {
-                saveState = SaveState.SAVING
-                saveProgress = 0f
-                val success = saveImageToGallery(context, imageSource) { progress ->
-                    saveProgress = progress
-                }
-                saveState = if (success) SaveState.SUCCESS else SaveState.FAILED
-            }
-        }
-    }
-
     val density = LocalDensity.current
     val currentStatusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val currentNavBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
@@ -605,6 +592,21 @@ private fun ImageEditBody(
     var selectedColor by remember { mutableStateOf(Color.Red) }
     var showShapePicker by remember { mutableStateOf(false) }
     val drawHistory = remember { mutableStateListOf<DrawOperation>() }
+
+    val onDownload: () -> Unit = {
+        if (saveState != SaveState.SAVING) {
+            scope.launch {
+                saveState = SaveState.SAVING
+                saveProgress = 0f
+                val success = saveEditedImageToGallery(
+                    context, imageSource, drawHistory, containerSize
+                ) { progress ->
+                    saveProgress = progress
+                }
+                saveState = if (success) SaveState.SUCCESS else SaveState.FAILED
+            }
+        }
+    }
 
     // 当前正在绘制的临时操作
     var currentDrawStart by remember { mutableStateOf<Offset?>(null) }
@@ -1876,20 +1878,35 @@ private fun ToolIcon(
 // ==================== 图片保存工具 ====================
 
 /**
- * 将图片保存到系统相册（带进度回调）
+ * 将编辑后的图片（原图 + 绘制内容）保存到系统相册
  */
-private suspend fun saveImageToGallery(
+private suspend fun saveEditedImageToGallery(
     context: Context,
     source: String,
+    drawHistory: List<DrawOperation>,
+    containerSize: IntSize,
     onProgress: (Float) -> Unit
 ): Boolean {
     return withContext(Dispatchers.IO) {
         try {
             onProgress(0.05f)
-            val bitmap = loadBitmapFromSource(context, source, onProgress)
+            val originalBitmap = loadBitmapFromSource(context, source, onProgress)
                 ?: return@withContext false
-            onProgress(0.6f)
-            val result = saveBitmapToMediaStore(context, bitmap, onProgress)
+            onProgress(0.5f)
+
+            // 如果有绘制内容，合成到图片上
+            val finalBitmap = if (drawHistory.isNotEmpty()) {
+                renderDrawingsOntoBitmap(originalBitmap, drawHistory, containerSize)
+            } else {
+                originalBitmap
+            }
+            onProgress(0.7f)
+
+            val result = saveBitmapToMediaStore(context, finalBitmap, onProgress)
+            // 如果合成了新 Bitmap，回收它（但不回收原图，因为可能还在用）
+            if (finalBitmap !== originalBitmap) {
+                finalBitmap.recycle()
+            }
             onProgress(1f)
             result
         } catch (e: Exception) {
@@ -1897,6 +1914,167 @@ private suspend fun saveImageToGallery(
             false
         }
     }
+}
+
+/**
+ * 将 drawHistory 中的所有绘制操作渲染到原图 Bitmap 上
+ *
+ * 坐标转换逻辑：
+ * 绘制时的坐标系是 Compose Canvas（containerSize 大小），图片以 ContentScale.Fit 居中显示。
+ * 需要计算图片在 Canvas 中的实际显示区域，然后将绘制坐标映射到图片像素坐标。
+ */
+private fun renderDrawingsOntoBitmap(
+    original: Bitmap,
+    drawHistory: List<DrawOperation>,
+    containerSize: IntSize
+): Bitmap {
+    val imgW = original.width.toFloat()
+    val imgH = original.height.toFloat()
+    val cW = containerSize.width.toFloat()
+    val cH = containerSize.height.toFloat()
+
+    if (cW <= 0f || cH <= 0f) return original
+
+    // ContentScale.Fit: 图片等比缩放后居中
+    val fitScale = min(cW / imgW, cH / imgH)
+    val displayW = imgW * fitScale
+    val displayH = imgH * fitScale
+    val offsetX = (cW - displayW) / 2f
+    val offsetY = (cH - displayH) / 2f
+
+    // 屏幕 Canvas 坐标 → 图片像素坐标
+    fun toImgX(sx: Float) = (sx - offsetX) / fitScale
+    fun toImgY(sy: Float) = (sy - offsetY) / fitScale
+    fun toImgOffset(o: Offset) = Offset(toImgX(o.x), toImgY(o.y))
+    fun toImgLen(len: Float) = len / fitScale
+
+    val result = original.copy(Bitmap.Config.ARGB_8888, true)
+    val canvas = android.graphics.Canvas(result)
+
+    for (op in drawHistory) {
+        when (op) {
+            is DrawOperation.PenStroke -> {
+                if (op.points.size < 2) continue
+                val paint = android.graphics.Paint().apply {
+                    color = op.color.toArgb()
+                    strokeWidth = toImgLen(op.strokeWidth)
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    isAntiAlias = true
+                }
+                val path = android.graphics.Path().apply {
+                    val first = toImgOffset(op.points[0])
+                    moveTo(first.x, first.y)
+                    for (i in 1 until op.points.size) {
+                        val pt = toImgOffset(op.points[i])
+                        lineTo(pt.x, pt.y)
+                    }
+                }
+                canvas.drawPath(path, paint)
+            }
+
+            is DrawOperation.RectStroke -> {
+                val paint = android.graphics.Paint().apply {
+                    color = op.color.toArgb()
+                    strokeWidth = toImgLen(op.strokeWidth)
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    isAntiAlias = true
+                }
+                val cx = toImgX((op.start.x + op.end.x) / 2f + op.translateOffset.x)
+                val cy = toImgY((op.start.y + op.end.y) / 2f + op.translateOffset.y)
+                val hw = kotlin.math.abs(op.end.x - op.start.x) / 2f * op.scaleFactor
+                val hh = kotlin.math.abs(op.end.y - op.start.y) / 2f * op.scaleFactor
+                val hwImg = toImgLen(hw)
+                val hhImg = toImgLen(hh)
+
+                canvas.save()
+                canvas.rotate(op.rotationDeg, cx, cy)
+                canvas.drawRect(
+                    cx - hwImg, cy - hhImg,
+                    cx + hwImg, cy + hhImg,
+                    paint
+                )
+                canvas.restore()
+            }
+
+            is DrawOperation.CircleStroke -> {
+                val paint = android.graphics.Paint().apply {
+                    color = op.color.toArgb()
+                    strokeWidth = toImgLen(op.strokeWidth)
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    isAntiAlias = true
+                }
+                val cx = toImgX((op.start.x + op.end.x) / 2f + op.translateOffset.x)
+                val cy = toImgY((op.start.y + op.end.y) / 2f + op.translateOffset.y)
+                val hw = kotlin.math.abs(op.end.x - op.start.x) / 2f * op.scaleFactor
+                val hh = kotlin.math.abs(op.end.y - op.start.y) / 2f * op.scaleFactor
+                val hwImg = toImgLen(hw)
+                val hhImg = toImgLen(hh)
+
+                canvas.save()
+                canvas.rotate(op.rotationDeg, cx, cy)
+                val rect = android.graphics.RectF(
+                    cx - hwImg, cy - hhImg,
+                    cx + hwImg, cy + hhImg
+                )
+                canvas.drawOval(rect, paint)
+                canvas.restore()
+            }
+
+            is DrawOperation.ArrowStroke -> {
+                val paint = android.graphics.Paint().apply {
+                    color = op.color.toArgb()
+                    strokeWidth = toImgLen(op.strokeWidth)
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    isAntiAlias = true
+                }
+                val s = toImgOffset(op.start + op.translateOffset)
+                val e = toImgOffset(op.end + op.translateOffset)
+
+                // 线段
+                canvas.drawLine(s.x, s.y, e.x, e.y, paint)
+
+                // 箭头尖端
+                val dx = e.x - s.x
+                val dy = e.y - s.y
+                val length = sqrt(dx * dx + dy * dy)
+                if (length >= 1f) {
+                    val arrowHeadLength = min(length * 0.3f, toImgLen(40f))
+                    val arrowAngle = Math.toRadians(25.0)
+                    val angle = atan2(dy.toDouble(), dx.toDouble())
+
+                    val x1 = e.x - arrowHeadLength * cos(angle - arrowAngle).toFloat()
+                    val y1 = e.y - arrowHeadLength * sin(angle - arrowAngle).toFloat()
+                    val x2 = e.x - arrowHeadLength * cos(angle + arrowAngle).toFloat()
+                    val y2 = e.y - arrowHeadLength * sin(angle + arrowAngle).toFloat()
+
+                    canvas.drawLine(e.x, e.y, x1, y1, paint)
+                    canvas.drawLine(e.x, e.y, x2, y2, paint)
+                }
+            }
+        }
+    }
+
+    return result
+}
+
+/**
+ * 将 Compose Color 转换为 Android ARGB int
+ */
+private fun Color.toArgb(): Int {
+    return android.graphics.Color.argb(
+        (alpha * 255).toInt(),
+        (red * 255).toInt(),
+        (green * 255).toInt(),
+        (blue * 255).toInt()
+    )
 }
 
 /**
