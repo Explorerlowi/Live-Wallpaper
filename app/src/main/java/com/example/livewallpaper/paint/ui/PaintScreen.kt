@@ -68,6 +68,7 @@ import com.example.livewallpaper.paint.ui.split.ImageSplitActivity
 import com.example.livewallpaper.ui.components.AppDropdownMenu
 import com.example.livewallpaper.ui.components.AppMenuItem
 import com.example.livewallpaper.ui.components.ConfirmDialog
+import com.example.livewallpaper.ui.components.GeneralImageEditScreen
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import com.example.livewallpaper.ui.components.ImageSource
@@ -201,6 +202,9 @@ fun PaintScreen(
     // 图片预览状态（支持多图预览）
     var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
     var previewInitialIndex by remember { mutableIntStateOf(0) }
+    
+    // 图片编辑状态
+    var editImagePath by remember { mutableStateOf<String?>(null) }
     
     // 图库 ViewModel
     val mediaStoreRepository: MediaStoreRepository = koinInject()
@@ -560,6 +564,9 @@ fun PaintScreen(
                                 },
                                 onSplitImage = { imagePath ->
                                     ImageSplitActivity.launch(context, imagePath)
+                                },
+                                onEditImage = { imagePath ->
+                                    editImagePath = imagePath
                                 }
                             )
                         }
@@ -691,6 +698,15 @@ fun PaintScreen(
         )
     }
     
+    // 图片编辑界面
+    editImagePath?.let { path ->
+        GeneralImageEditScreen(
+            imageSource = path,
+            onNavigateBack = { editImagePath = null },
+            onDone = { editImagePath = null }
+        )
+    }
+    
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -788,7 +804,8 @@ private fun MessageItem(
     onDownloadImage: (PaintImage) -> Unit = {},
     onAddImages: (List<PaintImage>) -> Unit = {},
     onUpdateImageDimensions: (String, String, Int, Int) -> Unit = { _, _, _, _ -> },
-    onSplitImage: (String) -> Unit = {}
+    onSplitImage: (String) -> Unit = {},
+    onEditImage: (String) -> Unit = {}
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val isAssistant = !isUser
@@ -995,6 +1012,11 @@ private fun MessageItem(
                 totalVersions = totalVersions,
                 currentVersionIndex = currentVersionIndex,
                 hasImages = message.images.isNotEmpty(),
+                // 检查图片文件是否实际可用（缓存可能已被清理）
+                imagesAvailable = message.images.any { image ->
+                    image.localPath?.let { java.io.File(it).exists() } == true
+                        || image.base64Data != null
+                },
                 onAddImages = { onAddImages(message.images) },
                 onCopy = { onCopyText(message.messageContent) },
                 onRegenerate = { onRegenerate(message.id) },
@@ -1021,6 +1043,9 @@ private fun MessageItem(
                 },
                 onSplitImage = {
                     message.images.firstOrNull()?.localPath?.let { onSplitImage(it) }
+                },
+                onEditImage = {
+                    message.images.firstOrNull()?.localPath?.let { onEditImage(it) }
                 }
             )
         }
@@ -1047,6 +1072,7 @@ private fun MessageActionBar(
     totalVersions: Int,
     currentVersionIndex: Int,
     hasImages: Boolean,
+    imagesAvailable: Boolean = hasImages,
     onAddImages: () -> Unit,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
@@ -1054,7 +1080,8 @@ private fun MessageActionBar(
     onNextVersion: () -> Unit,
     onDelete: () -> Unit,
     onDownload: () -> Unit,
-    onSplitImage: () -> Unit = {}
+    onSplitImage: () -> Unit = {},
+    onEditImage: () -> Unit = {}
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
     val moreMenuItems = listOf(
@@ -1065,6 +1092,15 @@ private fun MessageActionBar(
             onClick = {
                 showMoreMenu = false
                 onSplitImage()
+            }
+        ),
+        AppMenuItem(
+            title = stringResource(R.string.image_edit_entry),
+            icon = Icons.Default.Edit,
+            enabled = hasImages,
+            onClick = {
+                showMoreMenu = false
+                onEditImage()
             }
         )
     )
@@ -1090,8 +1126,8 @@ private fun MessageActionBar(
             Spacer(modifier = Modifier.width(4.dp))
         }
         
-        // 添加图片按钮（仅有图片时显示，放在版本切换器右边）
-        if (hasImages) {
+        // 添加图片按钮（仅图片实际可用时显示）
+        if (imagesAvailable) {
             ActionIconButton(
                 icon = Icons.Default.Add,
                 contentDescription = stringResource(R.string.message_add_to_selected),
@@ -1099,8 +1135,8 @@ private fun MessageActionBar(
             )
         }
         
-        // 复制按钮（仅有文本时显示）
-        if (message.messageContent.isNotEmpty()) {
+        // 复制按钮（仅有文本且图片可用时显示，图片不可用时精简按钮）
+        if (message.messageContent.isNotEmpty() && imagesAvailable) {
             ActionIconButton(
                 icon = Icons.Default.ContentCopy,
                 contentDescription = stringResource(R.string.message_copy),
@@ -1115,8 +1151,8 @@ private fun MessageActionBar(
             onClick = onRegenerate
         )
         
-        // 下载按钮（仅有图片时显示）
-        if (hasImages) {
+        // 下载按钮（仅图片实际可用时显示）
+        if (imagesAvailable) {
             ActionIconButton(
                 icon = Icons.Default.Download,
                 contentDescription = stringResource(R.string.message_download),
@@ -1132,18 +1168,21 @@ private fun MessageActionBar(
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
         )
 
-        Box {
-            ActionIconButton(
-                icon = Icons.Default.MoreVert,
-                contentDescription = "更多",
-                onClick = { showMoreMenu = true }
-            )
-            AppDropdownMenu(
-                expanded = showMoreMenu,
-                onDismissRequest = { showMoreMenu = false },
-                items = moreMenuItems,
-                offset = DpOffset(0.dp, moreMenuOffsetY)
-            )
+        // 更多菜单（仅图片实际可用时显示）
+        if (imagesAvailable) {
+            Box {
+                ActionIconButton(
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = "更多",
+                    onClick = { showMoreMenu = true }
+                )
+                AppDropdownMenu(
+                    expanded = showMoreMenu,
+                    onDismissRequest = { showMoreMenu = false },
+                    items = moreMenuItems,
+                    offset = DpOffset(0.dp, moreMenuOffsetY)
+                )
+            }
         }
     }
 }

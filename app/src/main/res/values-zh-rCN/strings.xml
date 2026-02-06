@@ -280,6 +280,17 @@
     <string name="image_editor_flip_horizontal">水平翻转</string>
     <string name="image_editor_flip_vertical">垂直翻转</string>
     
+    <!-- 通用图片编辑器 -->
+    <string name="image_edit_brush">画笔</string>
+    <string name="image_edit_mosaic">马赛克</string>
+    <string name="image_edit_text">文字</string>
+    <string name="image_edit_crop">裁剪</string>
+    <string name="image_edit_done">完成</string>
+    <string name="image_edit_back">返回</string>
+    <string name="image_edit_download">保存</string>
+    <string name="image_edit_saving">正在保存...</string>
+    <string name="image_edit_entry">图片编辑</string>
+    
     <!-- 缓存管理 -->
     <string name="cache_management">缓存管理</string>
     <string name="cache_total_size">缓存总大小：%1$s</string>

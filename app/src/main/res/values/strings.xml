@@ -278,6 +278,17 @@
     <string name="image_editor_flip_horizontal">Flip Horizontal</string>
     <string name="image_editor_flip_vertical">Flip Vertical</string>
     
+    <!-- 通用图片编辑器 -->
+    <string name="image_edit_brush">Brush</string>
+    <string name="image_edit_mosaic">Mosaic</string>
+    <string name="image_edit_text">Text</string>
+    <string name="image_edit_crop">Crop</string>
+    <string name="image_edit_done">Done</string>
+    <string name="image_edit_back">Back</string>
+    <string name="image_edit_download">Save</string>
+    <string name="image_edit_saving">Saving...</string>
+    <string name="image_edit_entry">Edit Image</string>
+    
     <!-- Cache Management -->
     <string name="cache_management">Cache Management</string>
     <string name="cache_total_size">Total cache: %1$s</string>
