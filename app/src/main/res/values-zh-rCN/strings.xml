@@ -290,6 +290,11 @@
     <string name="image_edit_download">保存</string>
     <string name="image_edit_saving">正在保存...</string>
     <string name="image_edit_entry">图片编辑</string>
+    <string name="image_edit_undo">撤销</string>
+    <string name="image_edit_shape_pen">画笔</string>
+    <string name="image_edit_shape_rect">方形</string>
+    <string name="image_edit_shape_circle">圆形</string>
+    <string name="image_edit_shape_arrow">箭头</string>
     
     <!-- 缓存管理 -->
     <string name="cache_management">缓存管理</string>

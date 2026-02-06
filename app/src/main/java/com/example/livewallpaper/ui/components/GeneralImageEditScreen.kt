@@ -1,4 +1,4 @@
-package com.example.livewallpaper.ui.components
+﻿package com.example.livewallpaper.ui.components
 
 import android.content.ContentValues
 import android.content.Context
@@ -19,10 +19,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,15 +43,19 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +68,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,11 +77,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +114,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URL
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * 图片编辑工具类型
@@ -107,18 +131,76 @@ enum class EditTool {
 }
 
 /**
+ * 画笔形状类型
+ */
+enum class BrushShape {
+    /** 自由画笔 */
+    PEN,
+    /** 矩形 */
+    RECT,
+    /** 圆形 */
+    CIRCLE,
+    /** 箭头 */
+    ARROW
+}
+
+/**
+ * 绘制操作记录（用于撤销）
+ */
+sealed class DrawOperation {
+    /** 自由画笔路径 */
+    data class PenStroke(
+        val points: List<Offset>,
+        val color: Color,
+        val strokeWidth: Float
+    ) : DrawOperation()
+
+    /** 矩形 */
+    data class RectStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float
+    ) : DrawOperation()
+
+    /** 圆形 */
+    data class CircleStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float
+    ) : DrawOperation()
+
+    /** 箭头 */
+    data class ArrowStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float
+    ) : DrawOperation()
+}
+
+/**
  * 图片保存状态
  */
 private enum class SaveState {
-    /** 空闲，无保存操作 */
-    IDLE,
-    /** 正在保存中 */
-    SAVING,
-    /** 保存成功 */
-    SUCCESS,
-    /** 保存失败 */
-    FAILED
+    IDLE, SAVING, SUCCESS, FAILED
 }
+
+/**
+ * 预定义颜色列表
+ */
+private val BRUSH_COLORS = listOf(
+    Color.White,
+    Color.Red,
+    Color(0xFFFFA500),  // 橙色
+    Color.Yellow,
+    Color.Green,
+    Color(0xFF00BFFF),  // 天蓝
+    Color(0xFF8A2BE2),  // 紫色
+    Color.Black,
+    Color(0xFF808080)   // 灰色
+)
 
 /**
  * 通用图片编辑界面（全屏 Dialog）
@@ -128,12 +210,14 @@ private enum class SaveState {
  * - 中层：图片展示（居中 Fit，支持双指缩放/平移）
  * - 顶层：可隐藏的按钮层（顶部返回/下载 + 底部工具栏）
  *
- * 下载功能内置，点击下载按钮直接保存图片到系统相册。
- * 点击任何非按钮区域可隐藏按钮层，再次点击恢复。
+ * 画笔功能：
+ * - 支持自由画笔、矩形、圆形、箭头四种形状
+ * - 支持多种颜色选择
+ * - 支持撤销操作
  *
  * @param imageSource 图片来源（URI 字符串、文件路径或网络 URL）
  * @param onNavigateBack 返回回调
- * @param onToolSelected 工具按钮点击回调（具体逻辑暂不实现）
+ * @param onToolSelected 工具按钮点击回调
  * @param onDone 完成按钮回调
  */
 @Composable
@@ -152,7 +236,6 @@ fun GeneralImageEditScreen(
             decorFitsSystemWindows = false
         )
     ) {
-        // 沉浸式全屏设置
         val view = LocalView.current
         DisposableEffect(Unit) {
             val dialogWindow = (view.parent as? DialogWindowProvider)?.window
@@ -190,7 +273,7 @@ fun GeneralImageEditScreen(
 // ==================== 内部实现 ====================
 
 /**
- * 编辑界面主体（三层叠加）
+ * 编辑界面主体
  */
 @Composable
 private fun ImageEditBody(
@@ -203,11 +286,10 @@ private fun ImageEditBody(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 保存状态与进度
+    // 保存状态
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
     var saveProgress by remember { mutableFloatStateOf(0f) }
 
-    // 保存成功/失败后自动消失
     LaunchedEffect(saveState) {
         if (saveState == SaveState.SUCCESS || saveState == SaveState.FAILED) {
             delay(1500L)
@@ -215,7 +297,6 @@ private fun ImageEditBody(
         }
     }
 
-    // 内置下载回调
     val onDownload: () -> Unit = {
         if (saveState != SaveState.SAVING) {
             scope.launch {
@@ -230,21 +311,15 @@ private fun ImageEditBody(
     }
 
     val density = LocalDensity.current
-    // 捕获初始 inset 值并固定，避免切后台时系统栏恢复导致布局跳动
     val currentStatusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val currentNavBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
     var statusInset by remember { mutableStateOf(currentStatusTop) }
     var navInset by remember { mutableStateOf(currentNavBottom) }
-    // 只在首次有非零值时锁定
     LaunchedEffect(currentStatusTop) {
-        if (currentStatusTop > 0.dp && statusInset == 0.dp) {
-            statusInset = currentStatusTop
-        }
+        if (currentStatusTop > 0.dp && statusInset == 0.dp) statusInset = currentStatusTop
     }
     LaunchedEffect(currentNavBottom) {
-        if (currentNavBottom > 0.dp && navInset == 0.dp) {
-            navInset = currentNavBottom
-        }
+        if (currentNavBottom > 0.dp && navInset == 0.dp) navInset = currentNavBottom
     }
 
     // 缩放与平移状态
@@ -252,11 +327,23 @@ private fun ImageEditBody(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // 用于双击动画
     val animatableScale = remember { Animatable(1f) }
     val animatableOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
 
-    /** 限制平移范围，确保图片不会移出可视区域 */
+    // ── 画笔状态 ──
+    var isBrushMode by remember { mutableStateOf(false) }
+    var selectedBrushShape by remember { mutableStateOf(BrushShape.PEN) }
+    var selectedColor by remember { mutableStateOf(Color.Red) }
+    var showShapePicker by remember { mutableStateOf(false) }
+    val drawHistory = remember { mutableStateListOf<DrawOperation>() }
+
+    // 当前正在绘制的临时操作
+    var currentDrawStart by remember { mutableStateOf<Offset?>(null) }
+    var currentDrawEnd by remember { mutableStateOf<Offset?>(null) }
+    var currentPenPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    val brushStrokeWidth = 6f
+
     fun clampOffset(targetOffset: Offset, targetScale: Float): Offset {
         if (targetScale <= 1f) return Offset.Zero
         val maxX = (containerSize.width * (targetScale - 1f)) / 2f
@@ -273,7 +360,7 @@ private fun ImageEditBody(
             .background(Color.Black)
             .onSizeChanged { containerSize = it }
     ) {
-        // ── 第二层：可缩放/平移的图片 ──
+        // ── 图片层 ──
         Image(
             painter = rememberAsyncImagePainter(model = imageSource),
             contentDescription = null,
@@ -288,73 +375,238 @@ private fun ImageEditBody(
                 }
         )
 
-        // ── 手势层：双指缩放/平移 + 单击切换控件 + 双击还原 ──
+        // ── 绘制层：始终渲染绘制历史 ──
+        if (drawHistory.isNotEmpty() || (isBrushMode && currentDrawStart != null)) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    }
+            ) {
+                drawHistory.forEach { op -> drawOperation(op) }
+                val start = currentDrawStart
+                val end = currentDrawEnd
+                if (start != null && end != null) {
+                    when (selectedBrushShape) {
+                        BrushShape.PEN -> {
+                            if (currentPenPoints.size >= 2) {
+                                drawPenPath(currentPenPoints, selectedColor, brushStrokeWidth)
+                            }
+                        }
+                        BrushShape.RECT -> drawRectShape(start, end, selectedColor, brushStrokeWidth)
+                        BrushShape.CIRCLE -> drawCircleShape(start, end, selectedColor, brushStrokeWidth)
+                        BrushShape.ARROW -> drawArrowShape(start, end, selectedColor, brushStrokeWidth)
+                    }
+                }
+            }
+        }
+
+        // ── 统一手势层 ──
+        // 画笔模式：单指绘制 + 双指缩放/平移，全部在同一个 awaitEachGesture 中处理
+        // 非画笔模式：双指缩放/平移 + 单击/双击，使用原有的 detect* API
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        // 双指缩放，限制范围 1x ~ 5x
-                        val newScale = (scale * zoom).coerceIn(1f, 5f)
-                        // 平移量需要根据缩放比例调整
-                        val newOffset = if (newScale > 1f) {
-                            clampOffset(offset + pan, newScale)
-                        } else {
-                            Offset.Zero
-                        }
-                        scale = newScale
-                        offset = newOffset
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            // 单击切换控件显隐
-                            showControls = !showControls
-                        },
-                        onDoubleTap = {
-                            // 双击：如果已缩放则还原，否则放大到 2x
-                            scope.launch {
-                                if (scale > 1.1f) {
-                                    // 还原
-                                    launch {
-                                        animatableScale.snapTo(scale)
-                                        animatableScale.animateTo(1f, tween(300))
+                .then(
+                    if (isBrushMode) {
+                        Modifier.pointerInput(selectedBrushShape, selectedColor) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+
+                                // 坐标转换：屏幕坐标 → Canvas 坐标
+                                fun screenToCanvas(screenPos: Offset): Offset {
+                                    val cx = size.width / 2f
+                                    val cy = size.height / 2f
+                                    return Offset(
+                                        x = (screenPos.x - cx - offset.x) / scale + cx,
+                                        y = (screenPos.y - cy - offset.y) / scale + cy
+                                    )
+                                }
+
+                                val canvasStart = screenToCanvas(down.position)
+                                currentDrawStart = canvasStart
+                                currentDrawEnd = canvasStart
+                                if (selectedBrushShape == BrushShape.PEN) {
+                                    currentPenPoints = listOf(canvasStart)
+                                }
+
+                                // 是否已切换到缩放模式
+                                var isZooming = false
+                                var prevCentroid = Offset.Unspecified
+                                var prevSpread = 0f
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pressed = event.changes.filter { it.pressed }
+
+                                    if (pressed.isEmpty()) {
+                                        // 所有手指抬起
+                                        if (!isZooming) {
+                                            // 完成绘制
+                                            val s = currentDrawStart
+                                            val e = currentDrawEnd
+                                            if (s != null && e != null) {
+                                                val op = when (selectedBrushShape) {
+                                                    BrushShape.PEN -> DrawOperation.PenStroke(
+                                                        points = currentPenPoints.toList(),
+                                                        color = selectedColor,
+                                                        strokeWidth = brushStrokeWidth
+                                                    )
+                                                    BrushShape.RECT -> DrawOperation.RectStroke(
+                                                        start = s, end = e,
+                                                        color = selectedColor,
+                                                        strokeWidth = brushStrokeWidth
+                                                    )
+                                                    BrushShape.CIRCLE -> DrawOperation.CircleStroke(
+                                                        start = s, end = e,
+                                                        color = selectedColor,
+                                                        strokeWidth = brushStrokeWidth
+                                                    )
+                                                    BrushShape.ARROW -> DrawOperation.ArrowStroke(
+                                                        start = s, end = e,
+                                                        color = selectedColor,
+                                                        strokeWidth = brushStrokeWidth
+                                                    )
+                                                }
+                                                drawHistory.add(op)
+                                            }
+                                        }
+                                        currentDrawStart = null
+                                        currentDrawEnd = null
+                                        currentPenPoints = emptyList()
+                                        prevCentroid = Offset.Unspecified
+                                        break
                                     }
-                                    launch {
-                                        animatableOffset.snapTo(offset)
-                                        animatableOffset.animateTo(Offset.Zero, tween(300))
+
+                                    if (pressed.size >= 2) {
+                                        // 双指：切换到缩放模式
+                                        if (!isZooming) {
+                                            // 首次检测到双指，取消当前绘制
+                                            isZooming = true
+                                            currentDrawStart = null
+                                            currentDrawEnd = null
+                                            currentPenPoints = emptyList()
+                                        }
+
+                                        // 计算双指中心和间距
+                                        val p1 = pressed[0].position
+                                        val p2 = pressed[1].position
+                                        val centroid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                                        val dx = p2.x - p1.x
+                                        val dy = p2.y - p1.y
+                                        val spread = sqrt(dx * dx + dy * dy)
+
+                                        if (prevCentroid != Offset.Unspecified && prevSpread > 0f) {
+                                            val zoom = spread / prevSpread
+                                            val pan = centroid - prevCentroid
+                                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                                            val newOffset = if (newScale > 1f) {
+                                                clampOffset(offset + pan, newScale)
+                                            } else {
+                                                Offset.Zero
+                                            }
+                                            scale = newScale
+                                            offset = newOffset
+                                        }
+                                        prevCentroid = centroid
+                                        prevSpread = spread
+
+                                        // 消费所有事件，防止穿透
+                                        event.changes.forEach { it.consume() }
+                                    } else if (!isZooming) {
+                                        // 单指且未进入缩放模式：绘制
+                                        val change = pressed.first()
+                                        val pos = screenToCanvas(change.position)
+                                        currentDrawEnd = pos
+                                        if (selectedBrushShape == BrushShape.PEN) {
+                                            currentPenPoints = currentPenPoints + pos
+                                        }
+                                        change.consume()
+                                    } else {
+                                        // 缩放模式中只剩一指，重置 prevCentroid 等待下次双指
+                                        prevCentroid = Offset.Unspecified
+                                        prevSpread = 0f
+                                        event.changes.forEach { it.consume() }
                                     }
-                                    // 同步最终值
-                                    scale = 1f
-                                    offset = Offset.Zero
-                                } else {
-                                    // 放大到 2x，以点击位置为中心
-                                    val targetScale = 2.5f
-                                    val focusX =
-                                        (containerSize.width / 2f - it.x) * (targetScale - 1f)
-                                    val focusY =
-                                        (containerSize.height / 2f - it.y) * (targetScale - 1f)
-                                    val targetOffset =
-                                        clampOffset(Offset(focusX, focusY), targetScale)
-                                    launch {
-                                        animatableScale.snapTo(scale)
-                                        animatableScale.animateTo(targetScale, tween(300))
-                                    }
-                                    launch {
-                                        animatableOffset.snapTo(offset)
-                                        animatableOffset.animateTo(targetOffset, tween(300))
-                                    }
-                                    scale = targetScale
-                                    offset = targetOffset
                                 }
                             }
                         }
-                    )
-                }
+                    } else {
+                        // 非画笔模式：双指缩放 + 单击/双击
+                        Modifier
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                                    val newOffset = if (newScale > 1f) {
+                                        clampOffset(offset + pan, newScale)
+                                    } else {
+                                        Offset.Zero
+                                    }
+                                    scale = newScale
+                                    offset = newOffset
+                                }
+                            }
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { showControls = !showControls },
+                                    onDoubleTap = {
+                                        scope.launch {
+                                            if (scale > 1.1f) {
+                                                launch {
+                                                    animatableScale.snapTo(scale)
+                                                    animatableScale.animateTo(1f, tween(300))
+                                                }
+                                                launch {
+                                                    animatableOffset.snapTo(offset)
+                                                    animatableOffset.animateTo(
+                                                        Offset.Zero,
+                                                        tween(300)
+                                                    )
+                                                }
+                                                scale = 1f
+                                                offset = Offset.Zero
+                                            } else {
+                                                val targetScale = 2.5f
+                                                val focusX =
+                                                    (containerSize.width / 2f - it.x) * (targetScale - 1f)
+                                                val focusY =
+                                                    (containerSize.height / 2f - it.y) * (targetScale - 1f)
+                                                val targetOffset =
+                                                    clampOffset(
+                                                        Offset(focusX, focusY),
+                                                        targetScale
+                                                    )
+                                                launch {
+                                                    animatableScale.snapTo(scale)
+                                                    animatableScale.animateTo(
+                                                        targetScale,
+                                                        tween(300)
+                                                    )
+                                                }
+                                                launch {
+                                                    animatableOffset.snapTo(offset)
+                                                    animatableOffset.animateTo(
+                                                        targetOffset,
+                                                        tween(300)
+                                                    )
+                                                }
+                                                scale = targetScale
+                                                offset = targetOffset
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                    }
+                )
         )
 
-        // 双击动画驱动：将 Animatable 值同步到 graphicsLayer
+        // 双击动画同步
         LaunchedEffect(animatableScale.value, animatableOffset.value) {
             if (animatableScale.isRunning || animatableOffset.isRunning) {
                 scale = animatableScale.value
@@ -362,7 +614,7 @@ private fun ImageEditBody(
             }
         }
 
-        // ── 第三层：顶部栏 ──
+        // ── 顶部栏 ──
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { -it },
@@ -378,23 +630,71 @@ private fun ImageEditBody(
             )
         }
 
-        // ── 第三层：底部工具栏 ──
+        // ── 底部区域（画笔工具栏 + 主工具栏） ──
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it },
             exit = fadeOut(tween(250)) + slideOutVertically(tween(250)) { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            EditBottomBar(
-                onToolSelected = onToolSelected,
-                onDone = onDone,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = navInset + 12.dp)
-            )
+            ) {
+                // 形状选择面板（点击画笔选择按钮后展开）
+                AnimatedVisibility(
+                    visible = isBrushMode && showShapePicker,
+                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
+                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
+                ) {
+                    ShapePickerBar(
+                        selectedShape = selectedBrushShape,
+                        onShapeSelected = { shape ->
+                            selectedBrushShape = shape
+                            showShapePicker = false
+                        }
+                    )
+                }
+
+                // 画笔工具栏（颜色选择 + 撤销）
+                AnimatedVisibility(
+                    visible = isBrushMode,
+                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
+                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
+                ) {
+                    BrushToolBar(
+                        selectedColor = selectedColor,
+                        canUndo = drawHistory.isNotEmpty(),
+                        onToggleShapePicker = { showShapePicker = !showShapePicker },
+                        onColorSelected = { selectedColor = it },
+                        onUndo = {
+                            if (drawHistory.isNotEmpty()) {
+                                drawHistory.removeAt(drawHistory.lastIndex)
+                            }
+                        }
+                    )
+                }
+
+                // 主工具栏
+                EditBottomBar(
+                    isBrushMode = isBrushMode,
+                    onToolSelected = { tool ->
+                        when (tool) {
+                            EditTool.BRUSH -> {
+                                isBrushMode = !isBrushMode
+                                if (!isBrushMode) showShapePicker = false
+                            }
+                            else -> onToolSelected(tool)
+                        }
+                    },
+                    onDone = onDone,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
-        // ── 保存进度/结果浮层 ──
+        // ── 保存浮层 ──
         SaveOverlay(
             saveState = saveState,
             progress = saveProgress,
@@ -403,13 +703,333 @@ private fun ImageEditBody(
     }
 }
 
+// ==================== 绘制辅助函数 ====================
+
+/**
+ * 根据操作类型分发绘制
+ */
+private fun DrawScope.drawOperation(op: DrawOperation) {
+    when (op) {
+        is DrawOperation.PenStroke -> drawPenPath(op.points, op.color, op.strokeWidth)
+        is DrawOperation.RectStroke -> drawRectShape(op.start, op.end, op.color, op.strokeWidth)
+        is DrawOperation.CircleStroke -> drawCircleShape(op.start, op.end, op.color, op.strokeWidth)
+        is DrawOperation.ArrowStroke -> drawArrowShape(op.start, op.end, op.color, op.strokeWidth)
+    }
+}
+
+/**
+ * 绘制自由画笔路径
+ */
+private fun DrawScope.drawPenPath(points: List<Offset>, color: Color, strokeWidth: Float) {
+    if (points.size < 2) return
+    val path = Path().apply {
+        moveTo(points[0].x, points[0].y)
+        for (i in 1 until points.size) {
+            lineTo(points[i].x, points[i].y)
+        }
+    }
+    drawPath(
+        path = path,
+        color = color,
+        style = Stroke(
+            width = strokeWidth,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round
+        )
+    )
+}
+
+/**
+ * 绘制矩形
+ */
+private fun DrawScope.drawRectShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
+    val topLeft = Offset(minOf(start.x, end.x), minOf(start.y, end.y))
+    val size = Size(
+        width = kotlin.math.abs(end.x - start.x),
+        height = kotlin.math.abs(end.y - start.y)
+    )
+    drawRect(
+        color = color,
+        topLeft = topLeft,
+        size = size,
+        style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    )
+}
+
+/**
+ * 绘制圆形（椭圆，由起点和终点确定的矩形内切）
+ */
+private fun DrawScope.drawCircleShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
+    val topLeft = Offset(minOf(start.x, end.x), minOf(start.y, end.y))
+    val size = Size(
+        width = kotlin.math.abs(end.x - start.x),
+        height = kotlin.math.abs(end.y - start.y)
+    )
+    drawOval(
+        color = color,
+        topLeft = topLeft,
+        size = size,
+        style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    )
+}
+
+/**
+ * 绘制箭头（线段 + 箭头尖端）
+ */
+private fun DrawScope.drawArrowShape(start: Offset, end: Offset, color: Color, strokeWidth: Float) {
+    // 主线段
+    drawLine(
+        color = color,
+        start = start,
+        end = end,
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
+    )
+    // 箭头尖端
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val length = sqrt(dx * dx + dy * dy)
+    if (length < 1f) return
+
+    val arrowHeadLength = min(length * 0.3f, 40f)
+    val arrowAngle = Math.toRadians(25.0)
+    val angle = atan2(dy.toDouble(), dx.toDouble())
+
+    val x1 = end.x - arrowHeadLength * cos(angle - arrowAngle).toFloat()
+    val y1 = end.y - arrowHeadLength * sin(angle - arrowAngle).toFloat()
+    val x2 = end.x - arrowHeadLength * cos(angle + arrowAngle).toFloat()
+    val y2 = end.y - arrowHeadLength * sin(angle + arrowAngle).toFloat()
+
+    val arrowPath = Path().apply {
+        moveTo(end.x, end.y)
+        lineTo(x1, y1)
+        moveTo(end.x, end.y)
+        lineTo(x2, y2)
+    }
+    drawPath(
+        path = arrowPath,
+        color = color,
+        style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    )
+}
+
+// ==================== UI 组件 ====================
+
+/**
+ * 形状选择面板
+ * 参考第二张截图：画笔、方形、圆形、箭头 四个图标横排
+ */
+@Composable
+private fun ShapePickerBar(
+    selectedShape: BrushShape,
+    onShapeSelected: (BrushShape) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.Black.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ShapeItem(
+            shape = BrushShape.PEN,
+            isSelected = selectedShape == BrushShape.PEN,
+            label = stringResource(R.string.image_edit_shape_pen),
+            onClick = { onShapeSelected(BrushShape.PEN) }
+        )
+        ShapeItem(
+            shape = BrushShape.RECT,
+            isSelected = selectedShape == BrushShape.RECT,
+            label = stringResource(R.string.image_edit_shape_rect),
+            onClick = { onShapeSelected(BrushShape.RECT) }
+        )
+        ShapeItem(
+            shape = BrushShape.CIRCLE,
+            isSelected = selectedShape == BrushShape.CIRCLE,
+            label = stringResource(R.string.image_edit_shape_circle),
+            onClick = { onShapeSelected(BrushShape.CIRCLE) }
+        )
+        ShapeItem(
+            shape = BrushShape.ARROW,
+            isSelected = selectedShape == BrushShape.ARROW,
+            label = stringResource(R.string.image_edit_shape_arrow),
+            onClick = { onShapeSelected(BrushShape.ARROW) }
+        )
+    }
+}
+
+/**
+ * 形状选择项：使用 Canvas 绘制对应图标
+ */
+@Composable
+private fun ShapeItem(
+    shape: BrushShape,
+    isSelected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    val tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f)
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .then(
+                if (isSelected) Modifier.background(Color.White.copy(alpha = 0.2f))
+                else Modifier
+            )
+            .clickable(
+                onClick = onClick,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(22.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            when (shape) {
+                BrushShape.PEN -> {
+                    // 画笔图标：一条曲线
+                    val path = Path().apply {
+                        moveTo(w * 0.15f, h * 0.85f)
+                        cubicTo(w * 0.3f, h * 0.3f, w * 0.7f, h * 0.7f, w * 0.85f, h * 0.15f)
+                    }
+                    drawPath(path, tint, style = stroke)
+                }
+                BrushShape.RECT -> {
+                    drawRect(
+                        color = tint,
+                        topLeft = Offset(w * 0.15f, h * 0.2f),
+                        size = Size(w * 0.7f, h * 0.6f),
+                        style = stroke
+                    )
+                }
+                BrushShape.CIRCLE -> {
+                    drawOval(
+                        color = tint,
+                        topLeft = Offset(w * 0.1f, h * 0.1f),
+                        size = Size(w * 0.8f, h * 0.8f),
+                        style = stroke
+                    )
+                }
+                BrushShape.ARROW -> {
+                    // 箭头图标
+                    drawLine(tint, Offset(w * 0.15f, h * 0.85f), Offset(w * 0.85f, h * 0.15f), strokeWidth = 2f, cap = StrokeCap.Round)
+                    val path = Path().apply {
+                        moveTo(w * 0.85f, h * 0.15f)
+                        lineTo(w * 0.55f, h * 0.18f)
+                        moveTo(w * 0.85f, h * 0.15f)
+                        lineTo(w * 0.82f, h * 0.45f)
+                    }
+                    drawPath(path, tint, style = stroke)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 画笔工具栏：画笔选择按钮 + 颜色列表 + 撤销按钮
+ * 参考第一张截图的中间行
+ */
+@Composable
+private fun BrushToolBar(
+    selectedColor: Color,
+    canUndo: Boolean,
+    onToggleShapePicker: () -> Unit,
+    onColorSelected: (Color) -> Unit,
+    onUndo: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 画笔选择按钮（带选中圈）
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, Color.White, CircleShape)
+                .clickable(
+                    onClick = onToggleShapePicker,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = stringResource(R.string.image_edit_brush),
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // 颜色选择列表（可横向滚动）
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BRUSH_COLORS.forEach { color ->
+                val isSelected = color == selectedColor
+                Box(
+                    modifier = Modifier
+                        .size(if (isSelected) 28.dp else 24.dp)
+                        .then(
+                            if (isSelected) {
+                                Modifier.border(2.dp, Color.White, RoundedCornerShape(4.dp))
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(color)
+                        .then(
+                            if (color == Color.White) {
+                                Modifier.border(0.5.dp, Color.Gray, RoundedCornerShape(4.dp))
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .clickable(
+                            onClick = { onColorSelected(color) },
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // 撤销按钮
+        IconButton(
+            onClick = onUndo,
+            enabled = canUndo,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Undo,
+                contentDescription = stringResource(R.string.image_edit_undo),
+                tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
 /**
  * 保存进度/结果浮层
- *
- * 参考截图设计：
- * - 保存中：半透明黑色圆角矩形，内含环形进度条 + 百分比 + "正在保存..."
- * - 保存成功：半透明黑色胶囊，内含 ✓ 图标 + "保存成功"
- * - 保存失败：半透明黑色胶囊，内含 "保存失败"
  */
 @Composable
 private fun SaveOverlay(
@@ -425,7 +1045,6 @@ private fun SaveOverlay(
     ) {
         when (saveState) {
             SaveState.SAVING -> {
-                // 进度动画平滑过渡
                 val animatedProgress by animateFloatAsState(
                     targetValue = progress,
                     animationSpec = tween(200),
@@ -446,7 +1065,6 @@ private fun SaveOverlay(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.size(56.dp)
                         ) {
-                            // 底层灰色轨道
                             CircularProgressIndicator(
                                 progress = { 1f },
                                 modifier = Modifier.size(56.dp),
@@ -454,7 +1072,6 @@ private fun SaveOverlay(
                                 strokeWidth = 3.dp,
                                 strokeCap = StrokeCap.Round
                             )
-                            // 进度弧
                             CircularProgressIndicator(
                                 progress = { animatedProgress },
                                 modifier = Modifier.size(56.dp),
@@ -462,7 +1079,6 @@ private fun SaveOverlay(
                                 strokeWidth = 3.dp,
                                 strokeCap = StrokeCap.Round
                             )
-                            // 百分比文字
                             Text(
                                 text = "${(animatedProgress * 100).toInt()}%",
                                 color = Color.White,
@@ -522,13 +1138,13 @@ private fun SaveOverlay(
                     )
                 }
             }
-            else -> { /* IDLE: 不显示 */ }
+            else -> { /* IDLE */ }
         }
     }
 }
 
 /**
- * 顶部栏：左侧返回 ＜，右侧下载 ↓
+ * 顶部栏：左侧返回，右侧下载
  */
 @Composable
 private fun EditTopBar(
@@ -561,12 +1177,11 @@ private fun EditTopBar(
 }
 
 /**
- * 底部工具栏：画笔 · 马赛克 · 文字 · 裁剪 ＋ 完成按钮
- *
- * 布局参考截图：图标均匀分布在左侧，完成按钮靠右。
+ * 底部主工具栏：画笔 · 马赛克 · 文字 · 裁剪 ＋ 完成按钮
  */
 @Composable
 private fun EditBottomBar(
+    isBrushMode: Boolean,
     onToolSelected: (EditTool) -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier
@@ -575,7 +1190,6 @@ private fun EditBottomBar(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 工具图标区
         Row(
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(24.dp)
@@ -583,6 +1197,7 @@ private fun EditBottomBar(
             ToolIcon(
                 icon = Icons.Default.Brush,
                 label = stringResource(R.string.image_edit_brush),
+                isActive = isBrushMode,
                 onClick = { onToolSelected(EditTool.BRUSH) }
             )
             ToolIcon(
@@ -602,7 +1217,6 @@ private fun EditBottomBar(
             )
         }
 
-        // 完成按钮
         Button(
             onClick = onDone,
             shape = RoundedCornerShape(20.dp),
@@ -628,6 +1242,7 @@ private fun EditBottomBar(
 private fun ToolIcon(
     icon: ImageVector,
     label: String,
+    isActive: Boolean = false,
     onClick: () -> Unit
 ) {
     IconButton(
@@ -637,7 +1252,7 @@ private fun ToolIcon(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = Color.White,
+            tint = if (isActive) Color(0xFF4A90D9) else Color.White,
             modifier = Modifier.size(26.dp)
         )
     }
@@ -647,16 +1262,6 @@ private fun ToolIcon(
 
 /**
  * 将图片保存到系统相册（带进度回调）
- *
- * 进度分三阶段：
- * - 0% ~ 60%：加载 Bitmap（解码图片数据）
- * - 60% ~ 90%：写入 MediaStore（压缩并保存）
- * - 90% ~ 100%：完成收尾
- *
- * @param context 上下文
- * @param source 图片来源字符串
- * @param onProgress 进度回调，范围 0f ~ 1f
- * @return 是否保存成功
  */
 private suspend fun saveImageToGallery(
     context: Context,
@@ -680,7 +1285,7 @@ private suspend fun saveImageToGallery(
 }
 
 /**
- * 根据来源类型加载 Bitmap，通过回调报告进度
+ * 根据来源类型加载 Bitmap
  */
 private fun loadBitmapFromSource(
     context: Context,
@@ -689,7 +1294,6 @@ private fun loadBitmapFromSource(
 ): Bitmap? {
     onProgress(0.1f)
     return when {
-        // content:// URI
         source.startsWith("content://") -> {
             onProgress(0.2f)
             context.contentResolver.openInputStream(Uri.parse(source))?.use { stream ->
@@ -697,7 +1301,6 @@ private fun loadBitmapFromSource(
                 BitmapFactory.decodeStream(stream)
             }
         }
-        // 网络 URL
         source.startsWith("http://") || source.startsWith("https://") -> {
             onProgress(0.15f)
             URL(source).openStream()?.use { stream ->
@@ -705,7 +1308,6 @@ private fun loadBitmapFromSource(
                 BitmapFactory.decodeStream(stream)
             }
         }
-        // 本地文件路径
         else -> {
             val file = File(source)
             if (file.exists()) {
