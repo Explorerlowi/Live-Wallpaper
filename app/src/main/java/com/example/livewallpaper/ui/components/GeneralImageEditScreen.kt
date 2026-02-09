@@ -60,6 +60,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -78,11 +80,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -97,6 +103,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +124,7 @@ import java.net.URL
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -204,6 +212,13 @@ sealed class DrawOperation {
         val color: Color,
         val strokeWidth: Float,
         val translateOffset: Offset = Offset.Zero
+    ) : DrawOperation()
+
+    /** 马赛克涂抹路径 */
+    data class MosaicStroke(
+        val points: List<Offset>,
+        val brushRadius: Float,
+        val mosaicBlockSize: Int = 20
     ) : DrawOperation()
 }
 
@@ -377,6 +392,7 @@ private fun hitTestOperation(
                 pointToSegmentDistance(canvasPos, s, e) < HIT_TOLERANCE
             }
             is DrawOperation.PenStroke -> false
+            is DrawOperation.MosaicStroke -> false
         }
         if (hit) return i
     }
@@ -593,13 +609,34 @@ private fun ImageEditBody(
     var showShapePicker by remember { mutableStateOf(false) }
     val drawHistory = remember { mutableStateListOf<DrawOperation>() }
 
+    // ── 马赛克状态 ──
+    var isMosaicMode by remember { mutableStateOf(false) }
+    var mosaicBrushRadius by remember { mutableFloatStateOf(30f) }
+    var mosaicBlockSize by remember { mutableIntStateOf(20) }
+    var mosaicBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // 加载马赛克预处理位图（将原图像素化）
+    LaunchedEffect(imageSource, containerSize) {
+        if (containerSize.width > 0 && containerSize.height > 0) {
+            mosaicBitmap = withContext(Dispatchers.IO) {
+                try {
+                    val original = loadBitmapFromSource(context, imageSource) { }
+                        ?: return@withContext null
+                    createMosaicBitmap(original, containerSize, mosaicBlockSize)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
     val onDownload: () -> Unit = {
         if (saveState != SaveState.SAVING) {
             scope.launch {
                 saveState = SaveState.SAVING
                 saveProgress = 0f
                 val success = saveEditedImageToGallery(
-                    context, imageSource, drawHistory, containerSize
+                    context, imageSource, drawHistory, containerSize, mosaicBlockSize
                 ) { progress ->
                     saveProgress = progress
                 }
@@ -617,7 +654,7 @@ private fun ImageEditBody(
     var selectedIndex by remember { mutableIntStateOf(-1) }
 
     // 切换画笔形状或退出画笔模式时取消选中
-    LaunchedEffect(selectedBrushShape, isBrushMode) {
+    LaunchedEffect(selectedBrushShape, isBrushMode, isMosaicMode) {
         selectedIndex = -1
     }
 
@@ -655,7 +692,7 @@ private fun ImageEditBody(
         )
 
         // ── 绘制层：始终渲染绘制历史 + 选中手柄 ──
-        if (drawHistory.isNotEmpty() || (isBrushMode && currentDrawStart != null)) {
+        if (drawHistory.isNotEmpty() || (isBrushMode && currentDrawStart != null) || (isMosaicMode && currentDrawStart != null)) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
@@ -667,7 +704,13 @@ private fun ImageEditBody(
                     }
             ) {
                 drawHistory.forEachIndexed { index, op ->
-                    drawOperationWithTransform(op)
+                    if (op is DrawOperation.MosaicStroke) {
+                        mosaicBitmap?.let { mosaic ->
+                            drawMosaicStroke(op, mosaic, this.size)
+                        }
+                    } else {
+                        drawOperationWithTransform(op)
+                    }
                     // 绘制选中手柄
                     if (index == selectedIndex) {
                         drawSelectionHandles(op)
@@ -676,7 +719,17 @@ private fun ImageEditBody(
                 // 绘制当前正在创建的临时图形
                 val start = currentDrawStart
                 val end = currentDrawEnd
-                if (start != null && end != null) {
+                if (isMosaicMode && currentPenPoints.size >= 2) {
+                    // 马赛克临时预览
+                    mosaicBitmap?.let { mosaic ->
+                        val tempMosaic = DrawOperation.MosaicStroke(
+                            points = currentPenPoints,
+                            brushRadius = mosaicBrushRadius,
+                            mosaicBlockSize = mosaicBlockSize
+                        )
+                        drawMosaicStroke(tempMosaic, mosaic, this.size)
+                    }
+                } else if (start != null && end != null) {
                     when (selectedBrushShape) {
                         BrushShape.PEN -> {
                             if (currentPenPoints.size >= 2) {
@@ -696,8 +749,8 @@ private fun ImageEditBody(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isBrushMode) {
-                        Modifier.pointerInput(selectedBrushShape, selectedColor) {
+                    if (isBrushMode || isMosaicMode) {
+                        Modifier.pointerInput(selectedBrushShape, selectedColor, isMosaicMode, mosaicBrushRadius) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 down.consume()
@@ -721,7 +774,7 @@ private fun ImageEditBody(
                                     dragAction = hitTestHandle(canvasDown, selOp, HANDLE_HIT_RADIUS)
                                 }
 
-                                if (dragAction != DragAction.NONE && selOp != null) {
+                                if (dragAction != DragAction.NONE && selOp != null && !isMosaicMode) {
                                     // ── 拖拽控制手柄 ──
                                     val dragIdx = selectedIndex
                                     var prevCanvas = canvasDown
@@ -791,7 +844,7 @@ private fun ImageEditBody(
 
                                         currentDrawStart = canvasDown
                                         currentDrawEnd = canvasDown
-                                        if (selectedBrushShape == BrushShape.PEN) {
+                                        if (selectedBrushShape == BrushShape.PEN || isMosaicMode) {
                                             currentPenPoints = listOf(canvasDown)
                                         }
 
@@ -806,6 +859,18 @@ private fun ImageEditBody(
 
                                             if (pressed.isEmpty()) {
                                                 if (!isZooming) {
+                                                    if (isMosaicMode) {
+                                                        // 马赛克模式：创建 MosaicStroke
+                                                        if (currentPenPoints.size >= 2) {
+                                                            drawHistory.add(
+                                                                DrawOperation.MosaicStroke(
+                                                                    points = currentPenPoints.toList(),
+                                                                    brushRadius = mosaicBrushRadius,
+                                                                    mosaicBlockSize = mosaicBlockSize
+                                                                )
+                                                            )
+                                                        }
+                                                    } else {
                                                     val s = currentDrawStart
                                                     val e = currentDrawEnd
                                                     if (s != null && e != null) {
@@ -843,11 +908,13 @@ private fun ImageEditBody(
                                                                 kotlin.math.abs(op.end.y - op.start.y) < minSize
                                                             is DrawOperation.ArrowStroke ->
                                                                 distanceBetween(op.start, op.end) < minSize
+                                                            is DrawOperation.MosaicStroke -> op.points.size < 2
                                                         }
                                                         if (!tooSmall) {
                                                             drawHistory.add(op)
                                                         }
                                                     }
+                                                    } // else（非马赛克模式）结束
                                                 }
                                                 currentDrawStart = null
                                                 currentDrawEnd = null
@@ -889,7 +956,7 @@ private fun ImageEditBody(
                                                 val change = pressed.first()
                                                 val pos = screenToCanvas(change.position)
                                                 currentDrawEnd = pos
-                                                if (selectedBrushShape == BrushShape.PEN) {
+                                                if (selectedBrushShape == BrushShape.PEN || isMosaicMode) {
                                                     currentPenPoints = currentPenPoints + pos
                                                 }
                                                 change.consume()
@@ -1035,14 +1102,41 @@ private fun ImageEditBody(
                     )
                 }
 
+                // 马赛克工具栏（画笔大小 + 撤销）
+                AnimatedVisibility(
+                    visible = isMosaicMode,
+                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
+                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
+                ) {
+                    MosaicToolBar(
+                        brushRadius = mosaicBrushRadius,
+                        canUndo = drawHistory.isNotEmpty(),
+                        onBrushRadiusChange = { mosaicBrushRadius = it },
+                        onUndo = {
+                            if (drawHistory.isNotEmpty()) {
+                                drawHistory.removeAt(drawHistory.lastIndex)
+                            }
+                        }
+                    )
+                }
+
                 // 主工具栏
                 EditBottomBar(
                     isBrushMode = isBrushMode,
+                    isMosaicMode = isMosaicMode,
                     onToolSelected = { tool ->
                         when (tool) {
                             EditTool.BRUSH -> {
                                 isBrushMode = !isBrushMode
+                                if (isBrushMode) isMosaicMode = false
                                 if (!isBrushMode) showShapePicker = false
+                            }
+                            EditTool.MOSAIC -> {
+                                isMosaicMode = !isMosaicMode
+                                if (isMosaicMode) {
+                                    isBrushMode = false
+                                    showShapePicker = false
+                                }
                             }
                             else -> onToolSelected(tool)
                         }
@@ -1161,6 +1255,7 @@ private fun applyDragAction(
 private fun DrawScope.drawOperationWithTransform(op: DrawOperation) {
     when (op) {
         is DrawOperation.PenStroke -> drawPenPath(op.points, op.color, op.strokeWidth)
+        is DrawOperation.MosaicStroke -> { /* 马赛克在外层单独绘制 */ }
         is DrawOperation.RectStroke -> {
             val cx = (op.start.x + op.end.x) / 2f + op.translateOffset.x
             val cy = (op.start.y + op.end.y) / 2f + op.translateOffset.y
@@ -1798,6 +1893,7 @@ private fun EditTopBar(
 @Composable
 private fun EditBottomBar(
     isBrushMode: Boolean,
+    isMosaicMode: Boolean,
     onToolSelected: (EditTool) -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier
@@ -1819,6 +1915,7 @@ private fun EditBottomBar(
             ToolIcon(
                 icon = Icons.Default.BlurOn,
                 label = stringResource(R.string.image_edit_mosaic),
+                isActive = isMosaicMode,
                 onClick = { onToolSelected(EditTool.MOSAIC) }
             )
             ToolIcon(
@@ -1874,6 +1971,166 @@ private fun ToolIcon(
     }
 }
 
+/**
+ * 马赛克工具栏：画笔大小滑块 + 撤销按钮
+ */
+@Composable
+private fun MosaicToolBar(
+    brushRadius: Float,
+    canUndo: Boolean,
+    onBrushRadiusChange: (Float) -> Unit,
+    onUndo: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 小圆点指示器
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.6f))
+        )
+
+        // 画笔大小滑块
+        Slider(
+            value = brushRadius,
+            onValueChange = onBrushRadiusChange,
+            valueRange = 15f..80f,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color(0xFF4A90D9),
+                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+            )
+        )
+
+        // 大圆点指示器
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.6f))
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // 撤销按钮
+        IconButton(
+            onClick = onUndo,
+            enabled = canUndo,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Undo,
+                contentDescription = stringResource(R.string.image_edit_undo),
+                tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+
+// ==================== 马赛克绘制工具 ====================
+
+/**
+ * 创建马赛克预处理位图：将原图像素化后缩放到 Canvas 显示尺寸
+ *
+ * 原理：先将原图缩小到极小尺寸（每个像素对应一个马赛克块），
+ * 再用最近邻插值放大回来，形成像素化效果。
+ */
+private fun createMosaicBitmap(
+    original: Bitmap,
+    containerSize: IntSize,
+    blockSize: Int
+): ImageBitmap {
+    val imgW = original.width.toFloat()
+    val imgH = original.height.toFloat()
+    val cW = containerSize.width.toFloat()
+    val cH = containerSize.height.toFloat()
+
+    // ContentScale.Fit 计算
+    val fitScale = min(cW / imgW, cH / imgH)
+    val displayW = (imgW * fitScale).roundToInt().coerceAtLeast(1)
+    val displayH = (imgH * fitScale).roundToInt().coerceAtLeast(1)
+
+    // 先缩小到马赛克块数量大小
+    val smallW = (displayW / blockSize).coerceAtLeast(1)
+    val smallH = (displayH / blockSize).coerceAtLeast(1)
+
+    // 缩小（双线性插值取平均色）
+    val small = Bitmap.createScaledBitmap(original, smallW, smallH, true)
+    // 放大回显示尺寸（最近邻插值产生像素化效果）
+    val pixelated = Bitmap.createScaledBitmap(small, displayW, displayH, false)
+    small.recycle()
+
+    return pixelated.asImageBitmap()
+}
+
+/**
+ * 在 Canvas 上绘制马赛克涂抹效果
+ *
+ * 原理：用涂抹路径作为裁剪区域，在该区域内绘制预处理好的马赛克位图。
+ */
+private fun DrawScope.drawMosaicStroke(
+    op: DrawOperation.MosaicStroke,
+    mosaicBitmap: ImageBitmap,
+    canvasSize: Size
+) {
+    if (op.points.size < 2) return
+
+    // 构建涂抹路径（宽笔触）
+    val clipPath = Path()
+    for (point in op.points) {
+        clipPath.addOval(
+            androidx.compose.ui.geometry.Rect(
+                center = point,
+                radius = op.brushRadius
+            )
+        )
+    }
+    // 连接相邻点形成连续的涂抹区域
+    for (i in 0 until op.points.size - 1) {
+        val p1 = op.points[i]
+        val p2 = op.points[i + 1]
+        val dx = p2.x - p1.x
+        val dy = p2.y - p1.y
+        val len = sqrt(dx * dx + dy * dy)
+        if (len < 0.1f) continue
+        // 法线方向
+        val nx = -dy / len * op.brushRadius
+        val ny = dx / len * op.brushRadius
+        val segPath = Path().apply {
+            moveTo(p1.x + nx, p1.y + ny)
+            lineTo(p2.x + nx, p2.y + ny)
+            lineTo(p2.x - nx, p2.y - ny)
+            lineTo(p1.x - nx, p1.y - ny)
+            close()
+        }
+        clipPath.addPath(segPath)
+    }
+
+    // 计算马赛克位图在 Canvas 中的偏移（居中显示）
+    val imgW = mosaicBitmap.width.toFloat()
+    val imgH = mosaicBitmap.height.toFloat()
+    val offsetX = (canvasSize.width - imgW) / 2f
+    val offsetY = (canvasSize.height - imgH) / 2f
+
+    clipPath(clipPath) {
+        drawImage(
+            image = mosaicBitmap,
+            dstOffset = IntOffset(offsetX.roundToInt(), offsetY.roundToInt()),
+            dstSize = IntSize(imgW.roundToInt(), imgH.roundToInt())
+        )
+    }
+}
+
 
 // ==================== 图片保存工具 ====================
 
@@ -1885,6 +2142,7 @@ private suspend fun saveEditedImageToGallery(
     source: String,
     drawHistory: List<DrawOperation>,
     containerSize: IntSize,
+    mosaicBlockSize: Int,
     onProgress: (Float) -> Unit
 ): Boolean {
     return withContext(Dispatchers.IO) {
@@ -1896,7 +2154,7 @@ private suspend fun saveEditedImageToGallery(
 
             // 如果有绘制内容，合成到图片上
             val finalBitmap = if (drawHistory.isNotEmpty()) {
-                renderDrawingsOntoBitmap(originalBitmap, drawHistory, containerSize)
+                renderDrawingsOntoBitmap(originalBitmap, drawHistory, containerSize, mosaicBlockSize)
             } else {
                 originalBitmap
             }
@@ -1926,7 +2184,8 @@ private suspend fun saveEditedImageToGallery(
 private fun renderDrawingsOntoBitmap(
     original: Bitmap,
     drawHistory: List<DrawOperation>,
-    containerSize: IntSize
+    containerSize: IntSize,
+    mosaicBlockSize: Int
 ): Bitmap {
     val imgW = original.width.toFloat()
     val imgH = original.height.toFloat()
@@ -2059,6 +2318,10 @@ private fun renderDrawingsOntoBitmap(
                     canvas.drawLine(e.x, e.y, x2, y2, paint)
                 }
             }
+
+            is DrawOperation.MosaicStroke -> {
+                renderMosaicOnBitmap(result, op, containerSize, mosaicBlockSize)
+            }
         }
     }
 
@@ -2162,5 +2425,124 @@ private fun saveBitmapToMediaStore(
         resolver.delete(uri, null, null)
         e.printStackTrace()
         false
+    }
+}
+
+/**
+ * 在原图 Bitmap 上渲染马赛克涂抹效果
+ *
+ * 原理：
+ * 1. 将 Canvas 坐标系中的涂抹路径转换到图片像素坐标
+ * 2. 对路径覆盖区域内的像素进行分块平均色替换
+ */
+private fun renderMosaicOnBitmap(
+    bitmap: Bitmap,
+    op: DrawOperation.MosaicStroke,
+    containerSize: IntSize,
+    defaultBlockSize: Int
+) {
+    if (op.points.size < 2) return
+
+    val imgW = bitmap.width.toFloat()
+    val imgH = bitmap.height.toFloat()
+    val cW = containerSize.width.toFloat()
+    val cH = containerSize.height.toFloat()
+    if (cW <= 0f || cH <= 0f) return
+
+    val fitScale = min(cW / imgW, cH / imgH)
+    val displayW = imgW * fitScale
+    val displayH = imgH * fitScale
+    val offsetX = (cW - displayW) / 2f
+    val offsetY = (cH - displayH) / 2f
+
+    fun toImgX(sx: Float) = (sx - offsetX) / fitScale
+    fun toImgY(sy: Float) = (sy - offsetY) / fitScale
+    fun toImgLen(len: Float) = len / fitScale
+
+    val imgBrushRadius = toImgLen(op.brushRadius)
+    // 马赛克块大小映射到图片像素坐标
+    val blockSize = (toImgLen(op.mosaicBlockSize.toFloat())).roundToInt().coerceAtLeast(2)
+
+    // 计算涂抹路径在图片坐标中的包围盒
+    var minX = Float.MAX_VALUE
+    var minY = Float.MAX_VALUE
+    var maxX = Float.MIN_VALUE
+    var maxY = Float.MIN_VALUE
+    val imgPoints = op.points.map { p ->
+        val ix = toImgX(p.x)
+        val iy = toImgY(p.y)
+        if (ix - imgBrushRadius < minX) minX = ix - imgBrushRadius
+        if (iy - imgBrushRadius < minY) minY = iy - imgBrushRadius
+        if (ix + imgBrushRadius > maxX) maxX = ix + imgBrushRadius
+        if (iy + imgBrushRadius > maxY) maxY = iy + imgBrushRadius
+        Offset(ix, iy)
+    }
+
+    // 裁剪到图片范围
+    val startBlockX = ((minX / blockSize).toInt()).coerceAtLeast(0)
+    val startBlockY = ((minY / blockSize).toInt()).coerceAtLeast(0)
+    val endBlockX = ((maxX / blockSize).toInt() + 1).coerceAtMost(bitmap.width / blockSize)
+    val endBlockY = ((maxY / blockSize).toInt() + 1).coerceAtMost(bitmap.height / blockSize)
+
+    // 对每个马赛克块检查是否与涂抹路径相交
+    for (by in startBlockY..endBlockY) {
+        for (bx in startBlockX..endBlockX) {
+            val blockCenterX = bx * blockSize + blockSize / 2f
+            val blockCenterY = by * blockSize + blockSize / 2f
+
+            // 检查块中心是否在涂抹路径范围内
+            val inPath = imgPoints.any { p ->
+                val dx = blockCenterX - p.x
+                val dy = blockCenterY - p.y
+                dx * dx + dy * dy <= imgBrushRadius * imgBrushRadius
+            } || run {
+                // 检查块中心到相邻点连线的距离
+                for (i in 0 until imgPoints.size - 1) {
+                    val dist = pointToSegmentDistance(
+                        Offset(blockCenterX, blockCenterY),
+                        imgPoints[i],
+                        imgPoints[i + 1]
+                    )
+                    if (dist <= imgBrushRadius) return@run true
+                }
+                false
+            }
+
+            if (!inPath) continue
+
+            // 计算该块的平均颜色
+            val px1 = (bx * blockSize).coerceIn(0, bitmap.width - 1)
+            val py1 = (by * blockSize).coerceIn(0, bitmap.height - 1)
+            val px2 = ((bx + 1) * blockSize).coerceIn(0, bitmap.width)
+            val py2 = ((by + 1) * blockSize).coerceIn(0, bitmap.height)
+            if (px2 <= px1 || py2 <= py1) continue
+
+            var rSum = 0L
+            var gSum = 0L
+            var bSum = 0L
+            var count = 0
+            for (y in py1 until py2) {
+                for (x in px1 until px2) {
+                    val pixel = bitmap.getPixel(x, y)
+                    rSum += android.graphics.Color.red(pixel)
+                    gSum += android.graphics.Color.green(pixel)
+                    bSum += android.graphics.Color.blue(pixel)
+                    count++
+                }
+            }
+            if (count == 0) continue
+            val avgColor = android.graphics.Color.rgb(
+                (rSum / count).toInt(),
+                (gSum / count).toInt(),
+                (bSum / count).toInt()
+            )
+
+            // 用平均色填充该块
+            for (y in py1 until py2) {
+                for (x in px1 until px2) {
+                    bitmap.setPixel(x, y, avgColor)
+                }
+            }
+        }
     }
 }
