@@ -218,8 +218,8 @@ fun PaintBottomBar(
                         onClick = onRatioClick
                     )
                     
-                    // 分辨率选择 (仅Pro模型)
-                    if (selectedModel == PaintModel.GEMINI_3_PRO) {
+                    // 分辨率选择（支持分辨率的模型显示）
+                    if (selectedModel.supportsResolution) {
                         QuickActionChip(
                             icon = Icons.Default.HighQuality,
                             label = selectedResolution.displayName,

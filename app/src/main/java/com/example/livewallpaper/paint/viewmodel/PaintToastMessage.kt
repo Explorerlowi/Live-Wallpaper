@@ -18,4 +18,5 @@ sealed class PaintToastMessage {
     data object DownloadSuccess : PaintToastMessage()
     data class DownloadFailed(val error: String?) : PaintToastMessage()
     data object CannotRegenerate : PaintToastMessage()  // 无法重新生成（用户消息已删除）
+    data class ImageLimitExceeded(val maxCount: Int) : PaintToastMessage()  // 图片数量超限
 }

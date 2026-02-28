@@ -347,6 +347,7 @@ fun PaintScreen(
                 is PaintToastMessage.DownloadSuccess -> resources.getString(R.string.paint_download_success)
                 is PaintToastMessage.DownloadFailed -> resources.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
                 is PaintToastMessage.CannotRegenerate -> resources.getString(R.string.paint_cannot_regenerate)
+                is PaintToastMessage.ImageLimitExceeded -> resources.getString(R.string.paint_image_limit_exceeded, message.maxCount)
             }
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
@@ -647,6 +648,7 @@ fun PaintScreen(
     if (showRatioSelector) {
         RatioSelectorDialog(
             selectedRatio = uiState.selectedAspectRatio,
+            selectedModel = uiState.selectedModel,
             onSelect = {
                 viewModel.onEvent(PaintEvent.SelectAspectRatio(it))
                 showRatioSelector = false
@@ -659,6 +661,7 @@ fun PaintScreen(
     if (showResolutionSelector) {
         ResolutionSelectorDialog(
             selectedResolution = uiState.selectedResolution,
+            selectedModel = uiState.selectedModel,
             onSelect = {
                 viewModel.onEvent(PaintEvent.SelectResolution(it))
                 showResolutionSelector = false
@@ -1613,16 +1616,8 @@ private fun GeneratingPlaceholder(
     aspectRatio: AspectRatio,
     modifier: Modifier = Modifier
 ) {
-    // 计算宽高比
-    val ratio = when (aspectRatio) {
-        AspectRatio.RATIO_1_1 -> 1f
-        AspectRatio.RATIO_2_3 -> 2f / 3f
-        AspectRatio.RATIO_3_2 -> 3f / 2f
-        AspectRatio.RATIO_3_4 -> 3f / 4f
-        AspectRatio.RATIO_4_3 -> 4f / 3f
-        AspectRatio.RATIO_16_9 -> 16f / 9f
-        AspectRatio.RATIO_9_16 -> 9f / 16f
-    }
+    // 计算宽高比（直接使用 toFloat()）
+    val ratio = aspectRatio.toFloat()
     
     // 与真实图片一致的宽度
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp

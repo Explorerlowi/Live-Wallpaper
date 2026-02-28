@@ -377,6 +377,8 @@ class PaintViewModel(
     }
 
     private fun addImage(image: SelectedImage) {
+        val maxImages = _uiState.value.selectedModel.maxImages
+        if (_uiState.value.selectedImages.size >= maxImages) return
         _uiState.update { 
             it.copy(selectedImages = it.selectedImages + image) 
         }
@@ -393,7 +395,31 @@ class PaintViewModel(
     }
 
     private fun selectModel(model: PaintModel) {
-        _uiState.update { it.copy(selectedModel = model) }
+        _uiState.update { state ->
+            val trimmedImages = if (state.selectedImages.size > model.maxImages) {
+                state.selectedImages.take(model.maxImages)
+            } else {
+                state.selectedImages
+            }
+            val availableRes = Resolution.availableFor(model)
+            val newResolution = if (state.selectedResolution in availableRes) {
+                state.selectedResolution
+            } else {
+                Resolution.RES_1K
+            }
+            val availableRatios = AspectRatio.availableFor(model)
+            val newRatio = if (state.selectedAspectRatio in availableRatios) {
+                state.selectedAspectRatio
+            } else {
+                AspectRatio.RATIO_1_1
+            }
+            state.copy(
+                selectedModel = model,
+                selectedImages = trimmedImages,
+                selectedResolution = newResolution,
+                selectedAspectRatio = newRatio
+            )
+        }
         _uiState.value.currentSession?.let { session ->
             viewModelScope.launch {
                 repository.updateSession(session.copy(model = model))

@@ -102,7 +102,7 @@ class GeminiApiService(
 
         val imageConfig = buildJsonObject {
             put("aspectRatio", aspectRatio.value)
-            if (model == PaintModel.GEMINI_3_PRO) {
+            if (model.supportsResolution) {
                 put("imageSize", resolution.value)
             }
         }

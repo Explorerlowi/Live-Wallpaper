@@ -187,6 +187,7 @@
     <string name="paint_cannot_regenerate">Cannot regenerate, original message deleted</string>
     <string name="paint_download_success">Saved to gallery</string>
     <string name="paint_download_failed">Save failed</string>
+    <string name="paint_image_limit_exceeded">This model supports up to %d images</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">Add Tags</string>

@@ -769,10 +769,12 @@ fun ModelSelectorDialog(
 @Composable
 fun RatioSelectorDialog(
     selectedRatio: AspectRatio,
+    selectedModel: PaintModel = PaintModel.GEMINI_2_5_FLASH,
     onSelect: (AspectRatio) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val options = AspectRatio.entries.map { ratio ->
+    val availableRatios = AspectRatio.availableFor(selectedModel)
+    val options = availableRatios.map { ratio ->
         // 解析比例值
         val parts = ratio.value.split(":")
         val widthRatio = parts[0].toIntOrNull() ?: 1
@@ -801,10 +803,12 @@ fun RatioSelectorDialog(
 @Composable
 fun ResolutionSelectorDialog(
     selectedResolution: Resolution,
+    selectedModel: PaintModel = PaintModel.GEMINI_3_PRO,
     onSelect: (Resolution) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val options = Resolution.entries.map { resolution ->
+    val availableResolutions = Resolution.availableFor(selectedModel)
+    val options = availableResolutions.map { resolution ->
         SelectOption(
             value = resolution,
             label = resolution.displayName,

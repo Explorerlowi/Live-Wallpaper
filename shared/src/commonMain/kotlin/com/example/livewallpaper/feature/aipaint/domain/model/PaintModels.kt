@@ -72,9 +72,14 @@ data class PaintSession(
  * 绘画模型
  */
 @Serializable
-enum class PaintModel(val displayName: String, val endpoint: String) {
-    GEMINI_2_5_FLASH("Gemini 2.5 Flash", "gemini-2.5-flash-image"),
-    GEMINI_3_PRO("Gemini 3 Pro", "gemini-3-pro-image-preview")
+enum class PaintModel(val displayName: String, val endpoint: String, val maxImages: Int) {
+    GEMINI_2_5_FLASH("nano banana", "gemini-2.5-flash-image", 3),
+    GEMINI_3_PRO("nano banana pro", "gemini-3-pro-image-preview", 14),
+    GEMINI_3_1_FLASH("nano banana 2", "gemini-3.1-flash-image-preview", 14);
+
+    /** 是否支持自定义分辨率 */
+    val supportsResolution: Boolean
+        get() = this == GEMINI_3_PRO || this == GEMINI_3_1_FLASH
 }
 
 /**
@@ -91,8 +96,18 @@ enum class AspectRatio(
     RATIO_3_2("3:2", "3:2", "风景"),
     RATIO_3_4("3:4", "3:4", "标准竖版"),
     RATIO_4_3("4:3", "4:3", "标准横版"),
+    RATIO_4_5("4:5", "4:5", "社交竖版"),
+    RATIO_5_4("5:4", "5:4", "社交横版"),
     RATIO_16_9("16:9", "16:9", "宽屏"),
-    RATIO_9_16("9:16", "9:16", "手机竖屏");
+    RATIO_9_16("9:16", "9:16", "手机竖屏"),
+    RATIO_1_4("1:4", "1:4", "超长竖版"),
+    RATIO_4_1("4:1", "4:1", "超长横版"),
+    RATIO_1_8("1:8", "1:8", "极长竖版"),
+    RATIO_8_1("8:1", "8:1", "极长横版");
+
+    /** 仅 Gemini 3.1 Flash 支持的极端宽高比 */
+    val isExtreme: Boolean
+        get() = this in listOf(RATIO_1_4, RATIO_4_1, RATIO_1_8, RATIO_8_1)
     
     /**
      * 获取数值比例
@@ -105,6 +120,15 @@ enum class AspectRatio(
     }
     
     companion object {
+        /**
+         * 获取指定模型可用的宽高比列表
+         * 极端比例（1:4、4:1、1:8、8:1）仅 Gemini 3.1 Flash 支持
+         */
+        fun availableFor(model: PaintModel): List<AspectRatio> = when (model) {
+            PaintModel.GEMINI_3_1_FLASH -> entries.toList()
+            else -> entries.filter { !it.isExtreme }
+        }
+
         /**
          * 根据图片宽高计算最接近的比例
          * @param width 图片宽度
@@ -124,13 +148,23 @@ enum class AspectRatio(
 }
 
 /**
- * 分辨率 (仅Pro模型支持)
+ * 分辨率（Pro 和 3.1 Flash 模型支持）
  */
 @Serializable
 enum class Resolution(val displayName: String, val value: String) {
+    RES_05K("0.5K", "0.5K"),
     RES_1K("1K", "1K"),
     RES_2K("2K", "2K"),
-    RES_4K("4K", "4K")
+    RES_4K("4K", "4K");
+
+    companion object {
+        /** 获取指定模型可用的分辨率列表 */
+        fun availableFor(model: PaintModel): List<Resolution> = when (model) {
+            PaintModel.GEMINI_3_1_FLASH -> entries.toList()          // 0.5K ~ 4K
+            PaintModel.GEMINI_3_PRO -> listOf(RES_1K, RES_2K, RES_4K) // 1K ~ 4K
+            else -> emptyList()
+        }
+    }
 }
 
 /**

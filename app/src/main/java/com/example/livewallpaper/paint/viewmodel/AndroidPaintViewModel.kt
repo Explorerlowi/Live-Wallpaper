@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import kotlin.random.Random
@@ -629,8 +630,7 @@ class AndroidPaintViewModel(
         return images.mapNotNull { selected ->
             val bytes = try {
                 val uriString = selected.uri
-                if (uriString.startsWith("/") || uriString.startsWith("file://")) {
-                    // 本地文件路径
+                val rawBytes = if (uriString.startsWith("/") || uriString.startsWith("file://")) {
                     val filePath = if (uriString.startsWith("file://")) {
                         uriString.removePrefix("file://")
                     } else {
@@ -638,10 +638,11 @@ class AndroidPaintViewModel(
                     }
                     File(filePath).readBytes()
                 } else {
-                    // content:// URI
                     val uri = Uri.parse(uriString)
                     appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 }
+                // 如果原始数据超过 3MB，进行压缩
+                compressImageIfNeeded(rawBytes, selected.mimeType)
             } catch (_: Exception) {
                 null
             } ?: return@mapNotNull null
@@ -651,6 +652,56 @@ class AndroidPaintViewModel(
                 mimeType = selected.mimeType,
                 isReference = true
             )
+        }
+    }
+
+    /**
+     * 如果图片字节数超过 3MB，使用 Bitmap 解码后逐步降低质量压缩
+     * 优先降低 JPEG 质量，若仍超限则缩小分辨率
+     * @param rawBytes 原始图片字节数据
+     * @param mimeType 图片 MIME 类型
+     * @return 压缩后的字节数据（不超过 3MB），压缩失败则返回原始数据
+     */
+    private fun compressImageIfNeeded(rawBytes: ByteArray?, mimeType: String): ByteArray? {
+        if (rawBytes == null) return null
+        val maxSize = 3 * 1024 * 1024 // 3MB
+        if (rawBytes.size <= maxSize) return rawBytes
+
+        return try {
+            // 先按原始尺寸解码
+            var bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size) ?: return rawBytes
+            var scaleFactor = 1.0f
+
+            // 最多尝试 5 轮缩放
+            repeat(5) {
+                // 从质量 90 开始逐步降低
+                var quality = 90
+                while (quality >= 30) {
+                    val output = ByteArrayOutputStream()
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, output)
+                    val compressed = output.toByteArray()
+                    if (compressed.size <= maxSize) {
+                        if (scaleFactor < 1.0f) bitmap.recycle()
+                        return compressed
+                    }
+                    quality -= 10
+                }
+                // 质量压缩不够，缩小分辨率
+                scaleFactor *= 0.7f
+                val newWidth = (bitmap.width * 0.7f).toInt().coerceAtLeast(100)
+                val newHeight = (bitmap.height * 0.7f).toInt().coerceAtLeast(100)
+                val oldBitmap = bitmap
+                bitmap = android.graphics.Bitmap.createScaledBitmap(oldBitmap, newWidth, newHeight, true)
+                if (oldBitmap !== bitmap) oldBitmap.recycle()
+            }
+
+            // 兜底：最低质量 + 当前缩放后的尺寸
+            val finalOutput = ByteArrayOutputStream()
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 30, finalOutput)
+            bitmap.recycle()
+            finalOutput.toByteArray()
+        } catch (_: Exception) {
+            rawBytes
         }
     }
 
@@ -743,6 +794,12 @@ class AndroidPaintViewModel(
     }
 
     private fun addImage(image: SelectedImage) {
+        val state = _uiState.value
+        val maxImages = state.selectedModel.maxImages
+        if (state.selectedImages.size >= maxImages) {
+            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.ImageLimitExceeded(maxImages)) }
+            return
+        }
         _uiState.update { it.copy(selectedImages = it.selectedImages + image) }
         // 保存草稿
         val key = currentDraftKey()
@@ -812,7 +869,34 @@ class AndroidPaintViewModel(
 
 
     private fun selectModel(model: PaintModel) {
-        _uiState.update { it.copy(selectedModel = model) }
+        _uiState.update { state ->
+            // 如果已选图片超过新模型限制，截断
+            val trimmedImages = if (state.selectedImages.size > model.maxImages) {
+                state.selectedImages.take(model.maxImages)
+            } else {
+                state.selectedImages
+            }
+            // 如果当前分辨率不在新模型支持范围内，重置为 1K
+            val availableRes = Resolution.availableFor(model)
+            val newResolution = if (state.selectedResolution in availableRes) {
+                state.selectedResolution
+            } else {
+                Resolution.RES_1K
+            }
+            // 如果当前宽高比不在新模型支持范围内，重置为 1:1
+            val availableRatios = AspectRatio.availableFor(model)
+            val newRatio = if (state.selectedAspectRatio in availableRatios) {
+                state.selectedAspectRatio
+            } else {
+                AspectRatio.RATIO_1_1
+            }
+            state.copy(
+                selectedModel = model,
+                selectedImages = trimmedImages,
+                selectedResolution = newResolution,
+                selectedAspectRatio = newRatio
+            )
+        }
         _uiState.value.currentSession?.let { session ->
             viewModelScope.launch {
                 repository.updateSession(session.copy(model = model))

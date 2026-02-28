@@ -189,6 +189,7 @@
     <string name="paint_cannot_regenerate">无法重新生成，原始消息已删除</string>
     <string name="paint_download_success">已保存到相册</string>
     <string name="paint_download_failed">保存失败</string>
+    <string name="paint_image_limit_exceeded">当前模型最多选择 %d 张图片</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">添加描述</string>
