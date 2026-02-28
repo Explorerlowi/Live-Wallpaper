@@ -126,6 +126,7 @@ class PaintViewModel(
             is PaintEvent.UpdateImageDimensions -> updateImageDimensions(
                 event.messageId, event.imageId, event.width, event.height
             )
+            is PaintEvent.ReplaceImagePath -> { /* Android 端实现 */ }
         }
     }
 

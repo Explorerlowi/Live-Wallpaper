@@ -13,7 +13,7 @@ import org.koin.dsl.module
 
 val appModule = module {
     // 网络
-    single { HttpClientFactory.create(enableLogging = false) }
+    single { HttpClientFactory.create(enableLogging = true) }
     
     // AI 绘画
     single { GeminiApiService(get()) }

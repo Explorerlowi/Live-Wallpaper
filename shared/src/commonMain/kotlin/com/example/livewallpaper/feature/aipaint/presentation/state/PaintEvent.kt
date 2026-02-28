@@ -22,6 +22,7 @@ sealed class PaintEvent {
         val width: Int,
         val height: Int
     ) : PaintEvent()
+    data class ReplaceImagePath(val oldPath: String, val newPath: String) : PaintEvent()
     
     // 重新生成与版本切换
     data class RegenerateMessage(val messageId: String) : PaintEvent()

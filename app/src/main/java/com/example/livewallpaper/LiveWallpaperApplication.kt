@@ -8,6 +8,7 @@ import com.example.livewallpaper.di.galleryModule
 import com.example.livewallpaper.di.imageModule
 import com.example.livewallpaper.di.paintModule
 import com.example.livewallpaper.di.platformModule
+import com.example.livewallpaper.paint.service.ImageGenerationService
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -22,6 +23,8 @@ class LiveWallpaperApplication : Application(), ImageLoaderFactory {
             androidContext(this@LiveWallpaperApplication)
             modules(appModule, platformModule, galleryModule, imageModule, paintModule)
         }
+
+        ImageGenerationService.ensureNotificationChannel(this)
     }
     
     /**

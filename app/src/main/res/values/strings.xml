@@ -53,6 +53,8 @@
     
     <!-- 图片预览 -->
     <string name="close">Close</string>
+    <string name="image_preview_title">Preview</string>
+    <string name="image_preview_edit">Edit</string>
     
     <!-- 空状态 -->
     <string name="no_images">No images yet</string>
@@ -188,6 +190,16 @@
     <string name="paint_download_success">Saved to gallery</string>
     <string name="paint_download_failed">Save failed</string>
     <string name="paint_image_limit_exceeded">This model supports up to %d images</string>
+    
+    <!-- 前台服务通知 -->
+    <string name="paint_generation_channel_name">Image Generation</string>
+    <string name="paint_generation_channel_desc">Shows progress while AI is generating images</string>
+    <string name="paint_generation_notification_title">Generating image…</string>
+    <string name="paint_generation_notification_text">AI painting in progress, please don\'t force-stop the app</string>
+    <string name="paint_generation_notification_success">Generation complete</string>
+    <string name="paint_generation_notification_success_text">Tap to view the result</string>
+    <string name="paint_generation_notification_failed">Generation failed</string>
+    <string name="paint_generation_notification_failed_text">Tap to retry</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">Add Tags</string>

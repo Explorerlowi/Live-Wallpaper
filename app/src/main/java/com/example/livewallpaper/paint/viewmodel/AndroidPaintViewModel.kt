@@ -11,6 +11,7 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReposito
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import com.example.livewallpaper.paint.service.ImageGenerationService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.Serializable
@@ -241,6 +242,7 @@ class AndroidPaintViewModel(
             is PaintEvent.UpdateImageDimensions -> updateImageDimensions(
                 event.messageId, event.imageId, event.width, event.height
             )
+            is PaintEvent.ReplaceImagePath -> replaceImagePath(event.oldPath, event.newPath)
         }
     }
 
@@ -472,8 +474,13 @@ class AndroidPaintViewModel(
             val generatingSessionId = session.id
             val generatingMessageId = assistantMessage.id
 
+            // 启动前台服务，防止应用退到后台时系统中断网络请求
+            ImageGenerationService.start(appContext)
+
             // 使用独立的协程作用域，确保请求不会因为切换会话或应用进入后台而中断
             generationJob = generationScope.launch {
+                var generationSuccess = false
+                var failureMessage: String? = null
                 try {
                     val userImagesForApi = loadReferenceImagesForApi(selectedImagesSnapshot)
 
@@ -508,7 +515,7 @@ class AndroidPaintViewModel(
                         }
                         
                         if (savedImages.isEmpty()) {
-                            // 没有成功保存任何图片
+                            failureMessage = "保存图片失败"
                             val errorMessage = assistantMessage.copy(
                                 messageContent = "保存图片失败",
                                 status = MessageStatus.ERROR,
@@ -519,7 +526,7 @@ class AndroidPaintViewModel(
                                 _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
                             }
                         } else {
-                            // 更新消息，包含所有生成的图片
+                            generationSuccess = true
                             val updatedMessage = assistantMessage.copy(
                                 messageContent = "",
                                 images = savedImages,
@@ -527,7 +534,6 @@ class AndroidPaintViewModel(
                                 updatedAt = System.currentTimeMillis()
                             )
                             repository.updateMessage(updatedMessage)
-                            // 更新会话的 updatedAt
                             repository.getSession(generatingSessionId).first()?.let { sess ->
                                 repository.updateSession(sess)
                             }
@@ -542,6 +548,7 @@ class AndroidPaintViewModel(
                             }
                         }
                     }.onError { error ->
+                        failureMessage = error.message
                         val errorMessage = assistantMessage.copy(
                             messageContent = error.message ?: "生成失败",
                             status = MessageStatus.ERROR,
@@ -554,9 +561,9 @@ class AndroidPaintViewModel(
                     }
                     
                 } catch (e: CancellationException) {
-                    // 用户主动取消，不更新消息状态
                     throw e
                 } catch (e: Exception) {
+                    failureMessage = e.message
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
@@ -567,13 +574,20 @@ class AndroidPaintViewModel(
                         _toastEvent.emit(PaintToastMessage.GenerateFailed(e.message))
                     }
                 } finally {
-                    withContext(Dispatchers.Main) {
-                        _uiState.update { 
-                            it.copy(
-                                isGenerating = false,
-                                generatingSessionId = null,
-                                generationStartTime = 0L
-                            ) 
+                    withContext(NonCancellable) {
+                        if (failureMessage != null || generationSuccess) {
+                            ImageGenerationService.stopWithResult(appContext, generationSuccess, failureMessage)
+                        } else {
+                            ImageGenerationService.stop(appContext)
+                        }
+                        withContext(Dispatchers.Main) {
+                            _uiState.update {
+                                it.copy(
+                                    isGenerating = false,
+                                    generatingSessionId = null,
+                                    generationStartTime = 0L
+                                )
+                            }
                         }
                     }
                 }
@@ -707,6 +721,7 @@ class AndroidPaintViewModel(
 
     private fun stopGeneration() {
         generationJob?.cancel()
+        ImageGenerationService.stop(appContext)
         _uiState.update { 
             it.copy(
                 isGenerating = false,
@@ -1104,9 +1119,13 @@ class AndroidPaintViewModel(
                 }
             
             val generatingMessageId = newAssistantMessage.id
+
+            ImageGenerationService.start(appContext)
             
             // 使用独立的协程作用域进行生成
             generationJob = generationScope.launch {
+                var generationSuccess = false
+                var failureMessage: String? = null
                 try {
                     val result = repository.generateImage(
                         profile = profile,
@@ -1118,7 +1137,6 @@ class AndroidPaintViewModel(
                     )
                     
                     result.onSuccess { base64DataList ->
-                        // 保存所有生成的图片
                         val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
                             val imageInfo = saveGeneratedImage(
                                 sessionId = sessionId,
@@ -1138,7 +1156,7 @@ class AndroidPaintViewModel(
                         }
                         
                         if (savedImages.isEmpty()) {
-                            // 没有成功保存任何图片
+                            failureMessage = "保存图片失败"
                             val errorMessage = newAssistantMessage.copy(
                                 messageContent = "保存图片失败",
                                 status = MessageStatus.ERROR,
@@ -1149,7 +1167,7 @@ class AndroidPaintViewModel(
                                 _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
                             }
                         } else {
-                            // 更新消息，包含所有生成的图片
+                            generationSuccess = true
                             val updatedMessage = newAssistantMessage.copy(
                                 messageContent = "",
                                 images = savedImages,
@@ -1171,6 +1189,7 @@ class AndroidPaintViewModel(
                             }
                         }
                     }.onError { error ->
+                        failureMessage = error.message
                         val errorMessage = newAssistantMessage.copy(
                             messageContent = error.message ?: "生成失败",
                             status = MessageStatus.ERROR,
@@ -1184,6 +1203,7 @@ class AndroidPaintViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    failureMessage = e.message
                     val errorMessage = newAssistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
@@ -1194,13 +1214,20 @@ class AndroidPaintViewModel(
                         _toastEvent.emit(PaintToastMessage.GenerateFailed(e.message))
                     }
                 } finally {
-                    withContext(Dispatchers.Main) {
-                        _uiState.update { 
-                            it.copy(
-                                isGenerating = false,
-                                generatingSessionId = null,
-                                generationStartTime = 0L
-                            ) 
+                    withContext(NonCancellable) {
+                        if (failureMessage != null || generationSuccess) {
+                            ImageGenerationService.stopWithResult(appContext, generationSuccess, failureMessage)
+                        } else {
+                            ImageGenerationService.stop(appContext)
+                        }
+                        withContext(Dispatchers.Main) {
+                            _uiState.update {
+                                it.copy(
+                                    isGenerating = false,
+                                    generatingSessionId = null,
+                                    generationStartTime = 0L
+                                )
+                            }
                         }
                     }
                 }
@@ -1284,6 +1311,49 @@ class AndroidPaintViewModel(
         }
     }
     
+    /**
+     * 替换图片的路径
+     * 用于图片编辑后用新缓存文件替换原引用，同时支持消息图片和输入框图片
+     */
+    private fun replaceImagePath(oldPath: String, newPath: String) {
+        val selectedImg = _uiState.value.selectedImages.find { it.uri == oldPath }
+        if (selectedImg != null) {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(newPath, options)
+            val updated = _uiState.value.selectedImages.map { img ->
+                if (img.uri == oldPath) img.copy(
+                    uri = newPath,
+                    width = if (options.outWidth > 0) options.outWidth else img.width,
+                    height = if (options.outHeight > 0) options.outHeight else img.height
+                ) else img
+            }
+            _uiState.update { it.copy(selectedImages = updated) }
+            return
+        }
+
+        viewModelScope.launch {
+            val message = _uiState.value.messages.find { msg ->
+                msg.images.any { it.localPath == oldPath }
+            } ?: return@launch
+            
+            val updatedImages = message.images.map { img ->
+                if (img.localPath == oldPath) {
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(newPath, options)
+                    img.copy(
+                        localPath = newPath,
+                        width = if (options.outWidth > 0) options.outWidth else img.width,
+                        height = if (options.outHeight > 0) options.outHeight else img.height
+                    )
+                } else {
+                    img
+                }
+            }
+            val updatedMessage = message.copy(images = updatedImages)
+            repository.updateMessage(updatedMessage)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         // 注意：这里不取消 generationScope，让请求继续完成

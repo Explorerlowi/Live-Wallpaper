@@ -46,6 +46,8 @@
     
     <!-- 图片预览 -->
     <string name="close">关闭</string>
+    <string name="image_preview_title">预览</string>
+    <string name="image_preview_edit">编辑</string>
     
     <!-- 空状态 -->
     <string name="no_images">还没有图片</string>
@@ -190,6 +192,16 @@
     <string name="paint_download_success">已保存到相册</string>
     <string name="paint_download_failed">保存失败</string>
     <string name="paint_image_limit_exceeded">当前模型最多选择 %d 张图片</string>
+    
+    <!-- 前台服务通知 -->
+    <string name="paint_generation_channel_name">图片生成</string>
+    <string name="paint_generation_channel_desc">AI 生成图片时显示进度</string>
+    <string name="paint_generation_notification_title">正在生成图片…</string>
+    <string name="paint_generation_notification_text">AI 绘画进行中，请勿强制关闭应用</string>
+    <string name="paint_generation_notification_success">生成完成</string>
+    <string name="paint_generation_notification_success_text">点击查看结果</string>
+    <string name="paint_generation_notification_failed">生成失败</string>
+    <string name="paint_generation_notification_failed_text">点击重试</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">添加描述</string>

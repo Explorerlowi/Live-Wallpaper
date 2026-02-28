@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -76,11 +77,16 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImagePainter
+import com.example.livewallpaper.R
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
@@ -138,7 +144,11 @@ data class ImagePreviewConfig(
     /** 是否显示镜像按钮 */
     val showFlipButton: Boolean = false,
     /** 是否显示下载按钮 */
-    val showDownloadButton: Boolean = false
+    val showDownloadButton: Boolean = false,
+    /** 是否显示顶部标题 */
+    val showTitle: Boolean = false,
+    /** 是否显示编辑按钮 */
+    val showEditButton: Boolean = false
 )
 
 /**
@@ -180,7 +190,8 @@ fun ImagePreviewDialog(
     onDismiss: () -> Unit,
     onShare: ((Int) -> Unit)? = null,
     onDelete: ((Int) -> Unit)? = null,
-    onDownload: ((Int) -> Unit)? = null
+    onDownload: ((Int) -> Unit)? = null,
+    onEdit: ((ImageSource, Int) -> Unit)? = null
 ) {
     if (images.isEmpty()) {
         onDismiss()
@@ -248,23 +259,57 @@ fun ImagePreviewDialog(
             
             // 顶部控制栏
             AnimatedVisibility(
-                visible = showControls && config.showCloseButton,
+                visible = showControls && (config.showCloseButton || config.showTitle || config.showEditButton),
                 enter = fadeIn(tween(200)),
                 exit = fadeOut(tween(200)),
-                modifier = Modifier.align(Alignment.TopEnd)
+                modifier = Modifier.align(Alignment.TopCenter)
             ) {
-                IconButton(
-                    onClick = onDismiss,
+                Box(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(8.dp)
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    // 左侧编辑按钮
+                    if (config.showEditButton && onEdit != null) {
+                        Text(
+                            text = stringResource(R.string.image_preview_edit),
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Normal,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .clickable { onEdit(images[currentPage], currentPage) }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+
+                    // 中间标题
+                    if (config.showTitle) {
+                        Text(
+                            text = stringResource(R.string.image_preview_title),
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+
+                    // 右侧关闭按钮
+                    if (config.showCloseButton) {
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.close),
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
                 }
             }
             

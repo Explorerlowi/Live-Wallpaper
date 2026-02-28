@@ -205,11 +205,29 @@ fun PaintScreen(
     
     // 图片编辑状态
     var editImagePath by remember { mutableStateOf<String?>(null) }
+    var editFromPreview by remember { mutableStateOf(false) }
+    var editOriginalPath by remember { mutableStateOf<String?>(null) }
     
     // 图库 ViewModel
     val mediaStoreRepository: MediaStoreRepository = koinInject()
     val galleryViewModel = remember { GalleryViewModel(mediaStoreRepository) }
     
+    // Android 13+ 首次进入时请求通知权限，保证前台服务通知可见
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { /* 无论用户是否授权，前台服务都能正常工作，只是通知不可见 */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     // 权限状态
     var permissionStatus by remember { mutableStateOf(checkPhotoPermissionStatus(context)) }
     
@@ -692,11 +710,24 @@ fun PaintScreen(
             config = ImagePreviewConfig(
                 showRotateButton = true,
                 showFlipButton = true,
-                showDownloadButton = true
+                showDownloadButton = true,
+                showTitle = true,
+                showEditButton = true
             ),
             onDismiss = { 
                 previewImages = emptyList()
                 previewInitialIndex = 0
+            },
+            onEdit = { imageSource, _ ->
+                val path = when (imageSource) {
+                    is ImageSource.StringSource -> imageSource.path
+                    else -> null
+                }
+                if (path != null) {
+                    editFromPreview = true
+                    editOriginalPath = path
+                    editImagePath = path
+                }
             }
         )
     }
@@ -705,8 +736,30 @@ fun PaintScreen(
     editImagePath?.let { path ->
         GeneralImageEditScreen(
             imageSource = path,
-            onNavigateBack = { editImagePath = null },
-            onDone = { editImagePath = null }
+            onNavigateBack = {
+                editImagePath = null
+                editOriginalPath = null
+                if (!editFromPreview) editFromPreview = false
+            },
+            onDone = {
+                editImagePath = null
+                editOriginalPath = null
+                editFromPreview = false
+            },
+            onSaveAndFinish = if (editFromPreview) { newPath ->
+                val oldPath = editOriginalPath
+                if (oldPath != null && newPath != oldPath) {
+                    viewModel.onEvent(PaintEvent.ReplaceImagePath(oldPath, newPath))
+                    previewImages = previewImages.map { img ->
+                        if (img is ImageSource.StringSource && img.path == oldPath)
+                            ImageSource.StringSource(newPath)
+                        else img
+                    }
+                }
+                editImagePath = null
+                editOriginalPath = null
+                editFromPreview = false
+            } else null
         )
     }
     

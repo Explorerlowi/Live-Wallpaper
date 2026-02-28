@@ -1,4 +1,4 @@
-﻿package com.example.livewallpaper.ui.components
+package com.example.livewallpaper.ui.components
 
 import android.content.ContentValues
 import android.content.Context
@@ -509,7 +509,8 @@ fun GeneralImageEditScreen(
     imageSource: String,
     onNavigateBack: () -> Unit,
     onToolSelected: (EditTool) -> Unit = {},
-    onDone: () -> Unit = {}
+    onDone: () -> Unit = {},
+    onSaveAndFinish: ((String) -> Unit)? = null
 ) {
     Dialog(
         onDismissRequest = onNavigateBack,
@@ -549,7 +550,8 @@ fun GeneralImageEditScreen(
             imageSource = imageSource,
             onNavigateBack = onNavigateBack,
             onToolSelected = onToolSelected,
-            onDone = onDone
+            onDone = onDone,
+            onSaveAndFinish = onSaveAndFinish
         )
     }
 }
@@ -565,7 +567,8 @@ private fun ImageEditBody(
     imageSource: String,
     onNavigateBack: () -> Unit,
     onToolSelected: (EditTool) -> Unit,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    onSaveAndFinish: ((String) -> Unit)? = null
 ) {
     var showControls by remember { mutableStateOf(true) }
     val context = LocalContext.current
@@ -615,12 +618,17 @@ private fun ImageEditBody(
     var mosaicBlockSize by remember { mutableIntStateOf(20) }
     var mosaicBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
+    // ── 裁剪状态 ──
+    var currentImageSource by remember { mutableStateOf(imageSource) }
+    var isCropMode by remember { mutableStateOf(false) }
+    var cropBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
     // 加载马赛克预处理位图（将原图像素化）
-    LaunchedEffect(imageSource, containerSize) {
+    LaunchedEffect(currentImageSource, containerSize) {
         if (containerSize.width > 0 && containerSize.height > 0) {
             mosaicBitmap = withContext(Dispatchers.IO) {
                 try {
-                    val original = loadBitmapFromSource(context, imageSource) { }
+                    val original = loadBitmapFromSource(context, currentImageSource) { }
                         ?: return@withContext null
                     createMosaicBitmap(original, containerSize, mosaicBlockSize)
                 } catch (e: Exception) {
@@ -636,7 +644,7 @@ private fun ImageEditBody(
                 saveState = SaveState.SAVING
                 saveProgress = 0f
                 val success = saveEditedImageToGallery(
-                    context, imageSource, drawHistory, containerSize, mosaicBlockSize
+                    context, currentImageSource, drawHistory, containerSize, mosaicBlockSize
                 ) { progress ->
                     saveProgress = progress
                 }
@@ -678,7 +686,7 @@ private fun ImageEditBody(
     ) {
         // ── 图片层 ──
         Image(
-            painter = rememberAsyncImagePainter(model = imageSource),
+            painter = rememberAsyncImagePainter(model = currentImageSource),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier
@@ -1138,10 +1146,56 @@ private fun ImageEditBody(
                                     showShapePicker = false
                                 }
                             }
+                            EditTool.CROP -> {
+                                isBrushMode = false
+                                isMosaicMode = false
+                                showShapePicker = false
+                                scope.launch {
+                                    val bitmap = withContext(Dispatchers.IO) {
+                                        val original = loadBitmapFromSource(context, currentImageSource) { }
+                                            ?: return@withContext null
+                                        if (drawHistory.isNotEmpty()) {
+                                            val rendered = renderDrawingsOntoBitmap(
+                                                original, drawHistory.toList(), containerSize, mosaicBlockSize
+                                            )
+                                            original.recycle()
+                                            rendered
+                                        } else {
+                                            original
+                                        }
+                                    }
+                                    if (bitmap != null) {
+                                        cropBitmap = bitmap
+                                        isCropMode = true
+                                    }
+                                }
+                            }
                             else -> onToolSelected(tool)
                         }
                     },
-                    onDone = onDone,
+                    onDone = {
+                        if (onSaveAndFinish != null) {
+                            if (drawHistory.isNotEmpty()) {
+                                scope.launch {
+                                    saveState = SaveState.SAVING
+                                    saveProgress = 0f
+                            val newPath = saveEditedImageToCache(
+                                context, currentImageSource, drawHistory, containerSize, mosaicBlockSize
+                                    ) { progress -> saveProgress = progress }
+                                    saveState = SaveState.IDLE
+                                    if (newPath != null) {
+                                        onSaveAndFinish(newPath)
+                                    } else {
+                                        saveState = SaveState.FAILED
+                                    }
+                                }
+                        } else {
+                            onSaveAndFinish(currentImageSource)
+                        }
+                        } else {
+                            onDone()
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1153,6 +1207,49 @@ private fun ImageEditBody(
             progress = saveProgress,
             modifier = Modifier.align(Alignment.Center)
         )
+
+        // ── 裁剪界面 ──
+        if (isCropMode && cropBitmap != null) {
+            ImageEditScreen(
+                bitmap = cropBitmap!!,
+                onConfirm = { result ->
+                    val bitmapToProcess = cropBitmap ?: return@ImageEditScreen
+                    scope.launch {
+                        val newPath = withContext(Dispatchers.IO) {
+                            try {
+                                val croppedBitmap = applyImageEditResult(bitmapToProcess, result)
+                                val cacheDir = File(context.filesDir, "aipaint/edited").apply { mkdirs() }
+                                val fileName = "cropped_${System.currentTimeMillis()}.png"
+                                val targetFile = File(cacheDir, fileName)
+                                targetFile.outputStream().use { outputStream ->
+                                    croppedBitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                                }
+                                if (croppedBitmap !== bitmapToProcess) {
+                                    croppedBitmap.recycle()
+                                }
+                                bitmapToProcess.recycle()
+                                targetFile.absolutePath
+                            } catch (e: Exception) {
+                                bitmapToProcess.recycle()
+                                null
+                            }
+                        }
+                        if (newPath != null) {
+                            currentImageSource = newPath
+                            drawHistory.clear()
+                            selectedIndex = -1
+                        }
+                        cropBitmap = null
+                        isCropMode = false
+                    }
+                },
+                onDismiss = {
+                    cropBitmap?.recycle()
+                    cropBitmap = null
+                    isCropMode = false
+                }
+            )
+        }
     }
 }
 
@@ -2133,6 +2230,53 @@ private fun DrawScope.drawMosaicStroke(
 
 
 // ==================== 图片保存工具 ====================
+
+/**
+ * 将编辑后的图片（原图 + 绘制内容）保存为新缓存文件，不修改原图
+ * @return 新文件的绝对路径，失败返回 null
+ */
+private suspend fun saveEditedImageToCache(
+    context: Context,
+    source: String,
+    drawHistory: List<DrawOperation>,
+    containerSize: IntSize,
+    mosaicBlockSize: Int,
+    onProgress: (Float) -> Unit
+): String? {
+    return withContext(Dispatchers.IO) {
+        try {
+            onProgress(0.05f)
+            val originalBitmap = loadBitmapFromSource(context, source, onProgress)
+                ?: return@withContext null
+            onProgress(0.5f)
+
+            val finalBitmap = if (drawHistory.isNotEmpty()) {
+                renderDrawingsOntoBitmap(originalBitmap, drawHistory, containerSize, mosaicBlockSize)
+            } else {
+                originalBitmap
+            }
+            onProgress(0.7f)
+
+            val cacheDir = File(context.filesDir, "aipaint/edited").apply { mkdirs() }
+            val fileName = "edited_${System.currentTimeMillis()}.png"
+            val targetFile = File(cacheDir, fileName)
+            targetFile.outputStream().use { outputStream ->
+                finalBitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            }
+            onProgress(0.95f)
+
+            if (finalBitmap !== originalBitmap) {
+                finalBitmap.recycle()
+            }
+            originalBitmap.recycle()
+            onProgress(1f)
+            targetFile.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+}
 
 /**
  * 将编辑后的图片（原图 + 绘制内容）保存到系统相册

@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <!-- 网络权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 前台服务权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 13+ 通知权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- WakeLock：防止后台生成时 CPU 休眠 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".LiveWallpaperApplication"
@@ -45,6 +52,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".paint.service.ImageGenerationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <activity
             android:name=".paint.PaintActivity"

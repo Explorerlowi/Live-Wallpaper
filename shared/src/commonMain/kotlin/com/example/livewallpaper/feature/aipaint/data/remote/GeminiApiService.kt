@@ -5,11 +5,9 @@ import com.example.livewallpaper.core.error.AppResult
 import com.example.livewallpaper.feature.aipaint.data.remote.dto.*
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import io.ktor.client.*
-import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.utils.io.*
 import kotlinx.serialization.json.*
 
 /**
@@ -142,24 +140,25 @@ class GeminiApiService(
     }
 
     /**
-     * 流式解析图片响应，避免一次性加载整个响应体导致 OOM
-     * 通过逐块读取并查找 Base64 数据来降低内存占用
-     * 支持提取响应中的所有图片
+     * 解析图片生成响应
+     *
+     * 使用 bodyAsText() 一次性读取完整响应，而非 bodyAsChannel() 流式读取。
+     * 流式读取 (ByteReadChannel) 在 app 退到后台时，通道可能无法正确感知响应结束，
+     * 导致 readAvailable() 永久挂起，直到 socket 超时（600 秒）才抛出异常。
+     * 一次性读取由 Ktor/OkHttp 在传输层完成缓冲，不受 app 前后台状态影响。
      */
     private suspend fun parseGenerateImageResponse(response: HttpResponse): AppResult<List<String>> {
         val responseCode = response.status.value
 
         if (responseCode !in 200..299) {
-            // 错误响应通常较小，可以直接读取
             val errorBody = response.bodyAsText()
             return AppResult.Error(AppError.Server(responseCode, errorBody))
         }
 
         return try {
-            // 使用流式方式读取响应体
-            val channel: ByteReadChannel = response.bodyAsChannel()
-            val base64DataList = extractAllBase64FromStream(channel)
-            
+            val responseBody = response.bodyAsText()
+            val base64DataList = extractAllBase64FromText(responseBody)
+
             if (base64DataList.isNotEmpty()) {
                 AppResult.Success(base64DataList)
             } else {
@@ -171,101 +170,35 @@ class GeminiApiService(
     }
 
     /**
-     * 从流中提取所有 Base64 图片数据
-     * 使用状态机方式逐步解析，避免将整个响应加载到内存
-     * 支持提取响应中的所有图片（nanobanana 支持一次请求生成多张图片）
+     * 从完整响应文本中提取所有 Base64 图片数据
+     * 扫描 JSON 中的 "data":"..." 字段，支持提取多张图片
      */
-    private suspend fun extractAllBase64FromStream(channel: ByteReadChannel): List<String> {
+    private fun extractAllBase64FromText(text: String): List<String> {
         val result = mutableListOf<String>()
-        val buffer = StringBuilder()
-        val chunkSize = 8192 // 8KB 块
-        val byteArray = ByteArray(chunkSize)
-        
-        // 查找 "data" 字段的标记
-        val dataMarkers = listOf("\"data\":\"", "\"data\": \"")
-        var foundDataStart = false
-        var base64Builder: StringBuilder? = null
-        
-        while (!channel.isClosedForRead) {
-            val bytesRead = channel.readAvailable(byteArray, 0, chunkSize)
-            if (bytesRead <= 0) break
-            
-            val chunk = byteArray.decodeToString(0, bytesRead)
-            buffer.append(chunk)
-            
-            if (!foundDataStart) {
-                // 查找 data 字段开始位置
-                for (marker in dataMarkers) {
-                    val markerIndex = buffer.indexOf(marker)
-                    if (markerIndex != -1) {
-                        foundDataStart = true
-                        val dataStartIndex = markerIndex + marker.length
-                        base64Builder = StringBuilder()
-                        
-                        // 提取 marker 之后的内容
-                        val remaining = buffer.substring(dataStartIndex)
-                        val endQuoteIndex = remaining.indexOf('"')
-                        
-                        if (endQuoteIndex != -1) {
-                            // 在当前块中找到了结束引号，保存这张图片
-                            val base64Data = remaining.substring(0, endQuoteIndex)
-                            if (base64Data.isNotEmpty()) {
-                                result.add(base64Data)
-                            }
-                            // 重置状态，继续查找下一张图片
-                            foundDataStart = false
-                            base64Builder = null
-                            // 保留剩余内容继续解析
-                            buffer.clear()
-                            buffer.append(remaining.substring(endQuoteIndex + 1))
-                        } else {
-                            // 继续累积 Base64 数据
-                            base64Builder.append(remaining)
-                            buffer.clear()
-                        }
-                        break
-                    }
-                }
-                
-                // 保留最后一部分以防标记被分割
-                if (!foundDataStart && buffer.length > 20) {
-                    val keepFrom = buffer.length - 20
-                    val kept = buffer.substring(keepFrom)
-                    buffer.clear()
-                    buffer.append(kept)
-                }
-            } else {
-                // 已找到 data 开始，继续累积直到找到结束引号
-                base64Builder?.let { builder ->
-                    val endQuoteIndex = chunk.indexOf('"')
-                    if (endQuoteIndex != -1) {
-                        // 找到结束引号，保存这张图片
-                        builder.append(chunk.substring(0, endQuoteIndex))
-                        val base64Data = builder.toString()
-                        if (base64Data.isNotEmpty()) {
-                            result.add(base64Data)
-                        }
-                        // 重置状态，继续查找下一张图片
-                        foundDataStart = false
-                        base64Builder = null
-                        // 保留剩余内容继续解析
-                        buffer.clear()
-                        buffer.append(chunk.substring(endQuoteIndex + 1))
-                    } else {
-                        builder.append(chunk)
-                    }
+        val markers = listOf("\"data\":\"", "\"data\": \"")
+        var searchFrom = 0
+
+        while (searchFrom < text.length) {
+            var markerEnd = -1
+            for (marker in markers) {
+                val idx = text.indexOf(marker, searchFrom)
+                if (idx != -1) {
+                    markerEnd = idx + marker.length
+                    break
                 }
             }
-        }
-        
-        // 处理最后可能未完成的数据
-        base64Builder?.let { builder ->
-            val base64Data = builder.toString()
+            if (markerEnd == -1) break
+
+            val endQuote = text.indexOf('"', markerEnd)
+            if (endQuote == -1) break
+
+            val base64Data = text.substring(markerEnd, endQuote)
             if (base64Data.isNotEmpty()) {
                 result.add(base64Data)
             }
+            searchFrom = endQuote + 1
         }
-        
+
         return result
     }
 
