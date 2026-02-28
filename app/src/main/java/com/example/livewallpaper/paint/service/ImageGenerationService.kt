@@ -28,6 +28,7 @@ class ImageGenerationService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var currentSessionId: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,6 +38,7 @@ class ImageGenerationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        currentSessionId = intent?.getStringExtra(PaintActivity.EXTRA_SESSION_ID)
         acquireLocks()
         val notification = buildProgressNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -100,7 +102,7 @@ class ImageGenerationService : Service() {
     }
 
     private fun buildProgressNotification(): Notification {
-        return buildBaseNotification()
+        return buildBaseNotification(currentSessionId)
             .setContentTitle(getString(R.string.paint_generation_notification_title))
             .setContentText(getString(R.string.paint_generation_notification_text))
             .setOngoing(true)
@@ -109,9 +111,10 @@ class ImageGenerationService : Service() {
             .build()
     }
 
-    private fun buildBaseNotification(): NotificationCompat.Builder {
+    private fun buildBaseNotification(sessionId: String?): NotificationCompat.Builder {
         val openIntent = Intent(this, PaintActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            sessionId?.let { putExtra(PaintActivity.EXTRA_SESSION_ID, it) }
         }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, openIntent,
@@ -119,7 +122,7 @@ class ImageGenerationService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
     }
 
@@ -145,9 +148,11 @@ class ImageGenerationService : Service() {
             }
         }
 
-        fun start(context: Context) {
+        fun start(context: Context, sessionId: String? = null) {
             try {
-                val intent = Intent(context, ImageGenerationService::class.java)
+                val intent = Intent(context, ImageGenerationService::class.java).apply {
+                    sessionId?.let { putExtra(PaintActivity.EXTRA_SESSION_ID, it) }
+                }
                 androidx.core.content.ContextCompat.startForegroundService(context, intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start foreground service", e)
@@ -158,14 +163,15 @@ class ImageGenerationService : Service() {
          * 停止服务并发送结果通知
          * @param success true 表示生成成功，false 表示失败
          * @param message 可选的额外提示信息（失败原因等）
+         * @param sessionId 关联的会话 ID，用于通知跳转时恢复对应会话
          */
-        fun stopWithResult(context: Context, success: Boolean, message: String? = null) {
+        fun stopWithResult(context: Context, success: Boolean, message: String? = null, sessionId: String? = null) {
             try {
                 context.stopService(Intent(context, ImageGenerationService::class.java))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop foreground service", e)
             }
-            showResultNotification(context, success, message)
+            showResultNotification(context, success, message, sessionId)
         }
 
         /**
@@ -179,11 +185,12 @@ class ImageGenerationService : Service() {
             }
         }
 
-        private fun showResultNotification(context: Context, success: Boolean, message: String?) {
+        private fun showResultNotification(context: Context, success: Boolean, message: String?, sessionId: String?) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             val openIntent = Intent(context, PaintActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                sessionId?.let { putExtra(PaintActivity.EXTRA_SESSION_ID, it) }
             }
             val pendingIntent = PendingIntent.getActivity(
                 context, 1, openIntent,
@@ -203,7 +210,7 @@ class ImageGenerationService : Service() {
             }
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(pendingIntent)

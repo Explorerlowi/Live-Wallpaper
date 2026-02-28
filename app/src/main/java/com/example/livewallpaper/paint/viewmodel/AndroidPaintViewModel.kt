@@ -474,17 +474,14 @@ class AndroidPaintViewModel(
             val generatingSessionId = session.id
             val generatingMessageId = assistantMessage.id
 
-            // 启动前台服务，防止应用退到后台时系统中断网络请求
-            ImageGenerationService.start(appContext)
+            ImageGenerationService.start(appContext, generatingSessionId)
 
-            // 使用独立的协程作用域，确保请求不会因为切换会话或应用进入后台而中断
             generationJob = generationScope.launch {
                 var generationSuccess = false
                 var failureMessage: String? = null
                 try {
                     val userImagesForApi = loadReferenceImagesForApi(selectedImagesSnapshot)
 
-                    // 调用 Repository 的网络请求方法
                     val result = repository.generateImage(
                         profile = profile,
                         model = state.selectedModel,
@@ -495,7 +492,6 @@ class AndroidPaintViewModel(
                     )
                     
                     result.onSuccess { base64DataList ->
-                        // 保存所有生成的图片
                         val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
                             val imageInfo = saveGeneratedImage(
                                 sessionId = generatingSessionId,
@@ -576,7 +572,9 @@ class AndroidPaintViewModel(
                 } finally {
                     withContext(NonCancellable) {
                         if (failureMessage != null || generationSuccess) {
-                            ImageGenerationService.stopWithResult(appContext, generationSuccess, failureMessage)
+                            ImageGenerationService.stopWithResult(
+                                appContext, generationSuccess, failureMessage, generatingSessionId
+                            )
                         } else {
                             ImageGenerationService.stop(appContext)
                         }
@@ -1120,9 +1118,8 @@ class AndroidPaintViewModel(
             
             val generatingMessageId = newAssistantMessage.id
 
-            ImageGenerationService.start(appContext)
+            ImageGenerationService.start(appContext, sessionId)
             
-            // 使用独立的协程作用域进行生成
             generationJob = generationScope.launch {
                 var generationSuccess = false
                 var failureMessage: String? = null
@@ -1216,7 +1213,9 @@ class AndroidPaintViewModel(
                 } finally {
                     withContext(NonCancellable) {
                         if (failureMessage != null || generationSuccess) {
-                            ImageGenerationService.stopWithResult(appContext, generationSuccess, failureMessage)
+                            ImageGenerationService.stopWithResult(
+                                appContext, generationSuccess, failureMessage, sessionId
+                            )
                         } else {
                             ImageGenerationService.stop(appContext)
                         }

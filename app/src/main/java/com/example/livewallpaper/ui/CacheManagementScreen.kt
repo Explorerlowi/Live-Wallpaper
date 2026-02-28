@@ -102,7 +102,7 @@ fun CacheManagementScreen(
     var isLoading by remember { mutableStateOf(true) }
     var cachedImages by remember { mutableStateOf<List<CachedImage>>(emptyList()) }
     var selectedImages by remember { mutableStateOf<Set<File>>(emptySet()) }
-    var sortMode by remember { mutableStateOf(CacheSortMode.BY_SIZE) }
+    var sortMode by remember { mutableStateOf(CacheSortMode.BY_TIME) }
     var showSortSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     

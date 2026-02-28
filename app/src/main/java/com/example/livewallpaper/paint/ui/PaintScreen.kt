@@ -158,8 +158,17 @@ private fun rememberDecodedBitmap(imageId: String, base64: String): Bitmap? {
 @Composable
 fun PaintScreen(
     viewModel: AndroidPaintViewModel = koinViewModel(),
+    initialSessionId: String? = null,
+    onSessionRestored: () -> Unit = {},
     onBack: () -> Unit
 ) {
+    LaunchedEffect(initialSessionId) {
+        if (initialSessionId != null) {
+            viewModel.onEvent(PaintEvent.SelectSession(initialSessionId))
+            onSessionRestored()
+        }
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
