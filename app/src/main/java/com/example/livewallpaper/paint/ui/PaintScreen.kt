@@ -431,7 +431,7 @@ fun PaintScreen(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
-                    isLoading = uiState.isLoading,
+                    isEnhancingPrompt = uiState.isEnhancingPrompt,
                     generationStartTime = uiState.generationStartTime,
                     selectedModel = uiState.selectedModel,
                     selectedRatio = uiState.selectedAspectRatio,
@@ -623,7 +623,7 @@ fun PaintScreen(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
-                    isLoading = uiState.isLoading,
+                    isEnhancingPrompt = uiState.isEnhancingPrompt,
                     onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
                     onSend = {
                         viewModel.onEvent(PaintEvent.SendMessage)

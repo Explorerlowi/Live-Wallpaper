@@ -19,7 +19,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
 import kotlin.random.Random
 
 /**
@@ -488,60 +487,41 @@ class AndroidPaintViewModel(
                         prompt = prompt,
                         images = userImagesForApi,
                         aspectRatio = state.selectedAspectRatio,
-                        resolution = state.selectedResolution
+                        resolution = state.selectedResolution,
+                        sessionId = generatingSessionId,
+                        messageId = generatingMessageId
                     )
                     
-                    result.onSuccess { base64DataList ->
-                        val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
-                            val imageInfo = saveGeneratedImage(
-                                sessionId = generatingSessionId,
-                                messageId = generatingMessageId,
-                                base64Data = base64Data,
-                                imageIndex = index
+                    result.onSuccess { imageFiles ->
+                        val savedImages = imageFiles.map { file ->
+                            PaintImage(
+                                id = generateId(),
+                                localPath = file.filePath,
+                                mimeType = "image/png",
+                                width = file.width,
+                                height = file.height
                             )
-                            imageInfo?.let {
-                                PaintImage(
-                                    id = generateId(),
-                                    localPath = it.first,
-                                    mimeType = "image/png",
-                                    width = it.second,
-                                    height = it.third
-                                )
-                            }
                         }
                         
-                        if (savedImages.isEmpty()) {
-                            failureMessage = "保存图片失败"
-                            val errorMessage = assistantMessage.copy(
-                                messageContent = "保存图片失败",
-                                status = MessageStatus.ERROR,
-                                updatedAt = System.currentTimeMillis()
+                        generationSuccess = true
+                        val updatedMessage = assistantMessage.copy(
+                            messageContent = "",
+                            images = savedImages,
+                            status = MessageStatus.SUCCESS,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(updatedMessage)
+                        repository.getSession(generatingSessionId).first()?.let { sess ->
+                            repository.updateSession(sess)
+                        }
+                        withContext(Dispatchers.Main) {
+                            _toastEvent.emit(
+                                if (savedImages.size > 1) {
+                                    PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
+                                } else {
+                                    PaintToastMessage.GenerateSuccess
+                                }
                             )
-                            repository.updateMessage(errorMessage)
-                            withContext(Dispatchers.Main) {
-                                _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
-                            }
-                        } else {
-                            generationSuccess = true
-                            val updatedMessage = assistantMessage.copy(
-                                messageContent = "",
-                                images = savedImages,
-                                status = MessageStatus.SUCCESS,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                            repository.updateMessage(updatedMessage)
-                            repository.getSession(generatingSessionId).first()?.let { sess ->
-                                repository.updateSession(sess)
-                            }
-                            withContext(Dispatchers.Main) {
-                                _toastEvent.emit(
-                                    if (savedImages.size > 1) {
-                                        PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
-                                    } else {
-                                        PaintToastMessage.GenerateSuccess
-                                    }
-                                )
-                            }
                         }
                     }.onError { error ->
                         failureMessage = error.message
@@ -590,50 +570,6 @@ class AndroidPaintViewModel(
                     }
                 }
             }
-        }
-    }
-
-    /**
-     * 保存生成的图片并返回路径和尺寸信息
-     * 使用流式处理避免内存溢出
-     * @return Triple<路径, 宽度, 高度>，失败返回 null
-     */
-    private fun saveGeneratedImage(
-        sessionId: String,
-        messageId: String,
-        base64Data: String,
-        imageIndex: Int = 0
-    ): Triple<String, Int, Int>? {
-        val dir = File(appContext.filesDir, "aipaint/$sessionId").apply { mkdirs() }
-        val fileName = if (imageIndex == 0) "$messageId.png" else "${messageId}_$imageIndex.png"
-        val file = File(dir, fileName)
-        
-        return try {
-            // 分块解码并写入文件，避免一次性加载整个图片到内存
-            val inputStream = java.io.ByteArrayInputStream(base64Data.toByteArray(Charsets.US_ASCII))
-            val base64InputStream = android.util.Base64InputStream(inputStream, Base64.DEFAULT)
-            
-            file.outputStream().buffered().use { output ->
-                base64InputStream.copyTo(output, bufferSize = 8192)
-            }
-            
-            // 只解码边界信息，不加载整个图片
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            BitmapFactory.decodeFile(file.absolutePath, options)
-            val width = options.outWidth
-            val height = options.outHeight
-            
-            if (width > 0 && height > 0) {
-                Triple(file.absolutePath, width, height)
-            } else {
-                file.delete()
-                null
-            }
-        } catch (_: Exception) {
-            file.delete()
-            null
         }
     }
 
@@ -910,27 +846,49 @@ class AndroidPaintViewModel(
                 selectedAspectRatio = newRatio
             )
         }
-        _uiState.value.currentSession?.let { session ->
+        // 读取 update 之后的最新状态，确保 aspectRatio/resolution 与 UI 一致
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(model = model))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }
 
     private fun selectAspectRatio(ratio: AspectRatio) {
         _uiState.update { it.copy(selectedAspectRatio = ratio) }
-        _uiState.value.currentSession?.let { session ->
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(aspectRatio = ratio))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }
 
     private fun selectResolution(resolution: Resolution) {
         _uiState.update { it.copy(selectedResolution = resolution) }
-        _uiState.value.currentSession?.let { session ->
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(resolution = resolution))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }
@@ -966,20 +924,19 @@ class AndroidPaintViewModel(
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isEnhancingPrompt = true) }
             try {
-                // 调用 Repository 的网络请求方法
                 val result = repository.enhancePrompt(profile, prompt)
                 
                 result.onSuccess { enhanced ->
-                    _uiState.update { it.copy(promptText = enhanced, isLoading = false) }
+                    _uiState.update { it.copy(promptText = enhanced, isEnhancingPrompt = false) }
                     _toastEvent.emit(PaintToastMessage.EnhanceSuccess)
                 }.onError { error ->
-                    _uiState.update { it.copy(isLoading = false) }
+                    _uiState.update { it.copy(isEnhancingPrompt = false) }
                     _toastEvent.emit(PaintToastMessage.EnhanceFailed(error.message))
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update { it.copy(isEnhancingPrompt = false) }
                 _toastEvent.emit(PaintToastMessage.EnhanceFailed(e.message))
             }
         }
@@ -1130,60 +1087,41 @@ class AndroidPaintViewModel(
                         prompt = userMessage.messageContent,
                         images = userImagesForApi,
                         aspectRatio = session.aspectRatio,
-                        resolution = session.resolution
+                        resolution = session.resolution,
+                        sessionId = sessionId,
+                        messageId = generatingMessageId
                     )
                     
-                    result.onSuccess { base64DataList ->
-                        val savedImages = base64DataList.mapIndexedNotNull { index, base64Data ->
-                            val imageInfo = saveGeneratedImage(
-                                sessionId = sessionId,
-                                messageId = generatingMessageId,
-                                base64Data = base64Data,
-                                imageIndex = index
+                    result.onSuccess { imageFiles ->
+                        val savedImages = imageFiles.map { file ->
+                            PaintImage(
+                                id = generateId(),
+                                localPath = file.filePath,
+                                mimeType = "image/png",
+                                width = file.width,
+                                height = file.height
                             )
-                            imageInfo?.let {
-                                PaintImage(
-                                    id = generateId(),
-                                    localPath = it.first,
-                                    mimeType = "image/png",
-                                    width = it.second,
-                                    height = it.third
-                                )
-                            }
                         }
                         
-                        if (savedImages.isEmpty()) {
-                            failureMessage = "保存图片失败"
-                            val errorMessage = newAssistantMessage.copy(
-                                messageContent = "保存图片失败",
-                                status = MessageStatus.ERROR,
-                                updatedAt = System.currentTimeMillis()
+                        generationSuccess = true
+                        val updatedMessage = newAssistantMessage.copy(
+                            messageContent = "",
+                            images = savedImages,
+                            status = MessageStatus.SUCCESS,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(updatedMessage)
+                        repository.getSession(sessionId).first()?.let { sess ->
+                            repository.updateSession(sess)
+                        }
+                        withContext(Dispatchers.Main) {
+                            _toastEvent.emit(
+                                if (savedImages.size > 1) {
+                                    PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
+                                } else {
+                                    PaintToastMessage.GenerateSuccess
+                                }
                             )
-                            repository.updateMessage(errorMessage)
-                            withContext(Dispatchers.Main) {
-                                _toastEvent.emit(PaintToastMessage.GenerateFailed("保存图片失败"))
-                            }
-                        } else {
-                            generationSuccess = true
-                            val updatedMessage = newAssistantMessage.copy(
-                                messageContent = "",
-                                images = savedImages,
-                                status = MessageStatus.SUCCESS,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                            repository.updateMessage(updatedMessage)
-                            repository.getSession(sessionId).first()?.let { sess ->
-                                repository.updateSession(sess)
-                            }
-                            withContext(Dispatchers.Main) {
-                                _toastEvent.emit(
-                                    if (savedImages.size > 1) {
-                                        PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
-                                    } else {
-                                        PaintToastMessage.GenerateSuccess
-                                    }
-                                )
-                            }
                         }
                     }.onError { error ->
                         failureMessage = error.message

@@ -17,7 +17,7 @@ val appModule = module {
     
     // AI 绘画
     single { GeminiApiService(get()) }
-    single<PaintRepository> { PaintRepositoryImpl(get(), get()) }
+    single<PaintRepository> { PaintRepositoryImpl(get(), get(), get()) }
     
     // 更新服务
     single { AppUpdateService(get()) }

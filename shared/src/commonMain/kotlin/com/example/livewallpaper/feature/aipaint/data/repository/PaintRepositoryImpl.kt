@@ -1,6 +1,8 @@
 package com.example.livewallpaper.feature.aipaint.data.repository
 
+import com.example.livewallpaper.core.error.AppError
 import com.example.livewallpaper.core.error.AppResult
+import com.example.livewallpaper.core.platform.ImageResponseProcessor
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
 import com.example.livewallpaper.feature.aipaint.domain.model.*
@@ -20,7 +22,8 @@ import kotlinx.serialization.json.Json
 
 class PaintRepositoryImpl(
     private val settings: ObservableSettings,
-    private val geminiApiService: GeminiApiService
+    private val geminiApiService: GeminiApiService,
+    private val imageResponseProcessor: ImageResponseProcessor
 ) : PaintRepository {
 
     private val json = Json { 
@@ -289,9 +292,11 @@ class PaintRepositoryImpl(
         prompt: String,
         images: List<PaintImage>,
         aspectRatio: AspectRatio,
-        resolution: Resolution
-    ): AppResult<List<String>> {
-        return geminiApiService.generateImage(
+        resolution: Resolution,
+        sessionId: String,
+        messageId: String
+    ): AppResult<List<GeneratedImageFile>> {
+        val responseResult = geminiApiService.generateImage(
             profile = profile,
             model = model,
             prompt = prompt,
@@ -299,6 +304,23 @@ class PaintRepositoryImpl(
             aspectRatio = aspectRatio,
             resolution = resolution
         )
+        return when (responseResult) {
+            is AppResult.Success -> {
+                try {
+                    val files = imageResponseProcessor.processResponse(
+                        responseResult.data, sessionId, messageId
+                    )
+                    if (files.isNotEmpty()) {
+                        AppResult.Success(files)
+                    } else {
+                        AppResult.Error(AppError.Server(200, "未返回图片数据"))
+                    }
+                } catch (e: Exception) {
+                    AppResult.Error(AppError.Unknown(e))
+                }
+            }
+            is AppResult.Error -> responseResult
+        }
     }
     
     override suspend fun enhancePrompt(

@@ -1,6 +1,8 @@
 package com.example.livewallpaper.di
 
 import android.content.Context
+import com.example.livewallpaper.core.platform.AndroidImageResponseProcessor
+import com.example.livewallpaper.core.platform.ImageResponseProcessor
 import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.SharedPreferencesSettings
 import org.koin.core.module.Module
@@ -12,5 +14,6 @@ actual val platformModule: Module = module {
         val preferences = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         SharedPreferencesSettings(preferences)
     }
+    single<ImageResponseProcessor> { AndroidImageResponseProcessor(get()) }
 }
 

@@ -421,27 +421,49 @@ class PaintViewModel(
                 selectedAspectRatio = newRatio
             )
         }
-        _uiState.value.currentSession?.let { session ->
+        // 读取 update 之后的最新状态，确保三个字段一起写入
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(model = model))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }
 
     private fun selectAspectRatio(ratio: AspectRatio) {
         _uiState.update { it.copy(selectedAspectRatio = ratio) }
-        _uiState.value.currentSession?.let { session ->
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(aspectRatio = ratio))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }
 
     private fun selectResolution(resolution: Resolution) {
         _uiState.update { it.copy(selectedResolution = resolution) }
-        _uiState.value.currentSession?.let { session ->
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
             viewModelScope.launch {
-                repository.updateSession(session.copy(resolution = resolution))
+                repository.updateSession(
+                    session.copy(
+                        model = updatedState.selectedModel,
+                        aspectRatio = updatedState.selectedAspectRatio,
+                        resolution = updatedState.selectedResolution
+                    )
+                )
             }
         }
     }

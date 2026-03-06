@@ -21,6 +21,10 @@ class GeminiApiService(
 
     /**
      * 生成图片
+     *
+     * 成功时返回原始 [HttpResponse]，由调用方使用 [ImageResponseProcessor] 流式处理响应体。
+     * 这样做是为了避免 bodyAsText() 将完整响应（含大量 base64 图片数据）一次性加载到内存，
+     * 防止在高分辨率 / 多图场景下 OOM 崩溃。
      */
     suspend fun generateImage(
         profile: ApiProfile,
@@ -29,7 +33,7 @@ class GeminiApiService(
         images: List<PaintImage>,
         aspectRatio: AspectRatio,
         resolution: Resolution
-    ): AppResult<List<String>> {
+    ): AppResult<HttpResponse> {
         return try {
             val endpoint = "${profile.baseUrl}/v1beta/models/${model.endpoint}:generateContent"
             val requestBody = buildGenerateImageRequest(prompt, images, model, aspectRatio, resolution)
@@ -39,7 +43,13 @@ class GeminiApiService(
                 setBody(requestBody.toString())
             }
             
-            parseGenerateImageResponse(response)
+            val responseCode = response.status.value
+            if (responseCode !in 200..299) {
+                val errorBody = response.bodyAsText()
+                AppResult.Error(AppError.Server(responseCode, errorBody))
+            } else {
+                AppResult.Success(response)
+            }
         } catch (e: Exception) {
             mapException(e)
         }
@@ -137,69 +147,6 @@ class GeminiApiService(
                 })
             })
         }
-    }
-
-    /**
-     * 解析图片生成响应
-     *
-     * 使用 bodyAsText() 一次性读取完整响应，而非 bodyAsChannel() 流式读取。
-     * 流式读取 (ByteReadChannel) 在 app 退到后台时，通道可能无法正确感知响应结束，
-     * 导致 readAvailable() 永久挂起，直到 socket 超时（600 秒）才抛出异常。
-     * 一次性读取由 Ktor/OkHttp 在传输层完成缓冲，不受 app 前后台状态影响。
-     */
-    private suspend fun parseGenerateImageResponse(response: HttpResponse): AppResult<List<String>> {
-        val responseCode = response.status.value
-
-        if (responseCode !in 200..299) {
-            val errorBody = response.bodyAsText()
-            return AppResult.Error(AppError.Server(responseCode, errorBody))
-        }
-
-        return try {
-            val responseBody = response.bodyAsText()
-            val base64DataList = extractAllBase64FromText(responseBody)
-
-            if (base64DataList.isNotEmpty()) {
-                AppResult.Success(base64DataList)
-            } else {
-                AppResult.Error(AppError.Server(responseCode, "未返回图片数据"))
-            }
-        } catch (e: Exception) {
-            AppResult.Error(AppError.Unknown(e))
-        }
-    }
-
-    /**
-     * 从完整响应文本中提取所有 Base64 图片数据
-     * 扫描 JSON 中的 "data":"..." 字段，支持提取多张图片
-     */
-    private fun extractAllBase64FromText(text: String): List<String> {
-        val result = mutableListOf<String>()
-        val markers = listOf("\"data\":\"", "\"data\": \"")
-        var searchFrom = 0
-
-        while (searchFrom < text.length) {
-            var markerEnd = -1
-            for (marker in markers) {
-                val idx = text.indexOf(marker, searchFrom)
-                if (idx != -1) {
-                    markerEnd = idx + marker.length
-                    break
-                }
-            }
-            if (markerEnd == -1) break
-
-            val endQuote = text.indexOf('"', markerEnd)
-            if (endQuote == -1) break
-
-            val base64Data = text.substring(markerEnd, endQuote)
-            if (base64Data.isNotEmpty()) {
-                result.add(base64Data)
-            }
-            searchFrom = endQuote + 1
-        }
-
-        return result
     }
 
     private suspend fun parseEnhancePromptResponse(response: HttpResponse): AppResult<String> {

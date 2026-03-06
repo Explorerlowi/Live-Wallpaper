@@ -168,6 +168,16 @@ enum class Resolution(val displayName: String, val value: String) {
 }
 
 /**
+ * 生成图片的文件信息
+ * 由 ImageResponseProcessor 流式处理后返回
+ */
+data class GeneratedImageFile(
+    val filePath: String,
+    val width: Int,
+    val height: Int
+)
+
+/**
  * API配置
  */
 @Serializable

@@ -41,8 +41,10 @@ interface PaintRepository {
         prompt: String,
         images: List<PaintImage>,
         aspectRatio: AspectRatio,
-        resolution: Resolution
-    ): AppResult<List<String>>
+        resolution: Resolution,
+        sessionId: String,
+        messageId: String
+    ): AppResult<List<GeneratedImageFile>>
     
     suspend fun enhancePrompt(
         profile: ApiProfile,

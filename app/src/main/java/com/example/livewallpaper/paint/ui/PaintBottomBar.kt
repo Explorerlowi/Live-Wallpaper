@@ -50,7 +50,7 @@ fun PaintBottomBar(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
-    isLoading: Boolean,
+    isEnhancingPrompt: Boolean,
     generationStartTime: Long,
     selectedModel: PaintModel,
     selectedRatio: AspectRatio,
@@ -252,10 +252,10 @@ fun PaintBottomBar(
                         ) {
                             IconButton(
                                 onClick = { showEnhanceConfirm = true },
-                                enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
+                                enabled = promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                if (isLoading) {
+                                if (isEnhancingPrompt) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(20.dp),
                                         strokeWidth = 2.dp
@@ -395,13 +395,13 @@ fun PaintBottomBar(
                             Text(
                                 text = stringResource(R.string.paint_clear),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (promptText.isNotEmpty() && !isLoading && !isGenerating)
+                                color = if (promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating)
                                     MaterialTheme.colorScheme.primary
                                 else
                                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                 modifier = Modifier
                                     .clickable(
-                                        enabled = promptText.isNotEmpty() && !isLoading && !isGenerating,
+                                        enabled = promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() }
                                     ) { showClearConfirm = true }
@@ -596,7 +596,7 @@ fun FullScreenPromptOverlay(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
-    isLoading: Boolean,
+    isEnhancingPrompt: Boolean,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -674,14 +674,14 @@ fun FullScreenPromptOverlay(
                     
                     // 清除按钮（右上角）
                     TextButton(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) showClearConfirm = true },
-                        enabled = textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating,
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) showClearConfirm = true },
+                        enabled = textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.paint_clear),
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) 
+                            color = if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) 
                                 MaterialTheme.colorScheme.primary
                             else 
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -768,7 +768,7 @@ fun FullScreenPromptOverlay(
                 ) {
                     // 优化按钮
                     Surface(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isLoading && !isGenerating) showEnhanceConfirm = true },
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) showEnhanceConfirm = true },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
@@ -777,7 +777,7 @@ fun FullScreenPromptOverlay(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (isLoading) {
+                            if (isEnhancingPrompt) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
@@ -797,7 +797,7 @@ fun FullScreenPromptOverlay(
                                 Text(
                                     text = stringResource(R.string.paint_enhance),
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = if (textFieldValue.text.isNotEmpty() && !isLoading)
+                                    color = if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt)
                                         MaterialTheme.colorScheme.onSurface
                                     else
                                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
