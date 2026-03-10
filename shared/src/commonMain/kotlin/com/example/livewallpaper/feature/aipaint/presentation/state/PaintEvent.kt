@@ -44,9 +44,6 @@ sealed class PaintEvent {
     data class DeleteApiProfile(val profileId: String) : PaintEvent()
     data class SetActiveProfile(val profileId: String) : PaintEvent()
     
-    // 提示词优化
-    data object EnhancePrompt : PaintEvent()
-    
     // 滚动状态
     data class UpdateScrollState(val isAtBottom: Boolean) : PaintEvent()
     data object ScrollToBottom : PaintEvent()

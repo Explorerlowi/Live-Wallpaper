@@ -50,7 +50,6 @@ fun PaintBottomBar(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
-    isEnhancingPrompt: Boolean,
     generationStartTime: Long,
     selectedModel: PaintModel,
     selectedRatio: AspectRatio,
@@ -61,7 +60,6 @@ fun PaintBottomBar(
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onEnhance: () -> Unit,
     onPickImage: () -> Unit,
     onRemoveImage: (String) -> Unit,
     onSettingsClick: () -> Unit,
@@ -80,7 +78,6 @@ fun PaintBottomBar(
     var showDescriptionPicker by remember { mutableStateOf(false) }
     
     // 确认弹窗状态
-    var showEnhanceConfirm by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
     
     // 输入框行数
@@ -246,32 +243,6 @@ fun PaintBottomBar(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // 优化按钮
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(0.dp),
-                            modifier = Modifier.width(48.dp)
-                        ) {
-                            IconButton(
-                                onClick = { showEnhanceConfirm = true },
-                                enabled = promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                if (isEnhancingPrompt) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.AutoFixHigh,
-                                        contentDescription = stringResource(R.string.paint_enhance),
-                                        tint = if (promptText.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                    )
-                                }
-                            }
-                        }
-
                         // 输入框
                         Surface(
                             modifier = Modifier.weight(1f),
@@ -399,13 +370,13 @@ fun PaintBottomBar(
                             Text(
                                 text = stringResource(R.string.paint_clear),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating)
+                                color = if (promptText.isNotEmpty() && !isGenerating)
                                     MaterialTheme.colorScheme.primary
                                 else
                                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                 modifier = Modifier
                                     .clickable(
-                                        enabled = promptText.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
+                                        enabled = promptText.isNotEmpty() && !isGenerating,
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() }
                                     ) { showClearConfirm = true }
@@ -446,18 +417,6 @@ fun PaintBottomBar(
                     onPromptChange(newPrompt)
                 }
             }
-        )
-    }
-    
-    // 优化确认弹窗
-    if (showEnhanceConfirm) {
-        ConfirmDialog(
-            title = stringResource(R.string.paint_enhance_confirm_title),
-            message = stringResource(R.string.paint_enhance_confirm_message),
-            confirmText = stringResource(R.string.confirm),
-            dismissText = stringResource(R.string.cancel),
-            onConfirm = onEnhance,
-            onDismiss = { showEnhanceConfirm = false }
         )
     }
     
@@ -637,11 +596,9 @@ fun FullScreenPromptOverlay(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
-    isEnhancingPrompt: Boolean,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onEnhance: () -> Unit,
     onPickImage: () -> Unit,
     onRemoveImage: (String) -> Unit,
     onImagePreview: ((List<ImageSource>, Int) -> Unit)?,
@@ -658,7 +615,6 @@ fun FullScreenPromptOverlay(
     }
     
     // 确认弹窗状态
-    var showEnhanceConfirm by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
@@ -715,14 +671,14 @@ fun FullScreenPromptOverlay(
                     
                     // 清除按钮（右上角）
                     TextButton(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) showClearConfirm = true },
-                        enabled = textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating,
+                        onClick = { if (textFieldValue.text.isNotEmpty() && !isGenerating) showClearConfirm = true },
+                        enabled = textFieldValue.text.isNotEmpty() && !isGenerating,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.paint_clear),
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) 
+                            color = if (textFieldValue.text.isNotEmpty() && !isGenerating) 
                                 MaterialTheme.colorScheme.primary
                             else 
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -809,45 +765,6 @@ fun FullScreenPromptOverlay(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 优化按钮
-                    Surface(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt && !isGenerating) showEnhanceConfirm = true },
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (isEnhancingPrompt) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.AutoFixHigh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = if (textFieldValue.text.isNotEmpty())
-                                            MaterialTheme.colorScheme.primary
-                                        else
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                    )
-                                }
-                                Text(
-                                    text = stringResource(R.string.paint_enhance),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (textFieldValue.text.isNotEmpty() && !isEnhancingPrompt)
-                                        MaterialTheme.colorScheme.onSurface
-                                    else
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                )
-                            }
-                        }
-
                     Surface(
                         onClick = onPickImage,
                         shape = RoundedCornerShape(20.dp),
@@ -914,18 +831,6 @@ fun FullScreenPromptOverlay(
                 }
             }
         }
-    }
-    
-    // 优化确认弹窗
-    if (showEnhanceConfirm) {
-        ConfirmDialog(
-            title = stringResource(R.string.paint_enhance_confirm_title),
-            message = stringResource(R.string.paint_enhance_confirm_message),
-            confirmText = stringResource(R.string.confirm),
-            dismissText = stringResource(R.string.cancel),
-            onConfirm = onEnhance,
-            onDismiss = { showEnhanceConfirm = false }
-        )
     }
     
     // 清除确认弹窗

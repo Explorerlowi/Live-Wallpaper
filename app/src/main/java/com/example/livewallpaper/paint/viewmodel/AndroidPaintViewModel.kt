@@ -231,7 +231,6 @@ class AndroidPaintViewModel(
             is PaintEvent.SaveApiProfile -> saveApiProfile(event.profile)
             is PaintEvent.DeleteApiProfile -> deleteApiProfile(event.profileId)
             is PaintEvent.SetActiveProfile -> setActiveProfile(event.profileId)
-            is PaintEvent.EnhancePrompt -> enhancePrompt()
             is PaintEvent.UpdateScrollState -> updateScrollState(event.isAtBottom)
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
@@ -910,35 +909,6 @@ class AndroidPaintViewModel(
     private fun setActiveProfile(profileId: String) {
         viewModelScope.launch {
             repository.setActiveProfile(profileId)
-        }
-    }
-
-    private fun enhancePrompt() {
-        val state = _uiState.value
-        val prompt = state.promptText.trim()
-        if (prompt.isEmpty()) return
-        val profile = state.activeProfile
-        if (profile == null) {
-            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.PleaseConfigApi) }
-            return
-        }
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isEnhancingPrompt = true) }
-            try {
-                val result = repository.enhancePrompt(profile, prompt)
-                
-                result.onSuccess { enhanced ->
-                    _uiState.update { it.copy(promptText = enhanced, isEnhancingPrompt = false) }
-                    _toastEvent.emit(PaintToastMessage.EnhanceSuccess)
-                }.onError { error ->
-                    _uiState.update { it.copy(isEnhancingPrompt = false) }
-                    _toastEvent.emit(PaintToastMessage.EnhanceFailed(error.message))
-                }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isEnhancingPrompt = false) }
-                _toastEvent.emit(PaintToastMessage.EnhanceFailed(e.message))
-            }
         }
     }
 

@@ -109,10 +109,7 @@
     <string name="paint_empty_title">Start Creating</string>
     <string name="paint_empty_subtitle">Enter a description and let AI paint for you</string>
     <string name="paint_prompt_hint">Describe the image you want...</string>
-    <string name="paint_enhance">Enhance</string>
     <string name="paint_clear">Clear</string>
-    <string name="paint_enhance_confirm_title">Enhance Prompt</string>
-    <string name="paint_enhance_confirm_message">Are you sure you want to enhance the current prompt? This will replace the original content.</string>
     <string name="paint_clear_confirm_title">Clear Prompt</string>
     <string name="paint_clear_confirm_message">Are you sure you want to clear the current prompt?</string>
     <string name="paint_generating">Generating...</string>
@@ -162,8 +159,7 @@
     <string name="paint_stopped">Generation stopped</string>
     <string name="paint_save_success">Saved successfully</string>
     <string name="paint_deleted">Deleted</string>
-    <string name="paint_enhance_success">Enhancement successful</string>
-    <string name="paint_enhance_failed">Enhancement failed</string>
+
     <string name="paint_status_pending">Pending</string>
     <string name="paint_status_done">Done</string>
     <string name="paint_status_failed">Failed</string>

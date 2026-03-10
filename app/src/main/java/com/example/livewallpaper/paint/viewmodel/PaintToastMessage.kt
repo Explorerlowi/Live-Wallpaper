@@ -12,8 +12,6 @@ sealed class PaintToastMessage {
     data object Stopped : PaintToastMessage()
     data object SaveSuccess : PaintToastMessage()
     data object Deleted : PaintToastMessage()
-    data object EnhanceSuccess : PaintToastMessage()
-    data class EnhanceFailed(val error: String?) : PaintToastMessage()
     data object GeneratingInProgress : PaintToastMessage()
     data object DownloadSuccess : PaintToastMessage()
     data class DownloadFailed(val error: String?) : PaintToastMessage()

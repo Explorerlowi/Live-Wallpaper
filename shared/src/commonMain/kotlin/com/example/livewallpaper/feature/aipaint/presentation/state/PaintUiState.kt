@@ -7,7 +7,6 @@ data class PaintUiState(
     val sessions: List<PaintSession> = emptyList(),
     val messages: List<PaintMessage> = emptyList(),
     val isLoading: Boolean = false,
-    val isEnhancingPrompt: Boolean = false,
     val isGenerating: Boolean = false,
     val generatingSessionId: String? = null, // 正在生成的会话ID
     val generationStartTime: Long = 0L, // 生成开始时间

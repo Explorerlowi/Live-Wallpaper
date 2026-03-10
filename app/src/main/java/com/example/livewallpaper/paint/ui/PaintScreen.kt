@@ -368,8 +368,6 @@ fun PaintScreen(
                 is PaintToastMessage.Stopped -> resources.getString(R.string.paint_stopped)
                 is PaintToastMessage.SaveSuccess -> resources.getString(R.string.paint_save_success)
                 is PaintToastMessage.Deleted -> resources.getString(R.string.paint_deleted)
-                is PaintToastMessage.EnhanceSuccess -> resources.getString(R.string.paint_enhance_success)
-                is PaintToastMessage.EnhanceFailed -> resources.getString(R.string.paint_enhance_failed) + (message.error?.let { ": $it" } ?: "")
                 is PaintToastMessage.GeneratingInProgress -> resources.getString(R.string.paint_generating_in_progress)
                 is PaintToastMessage.DownloadSuccess -> resources.getString(R.string.paint_download_success)
                 is PaintToastMessage.DownloadFailed -> resources.getString(R.string.paint_download_failed) + (message.error?.let { ": $it" } ?: "")
@@ -431,7 +429,6 @@ fun PaintScreen(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
-                    isEnhancingPrompt = uiState.isEnhancingPrompt,
                     generationStartTime = uiState.generationStartTime,
                     selectedModel = uiState.selectedModel,
                     selectedRatio = uiState.selectedAspectRatio,
@@ -442,7 +439,6 @@ fun PaintScreen(
                     onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
                     onSend = { viewModel.onEvent(PaintEvent.SendMessage) },
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
-                    onEnhance = { viewModel.onEvent(PaintEvent.EnhancePrompt) },
                     onPickImage = openImagePicker,
                     onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
                     onSettingsClick = { showApiSettings = true },
@@ -623,7 +619,6 @@ fun PaintScreen(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
-                    isEnhancingPrompt = uiState.isEnhancingPrompt,
                     onPromptChange = { viewModel.onEvent(PaintEvent.UpdatePrompt(it)) },
                     onSend = {
                         viewModel.onEvent(PaintEvent.SendMessage)
@@ -631,7 +626,6 @@ fun PaintScreen(
                         collapsedInputFocusRequester.requestFocus()
                     },
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
-                    onEnhance = { viewModel.onEvent(PaintEvent.EnhancePrompt) },
                     onPickImage = openImagePicker,
                     onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
                     onImagePreview = { images, index ->

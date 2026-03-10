@@ -116,7 +116,6 @@ class PaintViewModel(
             is PaintEvent.SaveApiProfile -> saveApiProfile(event.profile)
             is PaintEvent.DeleteApiProfile -> deleteApiProfile(event.profileId)
             is PaintEvent.SetActiveProfile -> setActiveProfile(event.profileId)
-            is PaintEvent.EnhancePrompt -> enhancePrompt()
             is PaintEvent.UpdateScrollState -> updateScrollState(event.isAtBottom)
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
@@ -483,26 +482,6 @@ class PaintViewModel(
     private fun setActiveProfile(profileId: String) {
         viewModelScope.launch {
             repository.setActiveProfile(profileId)
-        }
-    }
-
-    private fun enhancePrompt() {
-        val state = _uiState.value
-        val prompt = state.promptText.trim()
-        if (prompt.isEmpty()) return
-        if (state.activeProfile == null) {
-            _uiState.update { it.copy(error = "请先配置API") }
-            return
-        }
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            try {
-                val enhanced = callEnhanceApi(state.activeProfile, prompt)
-                _uiState.update { it.copy(promptText = enhanced, isLoading = false) }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = "优化失败: ${e.message}", isLoading = false) }
-            }
         }
     }
 
