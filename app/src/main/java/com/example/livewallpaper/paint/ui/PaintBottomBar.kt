@@ -155,6 +155,8 @@ fun PaintBottomBar(
                                 }
                             )
                         }
+                        // 添加参考图占位卡片
+                        AddReferenceImageCard(onClick = onPickImage)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
@@ -316,23 +318,25 @@ fun PaintBottomBar(
                             }
                     }
 
-                    // 图片按钮
-                    Surface(
-                        onClick = onPickImage,
-                        shape = CircleShape,
-                        color = Color.Transparent,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize()
+                    // 图片按钮（已有参考图时隐藏，通过占位卡片添加）
+                    if (selectedImages.isEmpty()) {
+                        Surface(
+                            onClick = onPickImage,
+                            shape = CircleShape,
+                            color = Color.Transparent,
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Image,
-                                contentDescription = stringResource(R.string.add_image),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                modifier = Modifier.size(26.dp)
-                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.Image,
+                                    contentDescription = stringResource(R.string.add_image),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
                         }
                     }
 
@@ -511,6 +515,43 @@ private fun QuickActionChip(
                 else 
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
             )
+        }
+    }
+}
+
+/**
+ * 添加参考图占位卡片
+ * 显示在已选图片列表末尾，点击触发图片选择
+ */
+@Composable
+private fun AddReferenceImageCard(onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            modifier = Modifier.size(64.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            onClick = onClick
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.paint_add_reference_image),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
         }
     }
 }
@@ -708,6 +749,8 @@ fun FullScreenPromptOverlay(
                             }
                         )
                     }
+                    // 添加参考图占位卡片
+                    AddReferenceImageCard(onClick = onPickImage)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }

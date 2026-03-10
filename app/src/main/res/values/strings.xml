@@ -153,6 +153,7 @@
     <string name="paint_no_config">No configuration</string>
     <string name="paint_delete_config_title">Delete Configuration</string>
     <string name="paint_delete_config_message">Are you sure you want to delete configuration \"%1$s\"?</string>
+    <string name="paint_add_reference_image">Reference</string>
     <string name="paint_image_load_failed">Failed to load image</string>
     <string name="paint_please_config_api">Please configure API first</string>
     <string name="paint_generate_success">Generation successful</string>

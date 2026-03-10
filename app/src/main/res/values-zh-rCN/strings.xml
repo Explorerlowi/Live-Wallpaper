@@ -155,6 +155,7 @@
     <string name="paint_no_config">暂无配置</string>
     <string name="paint_delete_config_title">删除配置</string>
     <string name="paint_delete_config_message">确定要删除配置「%1$s」吗？</string>
+    <string name="paint_add_reference_image">参考图</string>
     <string name="paint_image_load_failed">图片加载失败</string>
     <string name="paint_please_config_api">请先配置API</string>
     <string name="paint_generate_success">生成成功</string>
