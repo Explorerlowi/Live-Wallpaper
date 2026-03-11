@@ -234,24 +234,24 @@ fun PaintBottomBar(
                     )
                 }
 
-                // 输入栏容器 - 包含展开按钮
-                Box {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                // 输入栏
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    // 输入框
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     ) {
-                        // 输入框
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(24.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
+                        Box {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.Bottom
                             ) {
                                 BasicTextField(
                                     value = promptFieldValue,
@@ -262,7 +262,8 @@ fun PaintBottomBar(
                                     modifier = Modifier
                                         .weight(1f)
                                         .focusRequester(collapsedInputFocusRequester)
-                                        .heightIn(min = 24.dp, max = 120.dp),
+                                        .heightIn(min = 24.dp, max = 120.dp)
+                                        .padding(vertical = 8.dp),
                                     textStyle = TextStyle(
                                         fontSize = 16.sp,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -286,114 +287,114 @@ fun PaintBottomBar(
                                         }
                                     }
                                 )
-                            }
-                    }
 
-                    // 图片按钮（已有参考图时隐藏，通过占位卡片添加）
-                    if (selectedImages.isEmpty()) {
-                        Surface(
-                            onClick = onPickImage,
-                            shape = CircleShape,
-                            color = Color.Transparent,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.Image,
-                                    contentDescription = stringResource(R.string.add_image),
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
-                    }
+                                // 相册按钮（已有参考图时隐藏，通过占位卡片添加）
+                                if (selectedImages.isEmpty()) {
+                                    Surface(
+                                        onClick = onPickImage,
+                                        shape = CircleShape,
+                                        color = Color.Transparent,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Image,
+                                                contentDescription = stringResource(R.string.add_image),
+                                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                }
 
-                    // 发送/停止按钮 - 圆形
-                    if (isGenerating) {
-                        Surface(
-                            onClick = onStop,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.Stop,
-                                    contentDescription = stringResource(R.string.paint_stop),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                // 发送/停止按钮
+                                if (isGenerating) {
+                                    Surface(
+                                        onClick = onStop,
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Stop,
+                                                contentDescription = stringResource(R.string.paint_stop),
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                } else if (promptText.isNotEmpty()) {
+                                    Surface(
+                                        onClick = onSend,
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ArrowUpward,
+                                                contentDescription = stringResource(R.string.paint_send),
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    } else if (promptText.isNotEmpty()) {
-                        Surface(
-                            onClick = onSend,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowUpward,
-                                    contentDescription = stringResource(R.string.paint_send),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                    // 清除和展开按钮 - 放在输入栏右上角，当文本达到4行时显示
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = lineCount >= 4,
-                        enter = fadeIn() + scaleIn(),
-                        exit = fadeOut() + scaleOut(),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 4.dp, end = 8.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 清除按钮（文字）
-                            Text(
-                                text = stringResource(R.string.paint_clear),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (promptText.isNotEmpty() && !isGenerating)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+
+                            // 展开和清除按钮 - 固定在输入框内部右上角，竖排
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = lineCount >= 4,
+                                enter = fadeIn() + scaleIn(),
+                                exit = fadeOut() + scaleOut(),
                                 modifier = Modifier
-                                    .clickable(
-                                        enabled = promptText.isNotEmpty() && !isGenerating,
-                                        indication = null,
-                                        interactionSource = remember { MutableInteractionSource() }
-                                    ) { showClearConfirm = true }
-                                    .padding(horizontal = 4.dp, vertical = 4.dp)
-                            )
-                            
-                            // 展开按钮
-                            IconButton(
-                                onClick = onExpandInput,
-                                modifier = Modifier.size(28.dp)
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 4.dp, end = 8.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.OpenInFull,
-                                    contentDescription = stringResource(R.string.paint_expand_input),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                                ) {
+                                    // 展开按钮
+                                    IconButton(
+                                        onClick = onExpandInput,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.OpenInFull,
+                                            contentDescription = stringResource(R.string.paint_expand_input),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // 清除按钮
+                                    Text(
+                                        text = stringResource(R.string.paint_clear),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (promptText.isNotEmpty() && !isGenerating)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                        modifier = Modifier
+                                            .clickable(
+                                                enabled = promptText.isNotEmpty() && !isGenerating,
+                                                indication = null,
+                                                interactionSource = remember { MutableInteractionSource() }
+                                            ) { showClearConfirm = true }
+                                            .padding(horizontal = 4.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }

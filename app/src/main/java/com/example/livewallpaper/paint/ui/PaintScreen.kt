@@ -22,8 +22,10 @@ import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -507,10 +509,20 @@ fun PaintScreen(
                         }.asReversed()
                     }
                     
+                    // 用于清除文本选中状态的 key，递增时强制 SelectionContainer 重组
+                    var selectionVersion by remember { mutableIntStateOf(0) }
+                    
                     // 消息列表
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures {
+                                    // 点击空白区域时清除文本选中
+                                    selectionVersion++
+                                }
+                            },
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
                         reverseLayout = true
@@ -525,6 +537,7 @@ fun PaintScreen(
                                 allMessages = uiState.messages,
                                 activeVersions = uiState.activeVersions,
                                 selectedAspectRatio = uiState.selectedAspectRatio,
+                                selectionVersion = selectionVersion,
                                 onImageClick = { images, index ->
                                     previewImages = images
                                     previewInitialIndex = index
@@ -853,6 +866,7 @@ private fun MessageItem(
     allMessages: List<PaintMessage> = emptyList(),
     activeVersions: Map<String, Int> = emptyMap(),
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
+    selectionVersion: Int = 0,
     onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
     onCopyText: (String) -> Unit = {},
     onEditMessage: (String) -> Unit = {},
@@ -973,15 +987,17 @@ private fun MessageItem(
             Column(modifier = Modifier.padding(12.dp)) {
                 // 文本内容
                 if (message.messageContent.isNotEmpty()) {
-                    SelectionContainer {
-                        Text(
-                            text = message.messageContent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (message.status == MessageStatus.ERROR)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.onSurface
-                        )
+                    key(selectionVersion) {
+                        SelectionContainer {
+                            Text(
+                                text = message.messageContent,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (message.status == MessageStatus.ERROR)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
                 
