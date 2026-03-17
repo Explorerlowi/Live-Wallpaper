@@ -116,7 +116,11 @@
     <string name="paint_clear_confirm_message">确定要清空当前提示词吗？</string>
     <string name="paint_generating">正在绘制...</string>
     <string name="paint_generating_time">正在生成中... %1$s</string>
+    <string name="paint_generating_multiple_time">正在生成 %1$d 个任务... %2$s</string>
     <string name="paint_stop">停止</string>
+    <string name="paint_stop_confirm_title">停止所有生成</string>
+    <string name="paint_stop_confirm_message">将停止所有正在进行的图片生成任务，是否继续？</string>
+    <string name="paint_session_generating">正在生成 %1$d 个任务</string>
     <string name="paint_send">发送</string>
     <string name="paint_expand_input">展开输入</string>
     <string name="paint_image">图片</string>

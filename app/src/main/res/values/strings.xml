@@ -114,7 +114,11 @@
     <string name="paint_clear_confirm_message">Are you sure you want to clear the current prompt?</string>
     <string name="paint_generating">Generating...</string>
     <string name="paint_generating_time">Generating... %1$s</string>
+    <string name="paint_generating_multiple_time">Generating %1$d tasks... %2$s</string>
     <string name="paint_stop">Stop</string>
+    <string name="paint_stop_confirm_title">Stop All Generation</string>
+    <string name="paint_stop_confirm_message">This will stop all ongoing image generation tasks. Continue?</string>
+    <string name="paint_session_generating">Generating %1$d tasks</string>
     <string name="paint_send">Send</string>
     <string name="paint_expand_input">Expand input</string>
     <string name="paint_image">Image</string>

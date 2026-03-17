@@ -12,6 +12,8 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.paint.service.ImageGenerationService
+import com.example.livewallpaper.paint.service.GenerationTaskManager
+import com.example.livewallpaper.paint.service.GenerationResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.Serializable
@@ -65,14 +67,48 @@ class AndroidPaintViewModel(
     private val sessionDrafts = mutableMapOf<String, SessionDraft>()
     private val tempDraftKey = "__temp_draft__"  // 临时缓存区的 key
 
-    // 使用独立的协程作用域，确保请求不会因为切换会话而中断
-    private val generationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var generationJob: Job? = null
+    // 使用全局任务管理器，生命周期独立于 ViewModel
+    private val taskManager = GenerationTaskManager
     private var currentSessionId: String? = null
     
     // 消息监听的协程，切换会话时需要取消旧的监听
     private var messagesCollectJob: Job? = null
     private var promptDraftSaveJob: Job? = null
+
+    /**
+     * 将消息标记为正在生成，更新 UI 状态
+     */
+    private fun markGenerating(messageId: String, sessionId: String, startTime: Long) {
+        // UI 状态从 taskManager 同步
+        syncGeneratingState()
+    }
+
+    /**
+     * 将消息标记为生成完成，更新 UI 状态
+     */
+    private fun unmarkGenerating(messageId: String, sessionId: String) {
+        taskManager.unregister(messageId)
+        syncGeneratingState()
+    }
+
+    /**
+     * 从 GenerationTaskManager 同步生成状态到 UI
+     */
+    private fun syncGeneratingState() {
+        val tasks = taskManager.activeTasks.value
+        val sessionCounts = taskManager.getSessionCounts()
+        val earliestTime = taskManager.getEarliestStartTime()
+        val currentSid = _uiState.value.currentSession?.id
+        _uiState.update { current ->
+            current.copy(
+                isGenerating = tasks.isNotEmpty(),
+                generatingMessageIds = tasks.keys,
+                generatingSessionCounts = sessionCounts,
+                generatingSessionId = if (currentSid != null && sessionCounts.containsKey(currentSid)) currentSid else null,
+                generationStartTime = earliestTime
+            )
+        }
+    }
 
     private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
     val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
@@ -101,6 +137,30 @@ class AndroidPaintViewModel(
         // 继续监听后续变化
         loadApiProfiles()
         loadSessions()
+        
+        // 从全局任务管理器恢复生成状态，并持续监听变化
+        syncGeneratingState()
+        viewModelScope.launch {
+            taskManager.activeTasks.collect {
+                syncGeneratingState()
+            }
+        }
+        // 监听生成结果事件，转发为 toast
+        viewModelScope.launch {
+            taskManager.resultEvents.collect { result ->
+                when (result) {
+                    is GenerationResult.Success -> {
+                        _toastEvent.emit(
+                            if (result.imageCount > 1) PaintToastMessage.GenerateMultipleSuccess(result.imageCount)
+                            else PaintToastMessage.GenerateSuccess
+                        )
+                    }
+                    is GenerationResult.Failed -> {
+                        _toastEvent.emit(PaintToastMessage.GenerateFailed(result.error))
+                    }
+                }
+            }
+        }
     }
     
     /**
@@ -432,7 +492,10 @@ class AndroidPaintViewModel(
                 status = MessageStatus.GENERATING,
                 parentUserMessageId = userMessage.id,
                 versionGroup = versionGroupId,
-                versionIndex = 0
+                versionIndex = 0,
+                generationModel = state.selectedModel,
+                generationAspectRatio = state.selectedAspectRatio,
+                generationResolution = if (state.selectedModel.supportsResolution) state.selectedResolution else null
             )
             
             val startTime = System.currentTimeMillis()
@@ -447,12 +510,11 @@ class AndroidPaintViewModel(
                     messages = nextMessages,
                     promptText = "",
                     selectedImages = emptyList(),
-                    isGenerating = true,
-                    generatingSessionId = session.id,
-                    generationStartTime = startTime,
                     newMessageCount = 0
                 )
             }
+            
+            markGenerating(assistantMessage.id, session.id, startTime)
             
             _scrollToBottomEvent.emit(true) // 发送新消息时使用动画
             repository.addMessage(userMessage)
@@ -474,7 +536,7 @@ class AndroidPaintViewModel(
 
             ImageGenerationService.start(appContext, generatingSessionId)
 
-            generationJob = generationScope.launch {
+            val job = taskManager.generationScope.launch {
                 var generationSuccess = false
                 var failureMessage: String? = null
                 try {
@@ -513,15 +575,7 @@ class AndroidPaintViewModel(
                         repository.getSession(generatingSessionId).first()?.let { sess ->
                             repository.updateSession(sess)
                         }
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(
-                                if (savedImages.size > 1) {
-                                    PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
-                                } else {
-                                    PaintToastMessage.GenerateSuccess
-                                }
-                            )
-                        }
+                        taskManager.emitResult(GenerationResult.Success(savedImages.size))
                     }.onError { error ->
                         failureMessage = error.message
                         val errorMessage = assistantMessage.copy(
@@ -530,9 +584,7 @@ class AndroidPaintViewModel(
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(errorMessage)
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(PaintToastMessage.GenerateFailed(error.message))
-                        }
+                        taskManager.emitResult(GenerationResult.Failed(error.message))
                     }
                     
                 } catch (e: CancellationException) {
@@ -545,30 +597,27 @@ class AndroidPaintViewModel(
                         updatedAt = System.currentTimeMillis()
                     )
                     repository.updateMessage(errorMessage)
-                    withContext(Dispatchers.Main) {
-                        _toastEvent.emit(PaintToastMessage.GenerateFailed(e.message))
-                    }
+                    taskManager.emitResult(GenerationResult.Failed(e.message))
                 } finally {
                     withContext(NonCancellable) {
-                        if (failureMessage != null || generationSuccess) {
-                            ImageGenerationService.stopWithResult(
-                                appContext, generationSuccess, failureMessage, generatingSessionId
-                            )
-                        } else {
-                            ImageGenerationService.stop(appContext)
-                        }
                         withContext(Dispatchers.Main) {
-                            _uiState.update {
-                                it.copy(
-                                    isGenerating = false,
-                                    generatingSessionId = null,
-                                    generationStartTime = 0L
+                            unmarkGenerating(generatingMessageId, generatingSessionId)
+                        }
+                        // 所有生成任务都完成后才停止前台服务
+                        if (taskManager.activeTasks.value.isEmpty()) {
+                            if (failureMessage != null || generationSuccess) {
+                                ImageGenerationService.stopWithResult(
+                                    appContext, generationSuccess, failureMessage, generatingSessionId
                                 )
+                            } else {
+                                ImageGenerationService.stop(appContext)
                             }
                         }
                     }
                 }
             }
+            taskManager.register(generatingMessageId, generatingSessionId, startTime, job)
+            markGenerating(generatingMessageId, generatingSessionId, startTime)
         }
     }
 
@@ -653,15 +702,9 @@ class AndroidPaintViewModel(
     }
 
     private fun stopGeneration() {
-        generationJob?.cancel()
+        taskManager.cancelAll()
         ImageGenerationService.stop(appContext)
-        _uiState.update { 
-            it.copy(
-                isGenerating = false,
-                generatingSessionId = null,
-                generationStartTime = 0L
-            ) 
-        }
+        syncGeneratingState()
         viewModelScope.launch { _toastEvent.emit(PaintToastMessage.Stopped) }
     }
 
@@ -677,14 +720,8 @@ class AndroidPaintViewModel(
             
             // 如果删除的是正在生成的消息，先取消生成任务
             if (message?.status == MessageStatus.GENERATING) {
-                generationJob?.cancel()
-                _uiState.update { 
-                    it.copy(
-                        isGenerating = false,
-                        generatingSessionId = null,
-                        generationStartTime = 0L
-                    ) 
-                }
+                taskManager.cancel(messageId)
+                syncGeneratingState()
             }
             
             // 如果是有版本组的消息，删除后需要切换到其他版本
@@ -947,12 +984,6 @@ class AndroidPaintViewModel(
             viewModelScope.launch { _toastEvent.emit(PaintToastMessage.PleaseConfigApi) }
             return
         }
-        
-        // 如果正在生成中，不允许重新生成
-        if (state.isGenerating) {
-            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.GeneratingInProgress) }
-            return
-        }
 
         viewModelScope.launch {
             // 获取当前消息
@@ -997,7 +1028,10 @@ class AndroidPaintViewModel(
                 status = MessageStatus.GENERATING,
                 parentUserMessageId = userMessage.id,
                 versionGroup = versionGroup,
-                versionIndex = newVersionIndex
+                versionIndex = newVersionIndex,
+                generationModel = session.model,
+                generationAspectRatio = session.aspectRatio,
+                generationResolution = if (session.model.supportsResolution) session.resolution else null
             )
             
             repository.addMessage(newAssistantMessage)
@@ -1006,12 +1040,12 @@ class AndroidPaintViewModel(
             // 新消息添加后，它在列表中的位置就是 existingVersions（0-based）
             _uiState.update { 
                 it.copy(
-                    activeVersions = it.activeVersions + (versionGroup to existingVersions),
-                    isGenerating = true,
-                    generatingSessionId = sessionId,
-                    generationStartTime = System.currentTimeMillis()
+                    activeVersions = it.activeVersions + (versionGroup to existingVersions)
                 )
             }
+            
+            val regenStartTime = System.currentTimeMillis()
+            markGenerating(newAssistantMessage.id, sessionId, regenStartTime)
             
             // 加载用户消息中的参考图片
             val userImagesForApi = userMessage.images
@@ -1047,7 +1081,7 @@ class AndroidPaintViewModel(
 
             ImageGenerationService.start(appContext, sessionId)
             
-            generationJob = generationScope.launch {
+            val regenJob = taskManager.generationScope.launch {
                 var generationSuccess = false
                 var failureMessage: String? = null
                 try {
@@ -1084,15 +1118,7 @@ class AndroidPaintViewModel(
                         repository.getSession(sessionId).first()?.let { sess ->
                             repository.updateSession(sess)
                         }
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(
-                                if (savedImages.size > 1) {
-                                    PaintToastMessage.GenerateMultipleSuccess(savedImages.size)
-                                } else {
-                                    PaintToastMessage.GenerateSuccess
-                                }
-                            )
-                        }
+                        taskManager.emitResult(GenerationResult.Success(savedImages.size))
                     }.onError { error ->
                         failureMessage = error.message
                         val errorMessage = newAssistantMessage.copy(
@@ -1101,9 +1127,7 @@ class AndroidPaintViewModel(
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(errorMessage)
-                        withContext(Dispatchers.Main) {
-                            _toastEvent.emit(PaintToastMessage.GenerateFailed(error.message))
-                        }
+                        taskManager.emitResult(GenerationResult.Failed(error.message))
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -1115,30 +1139,26 @@ class AndroidPaintViewModel(
                         updatedAt = System.currentTimeMillis()
                     )
                     repository.updateMessage(errorMessage)
-                    withContext(Dispatchers.Main) {
-                        _toastEvent.emit(PaintToastMessage.GenerateFailed(e.message))
-                    }
+                    taskManager.emitResult(GenerationResult.Failed(e.message))
                 } finally {
                     withContext(NonCancellable) {
-                        if (failureMessage != null || generationSuccess) {
-                            ImageGenerationService.stopWithResult(
-                                appContext, generationSuccess, failureMessage, sessionId
-                            )
-                        } else {
-                            ImageGenerationService.stop(appContext)
-                        }
                         withContext(Dispatchers.Main) {
-                            _uiState.update {
-                                it.copy(
-                                    isGenerating = false,
-                                    generatingSessionId = null,
-                                    generationStartTime = 0L
+                            unmarkGenerating(generatingMessageId, sessionId)
+                        }
+                        if (taskManager.activeTasks.value.isEmpty()) {
+                            if (failureMessage != null || generationSuccess) {
+                                ImageGenerationService.stopWithResult(
+                                    appContext, generationSuccess, failureMessage, sessionId
                                 )
+                            } else {
+                                ImageGenerationService.stop(appContext)
                             }
                         }
                     }
                 }
             }
+            taskManager.register(generatingMessageId, sessionId, regenStartTime, regenJob)
+            markGenerating(generatingMessageId, sessionId, regenStartTime)
         }
     }
 
@@ -1263,8 +1283,7 @@ class AndroidPaintViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        // 注意：这里不取消 generationScope，让请求继续完成
-        // 如果需要在 ViewModel 销毁时取消请求，可以取消注释下面的代码
-        // generationScope.cancel()
+        // 不取消 taskManager 中的任务，让生成请求继续完成
+        // ViewModel 重建时会从 taskManager 恢复状态
     }
 }

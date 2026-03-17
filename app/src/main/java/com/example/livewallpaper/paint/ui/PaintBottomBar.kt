@@ -50,6 +50,7 @@ fun PaintBottomBar(
     promptText: String,
     selectedImages: List<SelectedImage>,
     isGenerating: Boolean,
+    generatingCount: Int = 0,
     generationStartTime: Long,
     selectedModel: PaintModel,
     selectedRatio: AspectRatio,
@@ -79,6 +80,7 @@ fun PaintBottomBar(
     
     // 确认弹窗状态
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showStopConfirm by remember { mutableStateOf(false) }
     
     // 输入框行数
     var lineCount by remember { mutableIntStateOf(1) }
@@ -175,7 +177,11 @@ fun PaintBottomBar(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = stringResource(R.string.paint_generating_time, formatElapsedTime(context, elapsedSeconds)),
+                            text = if (generatingCount > 1) {
+                                stringResource(R.string.paint_generating_multiple_time, generatingCount, formatElapsedTime(context, elapsedSeconds))
+                            } else {
+                                stringResource(R.string.paint_generating_time, formatElapsedTime(context, elapsedSeconds))
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -313,7 +319,7 @@ fun PaintBottomBar(
                                 // 发送/停止按钮
                                 if (isGenerating) {
                                     Surface(
-                                        onClick = onStop,
+                                        onClick = { showStopConfirm = true },
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(36.dp)
@@ -330,7 +336,8 @@ fun PaintBottomBar(
                                             )
                                         }
                                     }
-                                } else if (promptText.isNotEmpty()) {
+                                }
+                                if (promptText.isNotEmpty()) {
                                     Surface(
                                         onClick = onSend,
                                         shape = CircleShape,
@@ -382,13 +389,13 @@ fun PaintBottomBar(
                                     Text(
                                         text = stringResource(R.string.paint_clear),
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = if (promptText.isNotEmpty() && !isGenerating)
+                                        color = if (promptText.isNotEmpty())
                                             MaterialTheme.colorScheme.primary
                                         else
                                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                         modifier = Modifier
                                             .clickable(
-                                                enabled = promptText.isNotEmpty() && !isGenerating,
+                                                enabled = promptText.isNotEmpty(),
                                                 indication = null,
                                                 interactionSource = remember { MutableInteractionSource() }
                                             ) { showClearConfirm = true }
@@ -430,6 +437,18 @@ fun PaintBottomBar(
             dismissText = stringResource(R.string.cancel),
             onConfirm = { onPromptChange("") },
             onDismiss = { showClearConfirm = false }
+        )
+    }
+
+    // 停止生成确认弹窗
+    if (showStopConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_stop_confirm_title),
+            message = stringResource(R.string.paint_stop_confirm_message),
+            confirmText = stringResource(R.string.paint_stop),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = { onStop() },
+            onDismiss = { showStopConfirm = false }
         )
     }
 }
@@ -617,6 +636,7 @@ fun FullScreenPromptOverlay(
     
     // 确认弹窗状态
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showStopConfirm by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
         textFieldValue = textFieldValue.copy(selection = TextRange(textFieldValue.text.length))
@@ -672,14 +692,14 @@ fun FullScreenPromptOverlay(
                     
                     // 清除按钮（右上角）
                     TextButton(
-                        onClick = { if (textFieldValue.text.isNotEmpty() && !isGenerating) showClearConfirm = true },
-                        enabled = textFieldValue.text.isNotEmpty() && !isGenerating,
+                        onClick = { if (textFieldValue.text.isNotEmpty()) showClearConfirm = true },
+                        enabled = textFieldValue.text.isNotEmpty(),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.paint_clear),
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (textFieldValue.text.isNotEmpty() && !isGenerating) 
+                            color = if (textFieldValue.text.isNotEmpty()) 
                                 MaterialTheme.colorScheme.primary
                             else 
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -793,7 +813,7 @@ fun FullScreenPromptOverlay(
 
                 if (isGenerating) {
                     Surface(
-                        onClick = onStop,
+                        onClick = { showStopConfirm = true },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.error
                     ) {
@@ -815,7 +835,9 @@ fun FullScreenPromptOverlay(
                             )
                         }
                     }
-                } else {
+                }
+
+                run {
                     val canSend = textFieldValue.text.isNotEmpty() || selectedImages.isNotEmpty()
                     Surface(
                         onClick = { if (canSend) onSend() },
@@ -843,6 +865,18 @@ fun FullScreenPromptOverlay(
             dismissText = stringResource(R.string.cancel),
             onConfirm = { onPromptChange("") },
             onDismiss = { showClearConfirm = false }
+        )
+    }
+
+    // 停止生成确认弹窗
+    if (showStopConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.paint_stop_confirm_title),
+            message = stringResource(R.string.paint_stop_confirm_message),
+            confirmText = stringResource(R.string.paint_stop),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = { onStop() },
+            onDismiss = { showStopConfirm = false }
         )
     }
 }

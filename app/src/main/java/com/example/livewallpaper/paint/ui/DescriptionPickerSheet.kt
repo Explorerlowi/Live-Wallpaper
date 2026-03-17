@@ -496,6 +496,21 @@ fun DescriptionPickerSheet(
         }
     }
 
+    // 构建词语到分类标题资源ID的映射，用于添加前缀
+    val itemToCategoryResId by remember {
+        derivedStateOf {
+            buildMap {
+                scenes.forEach { scene ->
+                    scene.categories.forEach { category ->
+                        category.items.forEach { item ->
+                            put(item, category.titleResId)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 获取所有场景的所有分类项，用于排序输出
     val allItems by remember {
         derivedStateOf {
@@ -607,9 +622,27 @@ fun DescriptionPickerSheet(
             }
 
             // 添加按钮
+            // 预解析分类标题，用于拼接前缀
+            val categoryTitles = itemToCategoryResId.values.toSet().associateWith { resId ->
+                stringResource(resId)
+            }
             Button(
                 onClick = {
-                    onConfirm(selectedInOrder)
+                    // 按分类分组，同类用顿号分隔，如"颜色雅称：月白、雪青"
+                    val grouped = linkedMapOf<Int?, MutableList<String>>()
+                    selectedInOrder.forEach { item ->
+                        val resId = itemToCategoryResId[item]
+                        grouped.getOrPut(resId) { mutableListOf() }.add(item)
+                    }
+                    val result = grouped.map { (resId, items) ->
+                        val categoryTitle = resId?.let { categoryTitles[it] }
+                        if (categoryTitle != null) {
+                            "$categoryTitle：${items.joinToString("、")}"
+                        } else {
+                            items.joinToString("、")
+                        }
+                    }
+                    onConfirm(result)
                     dismissWithAnimation()
                 },
                 modifier = Modifier

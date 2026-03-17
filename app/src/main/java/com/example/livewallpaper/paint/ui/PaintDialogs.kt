@@ -72,6 +72,7 @@ private data class GroupedSessions(
 fun SessionDrawerContent(
     sessions: List<PaintSession>,
     currentSessionId: String?,
+    generatingSessionCounts: Map<String, Int> = emptyMap(),
     onSelectSession: (String) -> Unit,
     onCreateSession: () -> Unit,
     onDeleteSession: (String) -> Unit,
@@ -116,20 +117,11 @@ fun SessionDrawerContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Outlined.ChatBubbleOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.paint_sessions),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.paint_sessions),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -213,6 +205,7 @@ fun SessionDrawerContent(
                             SessionItem(
                                 session = session,
                                 isSelected = session.id == currentSessionId,
+                                generatingCount = generatingSessionCounts[session.id] ?: 0,
                                 onClick = { onSelectSession(session.id) },
                                 onRename = { sessionToRename = session },
                                 onDelete = { sessionToDelete = session }
@@ -352,6 +345,7 @@ private fun SessionGroupHeader(label: String) {
 private fun SessionItem(
     session: PaintSession,
     isSelected: Boolean,
+    generatingCount: Int = 0,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -406,31 +400,25 @@ private fun SessionItem(
             
             Spacer(modifier = Modifier.height(6.dp))
             
-            // 第二行：模型 + 比例 + 时间
+            // 第二行：生成状态 / 时间
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 模型标签
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
-                ) {
+                if (generatingCount > 0) {
+                    // 生成中状态
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     Text(
-                        text = session.model.displayName,
+                        text = stringResource(R.string.paint_session_generating, generatingCount),
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
-                
-                // 比例
-                Text(
-                    text = session.aspectRatio.displayName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
                 
                 Spacer(modifier = Modifier.weight(1f))
                 

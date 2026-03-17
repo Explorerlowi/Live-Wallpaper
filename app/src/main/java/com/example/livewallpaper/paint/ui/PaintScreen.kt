@@ -396,6 +396,7 @@ fun PaintScreen(
             SessionDrawerContent(
                 sessions = uiState.sessions,
                 currentSessionId = uiState.currentSession?.id,
+                generatingSessionCounts = uiState.generatingSessionCounts,
                 onSelectSession = { 
                     viewModel.onEvent(PaintEvent.SelectSession(it))
                     scope.launch { drawerState.close() }
@@ -431,6 +432,7 @@ fun PaintScreen(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
+                    generatingCount = uiState.generatingMessageIds.size,
                     generationStartTime = uiState.generationStartTime,
                     selectedModel = uiState.selectedModel,
                     selectedRatio = uiState.selectedAspectRatio,
@@ -859,6 +861,43 @@ private fun EmptyState() {
     }
 }
 
+/**
+ * 生成参数信息标签
+ * 以紧凑的标签样式展示模型名称、比例、分辨率
+ */
+@Composable
+private fun GenerationParamsBadge(
+    model: PaintModel,
+    aspectRatio: AspectRatio?,
+    resolution: Resolution?
+) {
+    val paramParts = buildList {
+        add(model.displayName)
+        if (aspectRatio != null) add(aspectRatio.value)
+        if (resolution != null) add(resolution.displayName)
+    }
+    
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 2.dp)
+    ) {
+        paramParts.forEach { text ->
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+            ) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun MessageItem(
@@ -974,10 +1013,24 @@ private fun MessageItem(
         )
     }
     
+    // 格式化消息时间（精确到秒）
+    val timeText = remember(message.createdAt) {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+            .format(java.util.Date(message.createdAt))
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
+        // 时间标签（气泡外侧上方）
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
+
         // 消息气泡
         Surface(
             shape = bubbleShape,
@@ -1074,6 +1127,17 @@ private fun MessageItem(
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         }
+                    )
+                }
+                
+                // 生成参数信息（模型、比例、分辨率）
+                val genModel = message.generationModel
+                if (isAssistant && genModel != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GenerationParamsBadge(
+                        model = genModel,
+                        aspectRatio = message.generationAspectRatio,
+                        resolution = message.generationResolution
                     )
                 }
             }

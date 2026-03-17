@@ -20,7 +20,7 @@ class PaintViewModel(
     private val _uiState = MutableStateFlow(PaintUiState())
     val uiState: StateFlow<PaintUiState> = _uiState.asStateFlow()
 
-    private var generationJob: Job? = null
+    private val generationJobs = mutableMapOf<String, Job>()
     private var currentSessionId: String? = null
 
     // 用于通知UI滚动到底部
@@ -239,18 +239,6 @@ class PaintViewModel(
             
             repository.addMessage(userMessage)
             
-            // 清空输入
-            _uiState.update { 
-                it.copy(
-                    promptText = "",
-                    selectedImages = emptyList(),
-                    isGenerating = true
-                ) 
-            }
-            
-            // 滚动到底部
-            _scrollToBottomEvent.emit(Unit)
-
             // 创建助手消息占位
             val assistantMessage = PaintMessage(
                 id = generateId(),
@@ -262,8 +250,22 @@ class PaintViewModel(
             )
             repository.addMessage(assistantMessage)
 
+            // 清空输入
+            _uiState.update { 
+                it.copy(
+                    promptText = "",
+                    selectedImages = emptyList(),
+                    isGenerating = true,
+                    generatingMessageIds = it.generatingMessageIds + assistantMessage.id
+                ) 
+            }
+            
+            // 滚动到底部
+            _scrollToBottomEvent.emit(Unit)
+
             // 调用API生成图片
-            generationJob = launch {
+            val msgId = assistantMessage.id
+            generationJobs[msgId] = launch {
                 try {
                     val result = callGeminiApi(
                         profile = state.activeProfile,
@@ -296,15 +298,23 @@ class PaintViewModel(
                     )
                     repository.updateMessage(errorMessage)
                 } finally {
-                    _uiState.update { it.copy(isGenerating = false) }
+                    generationJobs.remove(msgId)
+                    _uiState.update { current ->
+                        val newIds = current.generatingMessageIds - msgId
+                        current.copy(
+                            isGenerating = newIds.isNotEmpty(),
+                            generatingMessageIds = newIds
+                        )
+                    }
                 }
             }
         }
     }
 
     private fun stopGeneration() {
-        generationJob?.cancel()
-        _uiState.update { it.copy(isGenerating = false) }
+        generationJobs.values.forEach { it.cancel() }
+        generationJobs.clear()
+        _uiState.update { it.copy(isGenerating = false, generatingMessageIds = emptySet()) }
     }
 
     private fun loadMoreMessages() {

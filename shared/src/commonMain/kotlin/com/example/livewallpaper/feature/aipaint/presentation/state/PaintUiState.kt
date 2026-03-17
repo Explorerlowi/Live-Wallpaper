@@ -7,9 +7,11 @@ data class PaintUiState(
     val sessions: List<PaintSession> = emptyList(),
     val messages: List<PaintMessage> = emptyList(),
     val isLoading: Boolean = false,
-    val isGenerating: Boolean = false,
-    val generatingSessionId: String? = null, // 正在生成的会话ID
-    val generationStartTime: Long = 0L, // 生成开始时间
+    val isGenerating: Boolean = false, // 是否有任何任务在生成中（便捷属性）
+    val generatingSessionId: String? = null, // 当前会话是否在生成中（便捷属性，仅当前会话）
+    val generationStartTime: Long = 0L, // 最早的生成开始时间
+    val generatingMessageIds: Set<String> = emptySet(), // 所有正在生成的消息ID
+    val generatingSessionCounts: Map<String, Int> = emptyMap(), // 每个会话正在生成的任务数
     val error: String? = null,
     
     // 输入状态

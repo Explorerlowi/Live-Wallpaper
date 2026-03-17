@@ -22,7 +22,12 @@ data class PaintMessage(
     // 版本管理字段（用于重新生成功能）
     val parentUserMessageId: String? = null,  // 关联的用户消息ID（仅AI消息有）
     val versionGroup: String? = null,         // 版本组ID（同一组的消息共享此ID）
-    val versionIndex: Int = 0                 // 当前版本索引（从0开始）
+    val versionIndex: Int = 0,                // 当前版本索引（从0开始）
+    
+    // 生成参数记录（仅AI消息有）
+    val generationModel: PaintModel? = null,        // 生成时使用的模型
+    val generationAspectRatio: AspectRatio? = null,  // 生成时使用的比例
+    val generationResolution: Resolution? = null     // 生成时使用的分辨率
 )
 
 @Serializable
