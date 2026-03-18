@@ -55,29 +55,6 @@ class GeminiApiService(
         }
     }
 
-    /**
-     * 优化提示词
-     */
-    suspend fun enhancePrompt(
-        profile: ApiProfile,
-        prompt: String
-    ): AppResult<String> {
-        return try {
-            val endpoint = "${profile.baseUrl}/v1beta/models/gemini-2.5-flash:generateContent"
-            val requestBody = buildEnhancePromptRequest(prompt)
-            
-            val response = httpClient.post(endpoint) {
-                applyAuth(profile)
-                setBody(requestBody.toString())
-            }
-            
-            parseEnhancePromptResponse(response)
-        } catch (e: Exception) {
-            mapException(e)
-        }
-    }
-
-
     // ========== 私有方法 ==========
 
     private fun HttpRequestBuilder.applyAuth(profile: ApiProfile) {
@@ -126,47 +103,6 @@ class GeminiApiService(
                 put("responseModalities", buildJsonArray { add("IMAGE") })
                 put("imageConfig", imageConfig)
             })
-        }
-    }
-
-    private fun buildEnhancePromptRequest(prompt: String): JsonObject {
-        val systemPrompt = "You are an expert AI image generation prompt engineer. Output ONLY the enhanced prompt text in English."
-
-        return buildJsonObject {
-            put("contents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("parts", buildJsonArray {
-                        add(buildJsonObject { put("text", "Enhance this description: $prompt") })
-                    })
-                })
-            })
-            put("systemInstruction", buildJsonObject {
-                put("parts", buildJsonArray {
-                    add(buildJsonObject { put("text", systemPrompt) })
-                })
-            })
-        }
-    }
-
-    private suspend fun parseEnhancePromptResponse(response: HttpResponse): AppResult<String> {
-        val responseCode = response.status.value
-        val responseBody = response.bodyAsText()
-
-        if (responseCode !in 200..299) {
-            return AppResult.Error(AppError.Server(responseCode, "API错误"))
-        }
-
-        val jsonResponse = json.parseToJsonElement(responseBody).jsonObject
-        val candidates = jsonResponse["candidates"]?.jsonArray
-        val content = candidates?.firstOrNull()?.jsonObject?.get("content")?.jsonObject
-        val parts = content?.get("parts")?.jsonArray
-
-        val text = parts?.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
-        return if (text != null) {
-            AppResult.Success(text)
-        } else {
-            AppResult.Error(AppError.Server(responseCode, "未返回优化结果"))
         }
     }
 

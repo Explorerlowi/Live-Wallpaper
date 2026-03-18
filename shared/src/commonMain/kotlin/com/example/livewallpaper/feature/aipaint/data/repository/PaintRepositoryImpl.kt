@@ -323,13 +323,6 @@ class PaintRepositoryImpl(
         }
     }
     
-    override suspend fun enhancePrompt(
-        profile: ApiProfile,
-        prompt: String
-    ): AppResult<String> {
-        return geminiApiService.enhancePrompt(profile, prompt)
-    }
-
     // ========== 私有方法 ==========
     
     private fun parseSessions(jsonString: String): List<PaintSession> {

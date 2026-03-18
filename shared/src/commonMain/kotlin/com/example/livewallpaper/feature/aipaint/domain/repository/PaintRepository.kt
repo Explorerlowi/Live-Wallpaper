@@ -46,8 +46,4 @@ interface PaintRepository {
         messageId: String
     ): AppResult<List<GeneratedImageFile>>
     
-    suspend fun enhancePrompt(
-        profile: ApiProfile,
-        prompt: String
-    ): AppResult<String>
 }
