@@ -27,10 +27,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +109,11 @@ private object ImageCache {
     }
 }
 
+private enum class Screen {
+    Conversation,
+    SessionStats
+}
+
 /**
  * 异步解码 Base64 图片
  * 使用采样率降低内存占用，避免 OOM
@@ -177,6 +184,7 @@ fun PaintScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
+    var currentScreen by rememberSaveable { mutableStateOf(Screen.Conversation) }
     
     // 使用 DrawerState 控制抽屉
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -187,11 +195,22 @@ fun PaintScreen(
             focusManager.clearFocus()
         }
     }
+
+    LaunchedEffect(currentScreen) {
+        if (currentScreen == Screen.SessionStats) {
+            focusManager.clearFocus()
+            if (drawerState.isOpen) {
+                drawerState.close()
+            }
+        }
+    }
     
     // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
     val handleBack: () -> Unit = {
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
+        } else if (currentScreen == Screen.SessionStats) {
+            currentScreen = Screen.Conversation
         } else {
             onBack()
         }
@@ -411,7 +430,7 @@ fun PaintScreen(
                 }
             )
         },
-        gesturesEnabled = true,
+        gesturesEnabled = currentScreen == Screen.Conversation,
         scrimColor = Color.Black.copy(alpha = 0.4f)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -420,8 +439,11 @@ fun PaintScreen(
                 PaintTopBar(
                     currentSession = uiState.currentSession,
                     selectedModel = uiState.selectedModel,
-                    onSessionClick = { 
-                        scope.launch { drawerState.open() } 
+                    onSessionClick = {
+                        scope.launch { drawerState.open() }
+                    },
+                    onTitleClick = {
+                        currentScreen = Screen.SessionStats
                     },
                     onModelClick = { showModelSelector = true },
                     onClose = handleBack
@@ -629,6 +651,31 @@ fun PaintScreen(
             }
             }
 
+            AnimatedVisibility(
+                visible = currentScreen == Screen.SessionStats,
+                enter = slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(300)
+                ) + fadeIn(animationSpec = tween(300)),
+                exit = slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(300)
+                ) + fadeOut(animationSpec = tween(300))
+            ) {
+                PaintSessionStatsOverlay(
+                    currentSession = uiState.currentSession,
+                    messages = uiState.messages,
+                    promptDraft = uiState.promptText,
+                    selectedImages = uiState.selectedImages,
+                    generatingCount = uiState.generatingMessageIds.size,
+                    selectedModel = uiState.selectedModel,
+                    selectedAspectRatio = uiState.selectedAspectRatio,
+                    selectedResolution = uiState.selectedResolution,
+                    activeProfileName = uiState.activeProfile?.name,
+                    onBack = { currentScreen = Screen.Conversation }
+                )
+            }
+
             if (showFullScreenInput) {
                 FullScreenPromptOverlay(
                     promptText = uiState.promptText,
@@ -789,6 +836,7 @@ private fun PaintTopBar(
     currentSession: PaintSession?,
     selectedModel: PaintModel,
     onSessionClick: () -> Unit,
+    onTitleClick: () -> Unit,
     onModelClick: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -800,7 +848,13 @@ private fun PaintTopBar(
         },
         title = {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onTitleClick
+                    ),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -828,6 +882,73 @@ private fun PaintTopBar(
             containerColor = MaterialTheme.colorScheme.background
         )
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaintSessionStatsTopBar(
+    onBack: () -> Unit
+) {
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+            }
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.paint_stats_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background
+        )
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaintSessionStatsOverlay(
+    currentSession: PaintSession?,
+    messages: List<PaintMessage>,
+    promptDraft: String,
+    selectedImages: List<SelectedImage>,
+    generatingCount: Int,
+    selectedModel: PaintModel,
+    selectedAspectRatio: AspectRatio,
+    selectedResolution: Resolution,
+    activeProfileName: String?,
+    onBack: () -> Unit
+) {
+    BackHandler(onBack = onBack)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Scaffold(
+            topBar = {
+                PaintSessionStatsTopBar(onBack = onBack)
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { paddingValues ->
+            PaintSessionStatsScreen(
+                currentSession = currentSession,
+                messages = messages,
+                promptDraft = promptDraft,
+                selectedImages = selectedImages,
+                generatingCount = generatingCount,
+                selectedModel = selectedModel,
+                selectedAspectRatio = selectedAspectRatio,
+                selectedResolution = selectedResolution,
+                activeProfileName = activeProfileName,
+                modifier = Modifier.padding(paddingValues)
+            )
+        }
+    }
 }
 
 @Composable
