@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1373,7 +1374,7 @@ private fun MessageActionBar(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // 版本切换器（仅多版本时显示）
         if (totalVersions > 1) {
@@ -1422,7 +1423,7 @@ private fun MessageActionBar(
         
         // 删除按钮
         ActionIconButton(
-            icon = Icons.Default.Delete,
+            icon = Icons.Outlined.Delete,
             contentDescription = stringResource(R.string.message_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
@@ -1459,7 +1460,7 @@ private fun UserMessageActionBar(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // 复制按钮（仅有文本时显示）
         if (message.messageContent.isNotEmpty()) {
@@ -1479,7 +1480,7 @@ private fun UserMessageActionBar(
         
         // 删除按钮
         ActionIconButton(
-            icon = Icons.Default.Delete,
+            icon = Icons.Outlined.Delete,
             contentDescription = stringResource(R.string.message_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
@@ -1559,9 +1560,9 @@ private fun ActionIconButton(
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            // 去掉默认 ripple（会出现一闪而过的灰色无圆角动效）
+            .size(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -1572,7 +1573,7 @@ private fun ActionIconButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(16.dp),
             tint = tint
         )
     }
