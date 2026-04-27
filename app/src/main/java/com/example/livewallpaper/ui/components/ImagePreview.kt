@@ -527,6 +527,38 @@ private fun ZoomableImageContent(
     
     // 容器尺寸
     var containerSize by remember { mutableStateOf(Size.Zero) }
+    
+    // 图片原始尺寸（用于旋转后的自适应缩放计算）
+    var intrinsicImageSize by remember(imageSource) { mutableStateOf(Size.Zero) }
+    
+    /**
+     * 根据当前动画旋转角度实时计算补偿缩放比例
+     * 直接跟随 animatedRotation 的值，避免两个独立弹簧动画不同步导致的颤动
+     */
+    fun calculateRotationCompensation(currentRotation: Float): Float {
+        if (containerSize == Size.Zero || intrinsicImageSize == Size.Zero) return 1f
+        
+        val containerW = containerSize.width
+        val containerH = containerSize.height
+        val imgW = intrinsicImageSize.width
+        val imgH = intrinsicImageSize.height
+        
+        // ContentScale.Fit 在未旋转时的显示尺寸
+        val fitScale = minOf(containerW / imgW, containerH / imgH)
+        val displayW = imgW * fitScale
+        val displayH = imgH * fitScale
+        
+        // 旋转 90° 后需要的缩放比例
+        val rotatedFitScale = minOf(containerW / displayH, containerH / displayW)
+        
+        // 根据旋转角度在 1.0 和 rotatedFitScale 之间平滑插值
+        // 使用 sin² 函数：0°→0, 90°→1, 180°→0, 270°→1
+        val radians = Math.toRadians(currentRotation.toDouble())
+        val sinValue = kotlin.math.sin(radians).toFloat()
+        val factor = sinValue * sinValue  // sin²: 在 0°/180° 为 0，在 90°/270° 为 1
+        
+        return 1f + (rotatedFitScale - 1f) * factor
+    }
 
     // 根据图片来源创建内容
     val bitmap = remember(imageSource) {
@@ -571,6 +603,25 @@ private fun ZoomableImageContent(
     // 加载状态
     val isLoading = painter is AsyncImagePainter && 
         painter.state is AsyncImagePainter.State.Loading
+    
+    // 获取图片原始尺寸（用于旋转补偿计算）
+    if (bitmap != null && intrinsicImageSize == Size.Zero) {
+        intrinsicImageSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat())
+    }
+    if (painter is AsyncImagePainter) {
+        val painterState = painter.state
+        if (painterState is AsyncImagePainter.State.Success) {
+            val size = painterState.painter.intrinsicSize
+            if (size != Size.Unspecified && intrinsicImageSize == Size.Zero) {
+                intrinsicImageSize = size
+            }
+        }
+    } else if (painter != null) {
+        val size = painter.intrinsicSize
+        if (size != Size.Unspecified && intrinsicImageSize == Size.Zero) {
+            intrinsicImageSize = size
+        }
+    }
 
     fun calculateBounds(currentScale: Float, containerSize: Size): Offset {
         if (currentScale <= 1f || containerSize == Size.Zero) {
@@ -721,8 +772,9 @@ private fun ZoomableImageContent(
                 }
             }
             .graphicsLayer {
-                scaleX = animatedScale.value * animatedScaleX
-                scaleY = animatedScale.value * animatedScaleY
+                val compensation = calculateRotationCompensation(animatedRotation)
+                scaleX = animatedScale.value * animatedScaleX * compensation
+                scaleY = animatedScale.value * animatedScaleY * compensation
                 translationX = animatedOffset.value.x
                 translationY = animatedOffset.value.y
                 rotationZ = animatedRotation
@@ -749,7 +801,45 @@ private fun ZoomableImageContent(
 
 
 /**
+ * 判断变换状态是否为默认值（无任何旋转/镜像操作）
+ */
+private fun ImageTransformState.isIdentity(): Boolean {
+    val normalizedRotation = ((rotation % 360f) + 360f) % 360f
+    return normalizedRotation == 0f && !flipHorizontal && !flipVertical
+}
+
+/**
+ * 尝试获取本地文件路径（仅支持 StringSource 指向本地文件的情况）
+ *
+ * @return 本地文件的 [java.io.File]，如果不是本地文件则返回 null
+ */
+private fun resolveLocalFile(imageSource: ImageSource): java.io.File? {
+    if (imageSource !is ImageSource.StringSource) return null
+    val path = imageSource.path
+    val file = when {
+        path.startsWith("/") -> java.io.File(path)
+        path.startsWith("file://") -> java.io.File(path.removePrefix("file://"))
+        else -> return null // content:// 等非本地路径不走直接复制
+    }
+    return if (file.exists()) file else null
+}
+
+/**
+ * 根据文件扩展名推断 MIME 类型
+ */
+private fun guessMimeType(file: java.io.File): String {
+    return when (file.extension.lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "webp" -> "image/webp"
+        else -> "image/png"
+    }
+}
+
+/**
  * 保存图片到相册
+ *
+ * 当没有任何变换操作且图片来源是本地文件时，直接复制原始文件字节，
+ * 避免解码→重新编码导致文件大小变化。
  */
 private suspend fun saveImageToGallery(
     context: Context,
@@ -757,6 +847,13 @@ private suspend fun saveImageToGallery(
     transform: ImageTransformState
 ): Boolean = withContext(Dispatchers.IO) {
     try {
+        // 无变换 + 本地文件：直接复制原始字节，保持文件大小一致
+        val localFile = resolveLocalFile(imageSource)
+        if (transform.isIdentity() && localFile != null) {
+            return@withContext saveFileDirect(context, localFile)
+        }
+
+        // 有变换或非本地文件：走 Bitmap 解码 → 变换 → 重新编码
         val bitmap = when (imageSource) {
             is ImageSource.Base64Source -> {
                 val bytes = Base64.decode(imageSource.base64, Base64.DEFAULT)
@@ -770,19 +867,16 @@ private suspend fun saveImageToGallery(
             is ImageSource.StringSource -> {
                 val path = imageSource.path
                 when {
-                    // 本地文件路径
                     path.startsWith("/") -> {
                         java.io.File(path).inputStream().use {
                             BitmapFactory.decodeStream(it)
                         }
                     }
-                    // file:// URI
                     path.startsWith("file://") -> {
                         java.io.File(path.removePrefix("file://")).inputStream().use {
                             BitmapFactory.decodeStream(it)
                         }
                     }
-                    // content:// URI
                     else -> {
                         val uri = Uri.parse(path)
                         context.contentResolver.openInputStream(uri)?.use {
@@ -796,25 +890,23 @@ private suspend fun saveImageToGallery(
             }
             is ImageSource.PainterSource -> null
         } ?: return@withContext false
-        
-        // 应用变换
+
         val transformedBitmap = applyTransform(bitmap, transform)
-        
-        // 保存到相册
+
         val filename = "IMG_${System.currentTimeMillis()}.png"
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
             }
-            
+
             val uri = context.contentResolver.insert(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 contentValues
             ) ?: return@withContext false
-            
+
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 transformedBitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
             }
@@ -826,16 +918,70 @@ private suspend fun saveImageToGallery(
                 transformedBitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
             }
         }
-        
+
         if (transformedBitmap != bitmap) {
             transformedBitmap.recycle()
         }
         bitmap.recycle()
-        
+
         true
     } catch (e: Exception) {
         e.printStackTrace()
         false
+    }
+}
+
+/**
+ * 直接复制原始文件到相册，不经过 Bitmap 解码/重新编码，保持文件大小与原始一致
+ */
+private fun saveFileDirect(context: Context, sourceFile: java.io.File): Boolean {
+    val mimeType = guessMimeType(sourceFile)
+    val extension = sourceFile.extension.ifEmpty { "png" }
+    val filename = "IMG_${System.currentTimeMillis()}.$extension"
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+
+        val uri = context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return false
+
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                sourceFile.inputStream().use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            contentValues.clear()
+            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+            true
+        } catch (e: Exception) {
+            context.contentResolver.delete(uri, null, null)
+            e.printStackTrace()
+            false
+        }
+    } else {
+        val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        if (!picturesDir.exists()) picturesDir.mkdirs()
+        val destFile = File(picturesDir, filename)
+        try {
+            sourceFile.inputStream().use { input ->
+                FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 }
 

@@ -129,22 +129,40 @@ class ImageGenerationService : Service() {
     companion object {
         private const val TAG = "ImageGenService"
         private const val CHANNEL_ID = "image_generation_channel"
+        private const val RESULT_CHANNEL_ID = "image_generation_result_channel"
         private const val NOTIFICATION_ID = 9001
         private const val RESULT_NOTIFICATION_ID = 9002
 
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val manager = context.getSystemService(NotificationManager::class.java)
-                if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    context.getString(R.string.paint_generation_channel_name),
-                    NotificationManager.IMPORTANCE_LOW
-                ).apply {
-                    description = context.getString(R.string.paint_generation_channel_desc)
-                    setShowBadge(false)
+
+                // 进度通知渠道（静默，IMPORTANCE_LOW）
+                if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        context.getString(R.string.paint_generation_channel_name),
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = context.getString(R.string.paint_generation_channel_desc)
+                        setShowBadge(false)
+                    }
+                    manager.createNotificationChannel(channel)
                 }
-                manager.createNotificationChannel(channel)
+
+                // 结果通知渠道（高重要性，弹出横幅 + 声音 + 振动）
+                if (manager.getNotificationChannel(RESULT_CHANNEL_ID) == null) {
+                    val resultChannel = NotificationChannel(
+                        RESULT_CHANNEL_ID,
+                        context.getString(R.string.paint_generation_result_channel_name),
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = context.getString(R.string.paint_generation_result_channel_desc)
+                        setShowBadge(true)
+                        enableVibration(true)
+                    }
+                    manager.createNotificationChannel(resultChannel)
+                }
             }
         }
 
@@ -186,6 +204,7 @@ class ImageGenerationService : Service() {
         }
 
         private fun showResultNotification(context: Context, success: Boolean, message: String?, sessionId: String?) {
+            ensureNotificationChannel(context)
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             val openIntent = Intent(context, PaintActivity::class.java).apply {
@@ -209,13 +228,15 @@ class ImageGenerationService : Service() {
                 message ?: context.getString(R.string.paint_generation_notification_failed_text)
             }
 
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            val notification = NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
-                .setTimeoutAfter(if (success) 5_000L else 10_000L)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setTimeoutAfter(if (success) 30_000L else 60_000L)
                 .build()
 
             manager.notify(RESULT_NOTIFICATION_ID, notification)

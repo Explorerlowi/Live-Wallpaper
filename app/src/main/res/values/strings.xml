@@ -56,6 +56,22 @@
     <string name="image_preview_title">Preview</string>
     <string name="image_preview_edit">Edit</string>
     
+    <!-- 图片对比 -->
+    <string name="compare_preview_title">Compare</string>
+    <string name="compare_add_to_compare">Add to Compare</string>
+    <string name="compare_remove_from_compare">Remove from Compare</string>
+    <string name="compare_button_label">Compare</string>
+    <string name="compare_hint_long_press">Long press to hide top image</string>
+    <string name="compare_image_top">Top</string>
+    <string name="compare_image_bottom">Bottom</string>
+    <string name="compare_swap">Swap</string>
+    <string name="compare_clear">Clear</string>
+    <string name="compare_need_two_images">Select 2 images to compare</string>
+    <string name="compare_already_added">Image already in compare list</string>
+    <string name="compare_added">Added to compare (%1$d/2)</string>
+    <string name="compare_list_full">Compare list is full, remove one first</string>
+    <string name="compare_selected_count">Selected %1$d images</string>
+    
     <!-- 空状态 -->
     <string name="no_images">No images yet</string>
     <string name="tap_to_add">Tap + to add images</string>
@@ -236,6 +252,8 @@
     <!-- 前台服务通知 -->
     <string name="paint_generation_channel_name">Image Generation</string>
     <string name="paint_generation_channel_desc">Shows progress while AI is generating images</string>
+    <string name="paint_generation_result_channel_name">Generation Result</string>
+    <string name="paint_generation_result_channel_desc">Notifies when image generation completes or fails</string>
     <string name="paint_generation_notification_title">Generating image…</string>
     <string name="paint_generation_notification_text">AI painting in progress, please don\'t force-stop the app</string>
     <string name="paint_generation_notification_success">Generation complete</string>

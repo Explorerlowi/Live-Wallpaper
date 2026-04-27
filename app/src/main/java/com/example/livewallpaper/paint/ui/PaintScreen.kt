@@ -74,6 +74,7 @@ import com.example.livewallpaper.ui.components.AppDropdownMenu
 import com.example.livewallpaper.ui.components.AppMenuItem
 import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.GeneralImageEditScreen
+import com.example.livewallpaper.ui.components.ImageComparePreviewDialog
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import com.example.livewallpaper.ui.components.ImageSource
@@ -206,22 +207,6 @@ fun PaintScreen(
         }
     }
     
-    // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
-    val handleBack: () -> Unit = {
-        if (drawerState.isOpen) {
-            scope.launch { drawerState.close() }
-        } else if (currentScreen == Screen.SessionStats) {
-            currentScreen = Screen.Conversation
-        } else {
-            onBack()
-        }
-    }
-    
-    // 拦截系统返回键
-    BackHandler {
-        handleBack()
-    }
-    
     var showApiSettings by remember { mutableStateOf(false) }
     var showModelSelector by remember { mutableStateOf(false) }
     var showRatioSelector by remember { mutableStateOf(false) }
@@ -234,10 +219,34 @@ fun PaintScreen(
     var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
     var previewInitialIndex by remember { mutableIntStateOf(0) }
     
+    // 图片对比状态（多选模式）
+    var imageSelectionMode by remember { mutableStateOf(false) }
+    var selectedImageSources by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
+    var showComparePreview by remember { mutableStateOf(false) }
+    
     // 图片编辑状态
     var editImagePath by remember { mutableStateOf<String?>(null) }
     var editFromPreview by remember { mutableStateOf(false) }
     var editOriginalPath by remember { mutableStateOf<String?>(null) }
+
+    // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
+    val handleBack: () -> Unit = {
+        if (imageSelectionMode) {
+            imageSelectionMode = false
+            selectedImageSources = emptyList()
+        } else if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else if (currentScreen == Screen.SessionStats) {
+            currentScreen = Screen.Conversation
+        } else {
+            onBack()
+        }
+    }
+    
+    // 拦截系统返回键
+    BackHandler {
+        handleBack()
+    }
     
     // 图库 ViewModel
     val mediaStoreRepository: MediaStoreRepository = koinInject()
@@ -431,27 +440,47 @@ fun PaintScreen(
                 }
             )
         },
-        gesturesEnabled = currentScreen == Screen.Conversation,
+        gesturesEnabled = currentScreen == Screen.Conversation && !imageSelectionMode,
         scrimColor = Color.Black.copy(alpha = 0.4f)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
             topBar = {
-                PaintTopBar(
-                    currentSession = uiState.currentSession,
-                    selectedModel = uiState.selectedModel,
-                    onSessionClick = {
-                        scope.launch { drawerState.open() }
-                    },
-                    onTitleClick = {
-                        currentScreen = Screen.SessionStats
-                    },
-                    onModelClick = { showModelSelector = true },
-                    onClose = handleBack
-                )
+                if (imageSelectionMode) {
+                    ImageSelectionTopBar(
+                        selectedCount = selectedImageSources.size,
+                        onCancel = {
+                            imageSelectionMode = false
+                            selectedImageSources = emptyList()
+                        }
+                    )
+                } else {
+                    PaintTopBar(
+                        currentSession = uiState.currentSession,
+                        selectedModel = uiState.selectedModel,
+                        onSessionClick = {
+                            scope.launch { drawerState.open() }
+                        },
+                        onTitleClick = {
+                            currentScreen = Screen.SessionStats
+                        },
+                        onModelClick = { showModelSelector = true },
+                        onClose = handleBack
+                    )
+                }
             },
             bottomBar = {
-                PaintBottomBar(
+                if (imageSelectionMode) {
+                    ImageSelectionBottomBar(
+                        selectedCount = selectedImageSources.size,
+                        onCompare = {
+                            if (selectedImageSources.size == 2) {
+                                showComparePreview = true
+                            }
+                        }
+                    )
+                } else {
+                    PaintBottomBar(
                     promptText = uiState.promptText,
                     selectedImages = uiState.selectedImages,
                     isGenerating = uiState.isGenerating,
@@ -481,6 +510,7 @@ fun PaintScreen(
                         viewModel.onEvent(PaintEvent.SelectAspectRatio(ratio))
                     }
                 )
+                }
             },
             containerColor = MaterialTheme.colorScheme.background
             ) { paddingValues ->
@@ -563,9 +593,30 @@ fun PaintScreen(
                                 activeVersions = uiState.activeVersions,
                                 selectedAspectRatio = uiState.selectedAspectRatio,
                                 selectionVersion = selectionVersion,
+                                imageSelectionMode = imageSelectionMode,
+                                selectedImageSources = selectedImageSources,
                                 onImageClick = { images, index ->
-                                    previewImages = images
-                                    previewInitialIndex = index
+                                    if (imageSelectionMode) {
+                                        // 选择模式下点击图片切换选中
+                                        val source = images.getOrNull(index)
+                                        if (source != null) {
+                                            selectedImageSources = if (source in selectedImageSources) {
+                                                selectedImageSources - source
+                                            } else {
+                                                selectedImageSources + source
+                                            }
+                                        }
+                                    } else {
+                                        previewImages = images
+                                        previewInitialIndex = index
+                                    }
+                                },
+                                onImageLongClick = { imageSource ->
+                                    // 长按图片进入选择模式并选中该图片
+                                    if (!imageSelectionMode) {
+                                        imageSelectionMode = true
+                                        selectedImageSources = listOf(imageSource)
+                                    }
                                 },
                                 onCopyText = { text ->
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -795,6 +846,16 @@ fun PaintScreen(
                     editImagePath = path
                 }
             }
+        )
+    }
+    
+    // 图片对比预览对话框
+    if (showComparePreview && selectedImageSources.size == 2) {
+        val compareList = selectedImageSources.toList()
+        ImageComparePreviewDialog(
+            topImage = compareList[1],
+            bottomImage = compareList[0],
+            onDismiss = { showComparePreview = false }
         )
     }
     
@@ -1028,7 +1089,10 @@ private fun MessageItem(
     activeVersions: Map<String, Int> = emptyMap(),
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     selectionVersion: Int = 0,
+    imageSelectionMode: Boolean = false,
+    selectedImageSources: List<ImageSource> = emptyList(),
     onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
+    onImageLongClick: (ImageSource) -> Unit = {},
     onCopyText: (String) -> Unit = {},
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
@@ -1186,35 +1250,81 @@ private fun MessageItem(
                 
                 message.images.forEachIndexed { index, image ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    image.localPath?.let { path ->
-                        MessageLocalImage(
-                            path = path,
-                            width = image.width,
-                            height = image.height,
-                            onClick = { onImageClick(imageSources, index) },
-                            onLongClick = { },
-                            onDimensionsLoaded = { w, h ->
-                                // 如果原始图片没有宽高信息，回填更新
-                                if (image.width == 0 || image.height == 0) {
-                                    onUpdateImageDimensions(message.id, image.id, w, h)
+                    
+                    val imageSource = imageSources.getOrNull(index)
+                    val selectionIndex = if (imageSource != null) selectedImageSources.indexOf(imageSource) else -1
+                    val isSelected = selectionIndex >= 0
+                    
+                    Box {
+                        image.localPath?.let { path ->
+                            MessageLocalImage(
+                                path = path,
+                                width = image.width,
+                                height = image.height,
+                                onClick = { onImageClick(imageSources, index) },
+                                onLongClick = {
+                                    if (imageSource != null) onImageLongClick(imageSource)
+                                },
+                                onDimensionsLoaded = { w, h ->
+                                    if (image.width == 0 || image.height == 0) {
+                                        onUpdateImageDimensions(message.id, image.id, w, h)
+                                    }
+                                }
+                            )
+                        }
+                        image.base64Data?.let { base64 ->
+                            MessageImage(
+                                imageId = image.id,
+                                base64 = base64,
+                                width = image.width,
+                                height = image.height,
+                                onClick = { onImageClick(imageSources, index) },
+                                onLongClick = {
+                                    if (imageSource != null) onImageLongClick(imageSource)
+                                },
+                                onDimensionsLoaded = { w, h ->
+                                    if (image.width == 0 || image.height == 0) {
+                                        onUpdateImageDimensions(message.id, image.id, w, h)
+                                    }
+                                }
+                            )
+                        }
+                        
+                        // 选择模式下显示勾选标记
+                        if (imageSelectionMode) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .size(24.dp)
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary
+                                        else Color.Black.copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
+                                    .then(
+                                        if (isSelected) Modifier.border(
+                                            2.dp,
+                                            Color.White,
+                                            CircleShape
+                                        ) else Modifier.border(
+                                            1.5.dp,
+                                            Color.White.copy(alpha = 0.7f),
+                                            CircleShape
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Text(
+                                        text = "${selectionIndex + 1}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
-                        )
-                    }
-                    image.base64Data?.let { base64 ->
-                        MessageImage(
-                            imageId = image.id,
-                            base64 = base64,
-                            width = image.width,
-                            height = image.height,
-                            onClick = { onImageClick(imageSources, index) },
-                            onLongClick = { },
-                            onDimensionsLoaded = { w, h ->
-                                if (image.width == 0 || image.height == 0) {
-                                    onUpdateImageDimensions(message.id, image.id, w, h)
-                                }
-                            }
-                        )
+                        }
                     }
                 }
                 
@@ -1782,6 +1892,93 @@ private fun ScrollToBottomButton(
                     text = "$newMessageCount",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 图片选择模式顶部栏
+ *
+ * 显示已选择的图片数量和取消按钮，参考 QQ 多选样式。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImageSelectionTopBar(
+    selectedCount: Int,
+    onCancel: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = stringResource(R.string.compare_selected_count, selectedCount),
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        navigationIcon = {
+            TextButton(onClick = onCancel) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    )
+}
+
+/**
+ * 图片选择模式底部操作栏
+ *
+ * 替代输入框，显示操作按钮。目前仅包含"对比预览"。
+ */
+@Composable
+private fun ImageSelectionBottomBar(
+    selectedCount: Int,
+    onCompare: () -> Unit
+) {
+    val enabled = selectedCount == 2
+    Surface(
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 对比预览按钮
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clickable(
+                        enabled = enabled,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = onCompare
+                    )
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    Icons.Default.Compare,
+                    contentDescription = stringResource(R.string.compare_preview_title),
+                    tint = if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    },
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = stringResource(R.string.compare_preview_title),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    }
                 )
             }
         }

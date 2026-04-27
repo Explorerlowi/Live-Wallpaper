@@ -49,6 +49,22 @@
     <string name="image_preview_title">预览</string>
     <string name="image_preview_edit">编辑</string>
     
+    <!-- 图片对比 -->
+    <string name="compare_preview_title">对比</string>
+    <string name="compare_add_to_compare">加入对比</string>
+    <string name="compare_remove_from_compare">移出对比</string>
+    <string name="compare_button_label">对比</string>
+    <string name="compare_hint_long_press">长按隐藏上层图片</string>
+    <string name="compare_image_top">上层</string>
+    <string name="compare_image_bottom">下层</string>
+    <string name="compare_swap">交换</string>
+    <string name="compare_clear">清空</string>
+    <string name="compare_need_two_images">请选择 2 张图片进行对比</string>
+    <string name="compare_already_added">该图片已在对比列表中</string>
+    <string name="compare_added">已加入对比（%1$d/2）</string>
+    <string name="compare_list_full">对比列表已满，请先移除一张</string>
+    <string name="compare_selected_count">已选择 %1$d 张图片</string>
+    
     <!-- 空状态 -->
     <string name="no_images">还没有图片</string>
     <string name="tap_to_add">点击 + 添加图片</string>
@@ -238,6 +254,8 @@
     <!-- 前台服务通知 -->
     <string name="paint_generation_channel_name">图片生成</string>
     <string name="paint_generation_channel_desc">AI 生成图片时显示进度</string>
+    <string name="paint_generation_result_channel_name">生成结果</string>
+    <string name="paint_generation_result_channel_desc">图片生成完成或失败时发出提醒</string>
     <string name="paint_generation_notification_title">正在生成图片…</string>
     <string name="paint_generation_notification_text">AI 绘画进行中，请勿强制关闭应用</string>
     <string name="paint_generation_notification_success">生成完成</string>
