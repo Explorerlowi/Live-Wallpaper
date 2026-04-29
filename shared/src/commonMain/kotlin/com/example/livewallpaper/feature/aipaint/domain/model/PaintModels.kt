@@ -127,15 +127,29 @@ enum class GptImageSize(val displayName: String, val value: String, val descript
 
     companion object {
         /**
-         * 根据 AspectRatio 推荐最接近的 GPT 尺寸
+         * 根据 AspectRatio 推荐最接近的 GPT 尺寸（默认 1K 档位）
          */
         fun fromAspectRatio(ratio: AspectRatio): GptImageSize {
-            val r = ratio.toFloat()
-            return when {
-                r > 1.2f -> SIZE_1536x1024  // 横版
-                r < 0.8f -> SIZE_1024x1536  // 竖版
-                else -> SIZE_1024x1024       // 正方形
-            }
+            return fromRatioValue(ratio.toFloat())
+        }
+
+        /**
+         * 根据 AspectRatio 和当前已选尺寸推荐最接近的尺寸
+         * 在所有可用尺寸中找到比例最接近的那个
+         */
+        fun fromAspectRatio(ratio: AspectRatio, currentSize: GptImageSize): GptImageSize {
+            return fromRatioValue(ratio.toFloat())
+        }
+
+        /**
+         * 根据浮点比例值，在所有具体尺寸中找到比例最接近的
+         */
+        private fun fromRatioValue(targetRatio: Float): GptImageSize {
+            // 排除 AUTO，在所有具体尺寸中找最接近的
+            return entries
+                .filter { it != AUTO }
+                .minByOrNull { kotlin.math.abs(it.toFloat() - targetRatio) }
+                ?: SIZE_1024x1024
         }
     }
 }

@@ -516,7 +516,13 @@ fun PaintScreen(
                         previewInitialIndex = index
                     },
                     onApplyRatio = { ratio ->
-                        viewModel.onEvent(PaintEvent.SelectAspectRatio(ratio))
+                        if (uiState.selectedModel.isGpt) {
+                            // GPT 模型：根据比例映射到最接近的 GptImageSize，保持当前分辨率档位
+                            val gptSize = GptImageSize.fromAspectRatio(ratio, uiState.selectedGptSize)
+                            viewModel.onEvent(PaintEvent.SelectGptSize(gptSize))
+                        } else {
+                            viewModel.onEvent(PaintEvent.SelectAspectRatio(ratio))
+                        }
                     }
                 )
                 }
