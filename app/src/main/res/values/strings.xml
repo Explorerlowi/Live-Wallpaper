@@ -183,6 +183,7 @@
     <string name="paint_status_pending">Pending</string>
     <string name="paint_status_done">Done</string>
     <string name="paint_status_failed">Failed</string>
+    <string name="paint_status_cancelled">Cancelled</string>
     <string name="paint_status_time">%1$s · %2$s</string>
     <string name="paint_time_format_seconds">%1$ds</string>
     <string name="paint_time_format_minutes">%1$dm %2$ds</string>
@@ -248,6 +249,16 @@
     <string name="paint_stats_draft_limit">The current model has reached the reference image limit. Send now or switch to a model with a higher limit.</string>
     <string name="paint_stats_draft_text_ready">Text is ready. Adding references can stabilize composition and style.</string>
     <string name="paint_stats_draft_ready">Draft is ready. Current input fits the selected model constraints.</string>
+    
+    <!-- GPT 图片参数 -->
+    <string name="paint_gpt_size_auto">Auto</string>
+    <string name="paint_gpt_quality_auto">Auto</string>
+    <string name="paint_gpt_quality_low">Low (fast)</string>
+    <string name="paint_gpt_quality_medium">Medium</string>
+    <string name="paint_gpt_quality_high">High</string>
+    <string name="paint_gpt_format_png">PNG</string>
+    <string name="paint_gpt_format_jpeg">JPEG (faster)</string>
+    <string name="paint_gpt_format_webp">WebP</string>
     
     <!-- 前台服务通知 -->
     <string name="paint_generation_channel_name">Image Generation</string>

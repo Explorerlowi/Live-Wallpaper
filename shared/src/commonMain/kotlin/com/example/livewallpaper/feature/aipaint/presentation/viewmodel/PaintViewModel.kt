@@ -113,6 +113,9 @@ class PaintViewModel(
             is PaintEvent.SelectModel -> selectModel(event.model)
             is PaintEvent.SelectAspectRatio -> selectAspectRatio(event.ratio)
             is PaintEvent.SelectResolution -> selectResolution(event.resolution)
+            is PaintEvent.SelectGptSize -> selectGptSize(event.size)
+            is PaintEvent.SelectGptQuality -> selectGptQuality(event.quality)
+            is PaintEvent.SelectGptFormat -> selectGptFormat(event.format)
             is PaintEvent.SaveApiProfile -> saveApiProfile(event.profile)
             is PaintEvent.DeleteApiProfile -> deleteApiProfile(event.profileId)
             is PaintEvent.SetActiveProfile -> setActiveProfile(event.profileId)
@@ -290,6 +293,14 @@ class PaintViewModel(
                     )
                     repository.updateMessage(updatedMessage)
                     
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 用户主动取消，更新消息状态为 CANCELLED
+                    val cancelledMessage = assistantMessage.copy(
+                        messageContent = "",
+                        status = MessageStatus.CANCELLED,
+                        updatedAt = TimeProvider.currentTimeMillis()
+                    )
+                    repository.updateMessage(cancelledMessage)
                 } catch (e: Exception) {
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
@@ -471,6 +482,54 @@ class PaintViewModel(
                         model = updatedState.selectedModel,
                         aspectRatio = updatedState.selectedAspectRatio,
                         resolution = updatedState.selectedResolution
+                    )
+                )
+            }
+        }
+    }
+
+    private fun selectGptSize(size: GptImageSize) {
+        _uiState.update { it.copy(selectedGptSize = size) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
+                    )
+                )
+            }
+        }
+    }
+
+    private fun selectGptQuality(quality: GptImageQuality) {
+        _uiState.update { it.copy(selectedGptQuality = quality) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
+                    )
+                )
+            }
+        }
+    }
+
+    private fun selectGptFormat(format: GptOutputFormat) {
+        _uiState.update { it.copy(selectedGptFormat = format) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
                     )
                 )
             }

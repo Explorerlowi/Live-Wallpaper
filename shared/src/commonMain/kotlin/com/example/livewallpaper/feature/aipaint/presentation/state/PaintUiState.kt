@@ -22,6 +22,9 @@ data class PaintUiState(
     val selectedModel: PaintModel = PaintModel.GEMINI_2_5_FLASH,
     val selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     val selectedResolution: Resolution = Resolution.RES_1K,
+    val selectedGptSize: GptImageSize = GptImageSize.AUTO,
+    val selectedGptQuality: GptImageQuality = GptImageQuality.AUTO,
+    val selectedGptFormat: GptOutputFormat = GptOutputFormat.PNG,
     
     // API配置
     val apiProfiles: List<ApiProfile> = emptyList(),

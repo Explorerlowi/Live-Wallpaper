@@ -1,7 +1,9 @@
 package com.example.livewallpaper.di
 
 import android.content.Context
+import com.example.livewallpaper.core.platform.AndroidGptImageResponseProcessor
 import com.example.livewallpaper.core.platform.AndroidImageResponseProcessor
+import com.example.livewallpaper.core.platform.GptImageResponseProcessor
 import com.example.livewallpaper.core.platform.ImageResponseProcessor
 import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -15,5 +17,6 @@ actual val platformModule: Module = module {
         SharedPreferencesSettings(preferences)
     }
     single<ImageResponseProcessor> { AndroidImageResponseProcessor(get()) }
+    single<GptImageResponseProcessor> { AndroidGptImageResponseProcessor(get()) }
 }
 

@@ -158,6 +158,9 @@ class AndroidPaintViewModel(
                     is GenerationResult.Failed -> {
                         _toastEvent.emit(PaintToastMessage.GenerateFailed(result.error))
                     }
+                    is GenerationResult.Cancelled -> {
+                        // 用户主动取消，不需要额外 toast（stopGeneration 已发送 Stopped）
+                    }
                 }
             }
         }
@@ -288,6 +291,9 @@ class AndroidPaintViewModel(
             is PaintEvent.SelectModel -> selectModel(event.model)
             is PaintEvent.SelectAspectRatio -> selectAspectRatio(event.ratio)
             is PaintEvent.SelectResolution -> selectResolution(event.resolution)
+            is PaintEvent.SelectGptSize -> selectGptSize(event.size)
+            is PaintEvent.SelectGptQuality -> selectGptQuality(event.quality)
+            is PaintEvent.SelectGptFormat -> selectGptFormat(event.format)
             is PaintEvent.SaveApiProfile -> saveApiProfile(event.profile)
             is PaintEvent.DeleteApiProfile -> deleteApiProfile(event.profileId)
             is PaintEvent.SetActiveProfile -> setActiveProfile(event.profileId)
@@ -349,7 +355,10 @@ class AndroidPaintViewModel(
                 id = generateId(),
                 model = model,
                 aspectRatio = _uiState.value.selectedAspectRatio,
-                resolution = _uiState.value.selectedResolution
+                resolution = _uiState.value.selectedResolution,
+                gptImageSize = _uiState.value.selectedGptSize,
+                gptImageQuality = _uiState.value.selectedGptQuality,
+                gptOutputFormat = _uiState.value.selectedGptFormat
             )
             repository.createSession(session)
             if (_uiState.value.currentSession == null) {
@@ -379,6 +388,9 @@ class AndroidPaintViewModel(
                         selectedModel = session.model,
                         selectedAspectRatio = session.aspectRatio,
                         selectedResolution = session.resolution,
+                        selectedGptSize = session.gptImageSize,
+                        selectedGptQuality = session.gptImageQuality,
+                        selectedGptFormat = session.gptOutputFormat,
                         messages = emptyList(),
                         promptText = draft.promptText,
                         selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() },
@@ -495,7 +507,10 @@ class AndroidPaintViewModel(
                 versionIndex = 0,
                 generationModel = state.selectedModel,
                 generationAspectRatio = state.selectedAspectRatio,
-                generationResolution = if (state.selectedModel.supportsResolution) state.selectedResolution else null
+                generationResolution = if (state.selectedModel.supportsResolution) state.selectedResolution else null,
+                generationGptSize = if (state.selectedModel.isGpt) state.selectedGptSize else null,
+                generationGptQuality = if (state.selectedModel.isGpt) state.selectedGptQuality else null,
+                generationGptFormat = if (state.selectedModel.isGpt) state.selectedGptFormat else null
             )
             
             val startTime = System.currentTimeMillis()
@@ -542,23 +557,36 @@ class AndroidPaintViewModel(
                 try {
                     val userImagesForApi = loadReferenceImagesForApi(selectedImagesSnapshot)
 
-                    val result = repository.generateImage(
-                        profile = profile,
-                        model = state.selectedModel,
-                        prompt = prompt,
-                        images = userImagesForApi,
-                        aspectRatio = state.selectedAspectRatio,
-                        resolution = state.selectedResolution,
-                        sessionId = generatingSessionId,
-                        messageId = generatingMessageId
-                    )
+                    val result = if (state.selectedModel.isGpt) {
+                        repository.generateGptImage(
+                            profile = profile,
+                            prompt = prompt,
+                            images = userImagesForApi,
+                            size = state.selectedGptSize,
+                            quality = state.selectedGptQuality,
+                            outputFormat = state.selectedGptFormat,
+                            sessionId = generatingSessionId,
+                            messageId = generatingMessageId
+                        )
+                    } else {
+                        repository.generateImage(
+                            profile = profile,
+                            model = state.selectedModel,
+                            prompt = prompt,
+                            images = userImagesForApi,
+                            aspectRatio = state.selectedAspectRatio,
+                            resolution = state.selectedResolution,
+                            sessionId = generatingSessionId,
+                            messageId = generatingMessageId
+                        )
+                    }
                     
                     result.onSuccess { imageFiles ->
                         val savedImages = imageFiles.map { file ->
                             PaintImage(
                                 id = generateId(),
                                 localPath = file.filePath,
-                                mimeType = "image/png",
+                                mimeType = mimeTypeFromPath(file.filePath),
                                 width = file.width,
                                 height = file.height
                             )
@@ -588,7 +616,16 @@ class AndroidPaintViewModel(
                     }
                     
                 } catch (e: CancellationException) {
-                    throw e
+                    // 用户主动取消生成，更新消息状态为 CANCELLED
+                    withContext(NonCancellable) {
+                        val cancelledMessage = assistantMessage.copy(
+                            messageContent = "",
+                            status = MessageStatus.CANCELLED,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(cancelledMessage)
+                        taskManager.emitResult(GenerationResult.Cancelled)
+                    }
                 } catch (e: Exception) {
                     failureMessage = e.message
                     val errorMessage = assistantMessage.copy(
@@ -929,6 +966,54 @@ class AndroidPaintViewModel(
         }
     }
 
+    private fun selectGptSize(size: GptImageSize) {
+        _uiState.update { it.copy(selectedGptSize = size) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
+                    )
+                )
+            }
+        }
+    }
+
+    private fun selectGptQuality(quality: GptImageQuality) {
+        _uiState.update { it.copy(selectedGptQuality = quality) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
+                    )
+                )
+            }
+        }
+    }
+
+    private fun selectGptFormat(format: GptOutputFormat) {
+        _uiState.update { it.copy(selectedGptFormat = format) }
+        val updatedState = _uiState.value
+        updatedState.currentSession?.let { session ->
+            viewModelScope.launch {
+                repository.updateSession(
+                    session.copy(
+                        gptImageSize = updatedState.selectedGptSize,
+                        gptImageQuality = updatedState.selectedGptQuality,
+                        gptOutputFormat = updatedState.selectedGptFormat
+                    )
+                )
+            }
+        }
+    }
+
     private fun saveApiProfile(profile: ApiProfile) {
         viewModelScope.launch {
             repository.saveApiProfile(profile)
@@ -1031,7 +1116,10 @@ class AndroidPaintViewModel(
                 versionIndex = newVersionIndex,
                 generationModel = session.model,
                 generationAspectRatio = session.aspectRatio,
-                generationResolution = if (session.model.supportsResolution) session.resolution else null
+                generationResolution = if (session.model.supportsResolution) session.resolution else null,
+                generationGptSize = if (session.model.isGpt) session.gptImageSize else null,
+                generationGptQuality = if (session.model.isGpt) session.gptImageQuality else null,
+                generationGptFormat = if (session.model.isGpt) session.gptOutputFormat else null
             )
             
             repository.addMessage(newAssistantMessage)
@@ -1085,23 +1173,36 @@ class AndroidPaintViewModel(
                 var generationSuccess = false
                 var failureMessage: String? = null
                 try {
-                    val result = repository.generateImage(
-                        profile = profile,
-                        model = session.model,
-                        prompt = userMessage.messageContent,
-                        images = userImagesForApi,
-                        aspectRatio = session.aspectRatio,
-                        resolution = session.resolution,
-                        sessionId = sessionId,
-                        messageId = generatingMessageId
-                    )
+                    val result = if (session.model.isGpt) {
+                        repository.generateGptImage(
+                            profile = profile,
+                            prompt = userMessage.messageContent,
+                            images = userImagesForApi,
+                            size = session.gptImageSize,
+                            quality = session.gptImageQuality,
+                            outputFormat = session.gptOutputFormat,
+                            sessionId = sessionId,
+                            messageId = generatingMessageId
+                        )
+                    } else {
+                        repository.generateImage(
+                            profile = profile,
+                            model = session.model,
+                            prompt = userMessage.messageContent,
+                            images = userImagesForApi,
+                            aspectRatio = session.aspectRatio,
+                            resolution = session.resolution,
+                            sessionId = sessionId,
+                            messageId = generatingMessageId
+                        )
+                    }
                     
                     result.onSuccess { imageFiles ->
                         val savedImages = imageFiles.map { file ->
                             PaintImage(
                                 id = generateId(),
                                 localPath = file.filePath,
-                                mimeType = "image/png",
+                                mimeType = mimeTypeFromPath(file.filePath),
                                 width = file.width,
                                 height = file.height
                             )
@@ -1130,7 +1231,16 @@ class AndroidPaintViewModel(
                         taskManager.emitResult(GenerationResult.Failed(error.message))
                     }
                 } catch (e: CancellationException) {
-                    throw e
+                    // 用户主动取消生成，更新消息状态为 CANCELLED
+                    withContext(NonCancellable) {
+                        val cancelledMessage = newAssistantMessage.copy(
+                            messageContent = "",
+                            status = MessageStatus.CANCELLED,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        repository.updateMessage(cancelledMessage)
+                        taskManager.emitResult(GenerationResult.Cancelled)
+                    }
                 } catch (e: Exception) {
                     failureMessage = e.message
                     val errorMessage = newAssistantMessage.copy(
@@ -1197,6 +1307,17 @@ class AndroidPaintViewModel(
 
     private fun generateId(): String = 
         "${System.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
+
+    /**
+     * 根据文件路径推断 MIME 类型
+     */
+    private fun mimeTypeFromPath(path: String): String {
+        return when {
+            path.endsWith(".jpg", ignoreCase = true) || path.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
+            path.endsWith(".webp", ignoreCase = true) -> "image/webp"
+            else -> "image/png"
+        }
+    }
     
     /**
      * 获取图片尺寸

@@ -2,6 +2,7 @@ package com.example.livewallpaper.di
 
 import com.example.livewallpaper.core.network.HttpClientFactory
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
+import com.example.livewallpaper.feature.aipaint.data.remote.GptApiService
 import com.example.livewallpaper.feature.aipaint.data.repository.PaintRepositoryImpl
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.AppUpdateService
@@ -17,7 +18,8 @@ val appModule = module {
     
     // AI 绘画
     single { GeminiApiService(get()) }
-    single<PaintRepository> { PaintRepositoryImpl(get(), get(), get()) }
+    single { GptApiService(get()) }
+    single<PaintRepository> { PaintRepositoryImpl(get(), get(), get(), get(), get()) }
     
     // 更新服务
     single { AppUpdateService(get()) }

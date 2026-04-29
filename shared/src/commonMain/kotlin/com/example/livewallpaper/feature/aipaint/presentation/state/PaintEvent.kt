@@ -38,6 +38,9 @@ sealed class PaintEvent {
     data class SelectModel(val model: PaintModel) : PaintEvent()
     data class SelectAspectRatio(val ratio: AspectRatio) : PaintEvent()
     data class SelectResolution(val resolution: Resolution) : PaintEvent()
+    data class SelectGptSize(val size: GptImageSize) : PaintEvent()
+    data class SelectGptQuality(val quality: GptImageQuality) : PaintEvent()
+    data class SelectGptFormat(val format: GptOutputFormat) : PaintEvent()
     
     // API配置操作
     data class SaveApiProfile(val profile: ApiProfile) : PaintEvent()

@@ -3,8 +3,10 @@ package com.example.livewallpaper.feature.aipaint.data.repository
 import com.example.livewallpaper.core.error.AppError
 import com.example.livewallpaper.core.error.AppResult
 import com.example.livewallpaper.core.platform.ImageResponseProcessor
+import com.example.livewallpaper.core.platform.GptImageResponseProcessor
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
+import com.example.livewallpaper.feature.aipaint.data.remote.GptApiService
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.russhwolf.settings.ObservableSettings
@@ -23,7 +25,9 @@ import kotlinx.serialization.json.Json
 class PaintRepositoryImpl(
     private val settings: ObservableSettings,
     private val geminiApiService: GeminiApiService,
-    private val imageResponseProcessor: ImageResponseProcessor
+    private val imageResponseProcessor: ImageResponseProcessor,
+    private val gptApiService: GptApiService,
+    private val gptImageResponseProcessor: GptImageResponseProcessor
 ) : PaintRepository {
 
     private val json = Json { 
@@ -309,6 +313,54 @@ class PaintRepositoryImpl(
                 try {
                     val files = imageResponseProcessor.processResponse(
                         responseResult.data, sessionId, messageId
+                    )
+                    if (files.isNotEmpty()) {
+                        AppResult.Success(files)
+                    } else {
+                        AppResult.Error(AppError.Server(200, "未返回图片数据"))
+                    }
+                } catch (e: Exception) {
+                    AppResult.Error(AppError.Unknown(e))
+                }
+            }
+            is AppResult.Error -> responseResult
+        }
+    }
+    
+    override suspend fun generateGptImage(
+        profile: ApiProfile,
+        prompt: String,
+        images: List<PaintImage>,
+        size: GptImageSize,
+        quality: GptImageQuality,
+        outputFormat: GptOutputFormat,
+        sessionId: String,
+        messageId: String
+    ): AppResult<List<GeneratedImageFile>> {
+        // 有参考图时调用编辑接口，无参考图时调用生成接口
+        val responseResult = if (images.isNotEmpty()) {
+            gptApiService.editImage(
+                profile = profile,
+                prompt = prompt,
+                images = images,
+                size = size,
+                quality = quality,
+                outputFormat = outputFormat
+            )
+        } else {
+            gptApiService.generateImage(
+                profile = profile,
+                prompt = prompt,
+                size = size,
+                quality = quality,
+                outputFormat = outputFormat
+            )
+        }
+        return when (responseResult) {
+            is AppResult.Success -> {
+                try {
+                    val files = gptImageResponseProcessor.processResponse(
+                        responseResult.data, sessionId, messageId, outputFormat
                     )
                     if (files.isNotEmpty()) {
                         AppResult.Success(files)

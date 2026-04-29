@@ -55,6 +55,9 @@ fun PaintBottomBar(
     selectedModel: PaintModel,
     selectedRatio: AspectRatio,
     selectedResolution: Resolution,
+    selectedGptSize: GptImageSize = GptImageSize.AUTO,
+    selectedGptQuality: GptImageQuality = GptImageQuality.AUTO,
+    selectedGptFormat: GptOutputFormat = GptOutputFormat.PNG,
     activeProfile: ApiProfile?,
     isApiProfileLoaded: Boolean = true,
     collapsedInputFocusRequester: FocusRequester,
@@ -67,6 +70,9 @@ fun PaintBottomBar(
     onModelClick: () -> Unit,
     onRatioClick: () -> Unit,
     onResolutionClick: () -> Unit,
+    onGptSizeClick: () -> Unit = {},
+    onGptQualityClick: () -> Unit = {},
+    onGptFormatClick: () -> Unit = {},
     onExpandInput: () -> Unit,
     onImagePreview: ((List<ImageSource>, Int) -> Unit)? = null,
     onApplyRatio: ((AspectRatio) -> Unit)? = null
@@ -216,12 +222,14 @@ fun PaintBottomBar(
                         onClick = onModelClick
                     )
                     
-                    // 比例选择
-                    QuickActionChip(
-                        icon = Icons.Default.AspectRatio,
-                        label = selectedRatio.displayName,
-                        onClick = onRatioClick
-                    )
+                    // 比例选择（Gemini 模型使用）
+                    if (!selectedModel.isGpt) {
+                        QuickActionChip(
+                            icon = Icons.Default.AspectRatio,
+                            label = selectedRatio.displayName,
+                            onClick = onRatioClick
+                        )
+                    }
                     
                     // 分辨率选择（支持分辨率的模型显示）
                     if (selectedModel.supportsResolution) {
@@ -229,6 +237,46 @@ fun PaintBottomBar(
                             icon = Icons.Default.HighQuality,
                             label = selectedResolution.displayName,
                             onClick = onResolutionClick
+                        )
+                    }
+                    
+                    // GPT 尺寸选择
+                    if (selectedModel.supportsGptSize) {
+                        QuickActionChip(
+                            icon = Icons.Default.PhotoSizeSelectLarge,
+                            label = if (selectedGptSize == GptImageSize.AUTO) {
+                                stringResource(R.string.paint_gpt_size_auto)
+                            } else {
+                                selectedGptSize.displayName
+                            },
+                            onClick = onGptSizeClick
+                        )
+                    }
+                    
+                    // GPT 质量选择
+                    if (selectedModel.supportsGptQuality) {
+                        QuickActionChip(
+                            icon = Icons.Default.HighQuality,
+                            label = when (selectedGptQuality) {
+                                GptImageQuality.AUTO -> stringResource(R.string.paint_gpt_quality_auto)
+                                GptImageQuality.LOW -> stringResource(R.string.paint_gpt_quality_low)
+                                GptImageQuality.MEDIUM -> stringResource(R.string.paint_gpt_quality_medium)
+                                GptImageQuality.HIGH -> stringResource(R.string.paint_gpt_quality_high)
+                            },
+                            onClick = onGptQualityClick
+                        )
+                    }
+                    
+                    // GPT 输出格式选择
+                    if (selectedModel.isGpt) {
+                        QuickActionChip(
+                            icon = Icons.Default.Image,
+                            label = when (selectedGptFormat) {
+                                GptOutputFormat.PNG -> stringResource(R.string.paint_gpt_format_png)
+                                GptOutputFormat.JPEG -> stringResource(R.string.paint_gpt_format_jpeg)
+                                GptOutputFormat.WEBP -> stringResource(R.string.paint_gpt_format_webp)
+                            },
+                            onClick = onGptFormatClick
                         )
                     }
                     

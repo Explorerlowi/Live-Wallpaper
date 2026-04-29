@@ -811,3 +811,115 @@ fun ResolutionSelectorDialog(
         onDismiss = onDismiss
     )
 }
+
+/**
+ * GPT 图片尺寸选择器
+ * 使用 RatioIcon 显示每个尺寸对应的形状
+ */
+@Composable
+fun GptSizeSelectorDialog(
+    selectedSize: GptImageSize,
+    onSelect: (GptImageSize) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val autoLabel = stringResource(R.string.paint_gpt_size_auto)
+    val options = GptImageSize.entries.map { size ->
+        // 从尺寸值中解析宽高比例
+        val parts = size.value.split("x")
+        val widthRatio = parts.getOrNull(0)?.toIntOrNull()
+        val heightRatio = parts.getOrNull(1)?.toIntOrNull()
+
+        if (widthRatio != null && heightRatio != null) {
+            // 简化比例用于图标显示（如 1536:1024 → 3:2）
+            val gcd = gcd(widthRatio, heightRatio)
+            val simpleW = widthRatio / gcd
+            val simpleH = heightRatio / gcd
+            SelectOption(
+                value = size,
+                label = size.displayName,
+                iconContent = {
+                    com.example.livewallpaper.ui.components.RatioIcon(
+                        widthRatio = simpleW,
+                        heightRatio = simpleH
+                    )
+                }
+            )
+        } else {
+            // "auto" 没有具体尺寸，用默认图标
+            SelectOption(
+                value = size,
+                label = autoLabel,
+                icon = Icons.Default.AutoAwesome
+            )
+        }
+    }
+
+    SimpleSelectDialog(
+        options = options,
+        selectedValue = selectedSize,
+        onSelect = onSelect,
+        onDismiss = onDismiss
+    )
+}
+
+/** 求最大公约数 */
+private fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+
+/**
+ * GPT 图片质量选择器
+ */
+@Composable
+fun GptQualitySelectorDialog(
+    selectedQuality: GptImageQuality,
+    onSelect: (GptImageQuality) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = GptImageQuality.entries.map { quality ->
+        SelectOption(
+            value = quality,
+            label = when (quality) {
+                GptImageQuality.AUTO -> stringResource(R.string.paint_gpt_quality_auto)
+                GptImageQuality.LOW -> stringResource(R.string.paint_gpt_quality_low)
+                GptImageQuality.MEDIUM -> stringResource(R.string.paint_gpt_quality_medium)
+                GptImageQuality.HIGH -> stringResource(R.string.paint_gpt_quality_high)
+            },
+            icon = Icons.Default.HighQuality
+        )
+    }
+
+    SimpleSelectDialog(
+        options = options,
+        selectedValue = selectedQuality,
+        onSelect = onSelect,
+        onDismiss = onDismiss
+    )
+}
+
+/**
+ * GPT 输出格式选择器
+ */
+@Composable
+fun GptFormatSelectorDialog(
+    selectedFormat: GptOutputFormat,
+    onSelect: (GptOutputFormat) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = GptOutputFormat.entries.map { format ->
+        SelectOption(
+            value = format,
+            label = when (format) {
+                GptOutputFormat.PNG -> stringResource(R.string.paint_gpt_format_png)
+                GptOutputFormat.JPEG -> stringResource(R.string.paint_gpt_format_jpeg)
+                GptOutputFormat.WEBP -> stringResource(R.string.paint_gpt_format_webp)
+            },
+            icon = Icons.Default.Image
+        )
+    }
+
+    SimpleSelectDialog(
+        options = options,
+        selectedValue = selectedFormat,
+        onSelect = onSelect,
+        onDismiss = onDismiss
+    )
+}

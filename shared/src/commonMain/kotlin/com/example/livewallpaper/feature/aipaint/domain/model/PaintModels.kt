@@ -27,7 +27,10 @@ data class PaintMessage(
     // 生成参数记录（仅AI消息有）
     val generationModel: PaintModel? = null,        // 生成时使用的模型
     val generationAspectRatio: AspectRatio? = null,  // 生成时使用的比例
-    val generationResolution: Resolution? = null     // 生成时使用的分辨率
+    val generationResolution: Resolution? = null,    // 生成时使用的分辨率（Gemini）
+    val generationGptSize: GptImageSize? = null,     // 生成时使用的尺寸（GPT）
+    val generationGptQuality: GptImageQuality? = null, // 生成时使用的质量（GPT）
+    val generationGptFormat: GptOutputFormat? = null  // 生成时使用的输出格式（GPT）
 )
 
 @Serializable
@@ -42,7 +45,7 @@ enum class MessageType {
 
 @Serializable
 enum class MessageStatus {
-    PENDING, GENERATING, SUCCESS, ERROR
+    PENDING, GENERATING, SUCCESS, ERROR, CANCELLED
 }
 
 /**
@@ -69,9 +72,103 @@ data class PaintSession(
     val model: PaintModel = PaintModel.GEMINI_2_5_FLASH,
     val aspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     val resolution: Resolution = Resolution.RES_1K,
+    val gptImageSize: GptImageSize = GptImageSize.AUTO,
+    val gptImageQuality: GptImageQuality = GptImageQuality.AUTO,
+    val gptOutputFormat: GptOutputFormat = GptOutputFormat.PNG,
     val createdAt: Long = TimeProvider.currentTimeMillis(),
     val updatedAt: Long = TimeProvider.currentTimeMillis()
 )
+
+/**
+ * 模型提供商
+ */
+@Serializable
+enum class ModelProvider {
+    GEMINI, GPT
+}
+
+/**
+ * GPT 图片尺寸
+ *
+ * gpt-image-2 支持任意分辨率，但需满足：
+ * - 最大边长 ≤ 3840px
+ * - 两边均为 16 的倍数
+ * - 长短边比例 ≤ 3:1
+ * - 总像素 655,360 ~ 8,294,400
+ *
+ * 此处列出常用预设尺寸。
+ */
+@Serializable
+enum class GptImageSize(val displayName: String, val value: String, val description: String) {
+    AUTO("auto", "auto", "auto"),
+    SIZE_1024x1024("1024×1024（1:1）", "1024x1024", "1K square"),
+    SIZE_1536x1024("1536×1024（3:2）", "1536x1024", "1K landscape"),
+    SIZE_1024x1536("1024×1536（2:3）", "1024x1536", "1K portrait"),
+    SIZE_2048x2048("2048×2048（1:1）", "2048x2048", "2K square"),
+    SIZE_2048x1152("2048×1152（16:9）", "2048x1152", "2K landscape"),
+    SIZE_1152x2048("1152×2048（9:16）", "1152x2048", "2K portrait"),
+    SIZE_3840x2160("3840×2160（16:9）", "3840x2160", "4K landscape"),
+    SIZE_2160x3840("2160×3840（9:16）", "2160x3840", "4K portrait");
+
+    /**
+     * 获取数值比例
+     */
+    fun toFloat(): Float = when (this) {
+        AUTO -> 1f
+        SIZE_1024x1024 -> 1f
+        SIZE_1536x1024 -> 1536f / 1024f
+        SIZE_1024x1536 -> 1024f / 1536f
+        SIZE_2048x2048 -> 1f
+        SIZE_2048x1152 -> 2048f / 1152f
+        SIZE_1152x2048 -> 1152f / 2048f
+        SIZE_3840x2160 -> 3840f / 2160f
+        SIZE_2160x3840 -> 2160f / 3840f
+    }
+
+    companion object {
+        /**
+         * 根据 AspectRatio 推荐最接近的 GPT 尺寸
+         */
+        fun fromAspectRatio(ratio: AspectRatio): GptImageSize {
+            val r = ratio.toFloat()
+            return when {
+                r > 1.2f -> SIZE_1536x1024  // 横版
+                r < 0.8f -> SIZE_1024x1536  // 竖版
+                else -> SIZE_1024x1024       // 正方形
+            }
+        }
+    }
+}
+
+/**
+ * GPT 图片质量
+ *
+ * - low: 快速草稿、缩略图、快速迭代
+ * - medium: 常规用途
+ * - high: 最终成品
+ * - auto: 模型根据 prompt 自动选择
+ */
+@Serializable
+enum class GptImageQuality(val displayName: String, val value: String) {
+    AUTO("auto", "auto"),
+    LOW("low", "low"),
+    MEDIUM("medium", "medium"),
+    HIGH("high", "high")
+}
+
+/**
+ * GPT 输出格式
+ *
+ * - png: 默认，无损，支持透明（但 gpt-image-2 不支持透明背景）
+ * - jpeg: 比 png 更快，适合对延迟敏感的场景
+ * - webp: 体积小，支持压缩
+ */
+@Serializable
+enum class GptOutputFormat(val displayName: String, val value: String) {
+    PNG("PNG", "png"),
+    JPEG("JPEG", "jpeg"),
+    WEBP("WebP", "webp")
+}
 
 /**
  * 绘画模型
@@ -80,11 +177,28 @@ data class PaintSession(
 enum class PaintModel(val displayName: String, val endpoint: String, val maxImages: Int) {
     GEMINI_2_5_FLASH("nano banana", "gemini-2.5-flash-image", 3),
     GEMINI_3_PRO("nano banana pro", "gemini-3-pro-image-preview", 14),
-    GEMINI_3_1_FLASH("nano banana 2", "gemini-3.1-flash-image-preview", 14);
+    GEMINI_3_1_FLASH("nano banana 2", "gemini-3.1-flash-image-preview", 14),
+    GPT_IMAGE_2("gpt image 2", "gpt-image-2", 16);
 
-    /** 是否支持自定义分辨率 */
+    /** 模型提供商 */
+    val provider: ModelProvider
+        get() = when (this) {
+            GPT_IMAGE_2 -> ModelProvider.GPT
+            else -> ModelProvider.GEMINI
+        }
+
+    /** 是否为 GPT 模型 */
+    val isGpt: Boolean get() = provider == ModelProvider.GPT
+
+    /** 是否支持自定义分辨率（Gemini 专属） */
     val supportsResolution: Boolean
         get() = this == GEMINI_3_PRO || this == GEMINI_3_1_FLASH
+
+    /** 是否支持 GPT 尺寸选择 */
+    val supportsGptSize: Boolean get() = isGpt
+
+    /** 是否支持 GPT 质量选择 */
+    val supportsGptQuality: Boolean get() = isGpt
 }
 
 /**
@@ -127,10 +241,12 @@ enum class AspectRatio(
     companion object {
         /**
          * 获取指定模型可用的宽高比列表
-         * 极端比例（1:4、4:1、1:8、8:1）仅 Gemini 3.1 Flash 支持
+         * - 极端比例（1:4、4:1、1:8、8:1）仅 Gemini 3.1 Flash 支持
+         * - GPT 模型使用 GptImageSize，此处返回可映射的比例子集
          */
         fun availableFor(model: PaintModel): List<AspectRatio> = when (model) {
             PaintModel.GEMINI_3_1_FLASH -> entries.toList()
+            PaintModel.GPT_IMAGE_2 -> listOf(RATIO_1_1, RATIO_3_2, RATIO_2_3)
             else -> entries.filter { !it.isExtreme }
         }
 

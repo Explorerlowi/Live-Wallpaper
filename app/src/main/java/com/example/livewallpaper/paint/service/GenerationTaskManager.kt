@@ -27,6 +27,7 @@ data class GenerationTaskInfo(
 sealed class GenerationResult {
     data class Success(val imageCount: Int) : GenerationResult()
     data class Failed(val error: String?) : GenerationResult()
+    data object Cancelled : GenerationResult()
 }
 
 /**

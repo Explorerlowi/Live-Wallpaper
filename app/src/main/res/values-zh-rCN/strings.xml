@@ -185,6 +185,7 @@
     <string name="paint_status_pending">排队中</string>
     <string name="paint_status_done">已完成</string>
     <string name="paint_status_failed">生成失败</string>
+    <string name="paint_status_cancelled">已取消</string>
     <string name="paint_status_time">%1$s · %2$s</string>
     <string name="paint_time_format_seconds">%1$d秒</string>
     <string name="paint_time_format_minutes">%1$d分%2$d秒</string>
@@ -250,6 +251,16 @@
     <string name="paint_stats_draft_limit">当前模型的参考图数量已经达到上限，可以直接发送，或切换到更高上限的模型。</string>
     <string name="paint_stats_draft_text_ready">提示词已经准备好，继续补充参考图可以让构图和风格更稳定。</string>
     <string name="paint_stats_draft_ready">草稿已经就绪，当前输入符合所选模型的约束。</string>
+    
+    <!-- GPT 图片参数 -->
+    <string name="paint_gpt_size_auto">自动</string>
+    <string name="paint_gpt_quality_auto">自动</string>
+    <string name="paint_gpt_quality_low">低（快速）</string>
+    <string name="paint_gpt_quality_medium">中</string>
+    <string name="paint_gpt_quality_high">高</string>
+    <string name="paint_gpt_format_png">PNG</string>
+    <string name="paint_gpt_format_jpeg">JPEG（更快）</string>
+    <string name="paint_gpt_format_webp">WebP</string>
     
     <!-- 前台服务通知 -->
     <string name="paint_generation_channel_name">图片生成</string>

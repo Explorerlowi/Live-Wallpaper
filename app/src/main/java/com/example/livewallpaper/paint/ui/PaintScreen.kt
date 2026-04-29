@@ -211,6 +211,9 @@ fun PaintScreen(
     var showModelSelector by remember { mutableStateOf(false) }
     var showRatioSelector by remember { mutableStateOf(false) }
     var showResolutionSelector by remember { mutableStateOf(false) }
+    var showGptSizeSelector by remember { mutableStateOf(false) }
+    var showGptQualitySelector by remember { mutableStateOf(false) }
+    var showGptFormatSelector by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
     var showFullScreenInput by remember { mutableStateOf(false) }
     val collapsedInputFocusRequester = remember { FocusRequester() }
@@ -489,6 +492,9 @@ fun PaintScreen(
                     selectedModel = uiState.selectedModel,
                     selectedRatio = uiState.selectedAspectRatio,
                     selectedResolution = uiState.selectedResolution,
+                    selectedGptSize = uiState.selectedGptSize,
+                    selectedGptQuality = uiState.selectedGptQuality,
+                    selectedGptFormat = uiState.selectedGptFormat,
                     activeProfile = uiState.activeProfile,
                     isApiProfileLoaded = uiState.isApiProfileLoaded,
                     collapsedInputFocusRequester = collapsedInputFocusRequester,
@@ -501,6 +507,9 @@ fun PaintScreen(
                     onModelClick = { showModelSelector = true },
                     onRatioClick = { showRatioSelector = true },
                     onResolutionClick = { showResolutionSelector = true },
+                    onGptSizeClick = { showGptSizeSelector = true },
+                    onGptQualityClick = { showGptQualitySelector = true },
+                    onGptFormatClick = { showGptFormatSelector = true },
                     onExpandInput = { showFullScreenInput = true },
                     onImagePreview = { images, index ->
                         previewImages = images
@@ -804,6 +813,42 @@ fun PaintScreen(
             onDismiss = { showResolutionSelector = false }
         )
     }
+
+    // GPT 尺寸选择器
+    if (showGptSizeSelector) {
+        GptSizeSelectorDialog(
+            selectedSize = uiState.selectedGptSize,
+            onSelect = {
+                viewModel.onEvent(PaintEvent.SelectGptSize(it))
+                showGptSizeSelector = false
+            },
+            onDismiss = { showGptSizeSelector = false }
+        )
+    }
+
+    // GPT 质量选择器
+    if (showGptQualitySelector) {
+        GptQualitySelectorDialog(
+            selectedQuality = uiState.selectedGptQuality,
+            onSelect = {
+                viewModel.onEvent(PaintEvent.SelectGptQuality(it))
+                showGptQualitySelector = false
+            },
+            onDismiss = { showGptQualitySelector = false }
+        )
+    }
+
+    // GPT 输出格式选择器
+    if (showGptFormatSelector) {
+        GptFormatSelectorDialog(
+            selectedFormat = uiState.selectedGptFormat,
+            onSelect = {
+                viewModel.onEvent(PaintEvent.SelectGptFormat(it))
+                showGptFormatSelector = false
+            },
+            onDismiss = { showGptFormatSelector = false }
+        )
+    }
     
     // 自定义图库浏览器
     if (showGallery) {
@@ -1052,12 +1097,22 @@ private fun EmptyState() {
 private fun GenerationParamsBadge(
     model: PaintModel,
     aspectRatio: AspectRatio?,
-    resolution: Resolution?
+    resolution: Resolution?,
+    gptSize: GptImageSize? = null,
+    gptQuality: GptImageQuality? = null
 ) {
     val paramParts = buildList {
         add(model.displayName)
-        if (aspectRatio != null) add(aspectRatio.value)
-        if (resolution != null) add(resolution.displayName)
+        if (model.isGpt) {
+            // GPT 模型显示尺寸和质量
+            if (gptSize != null && gptSize != GptImageSize.AUTO) add(gptSize.value)
+            else if (gptSize == GptImageSize.AUTO) add("auto")
+            if (gptQuality != null) add(gptQuality.value)
+        } else {
+            // Gemini 模型显示比例和分辨率
+            if (aspectRatio != null) add(aspectRatio.value)
+            if (resolution != null) add(resolution.displayName)
+        }
     }
     
     Row(
@@ -1346,6 +1401,7 @@ private fun MessageItem(
                     val statusText = when (message.status) {
                         MessageStatus.SUCCESS -> stringResource(R.string.paint_status_done)
                         MessageStatus.ERROR -> stringResource(R.string.paint_status_failed)
+                        MessageStatus.CANCELLED -> stringResource(R.string.paint_status_cancelled)
                         MessageStatus.PENDING -> stringResource(R.string.paint_status_pending)
                         MessageStatus.GENERATING -> ""
                     }
@@ -1369,7 +1425,9 @@ private fun MessageItem(
                     GenerationParamsBadge(
                         model = genModel,
                         aspectRatio = message.generationAspectRatio,
-                        resolution = message.generationResolution
+                        resolution = message.generationResolution,
+                        gptSize = message.generationGptSize,
+                        gptQuality = message.generationGptQuality
                     )
                 }
             }
@@ -2029,10 +2087,18 @@ private suspend fun saveImageToGallery(context: Context, imagePath: String) {
         if (!sourceFile.exists()) {
             throw java.io.IOException("源文件不存在")
         }
+
+        // 根据文件扩展名确定 MIME 类型和保存格式
+        val extension = sourceFile.extension.lowercase()
+        val (mimeType, fileExt) = when (extension) {
+            "jpg", "jpeg" -> "image/jpeg" to "jpg"
+            "webp" -> "image/webp" to "webp"
+            else -> "image/png" to "png"
+        }
         
         val contentValues = android.content.ContentValues().apply {
-            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "AI_Paint_${System.currentTimeMillis()}.png")
-            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "AI_Paint_${System.currentTimeMillis()}.$fileExt")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, mimeType)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/AIPaint")
                 put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)

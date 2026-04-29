@@ -107,9 +107,11 @@ class GeminiApiService(
     }
 
     private fun mapException(e: Exception): AppResult<Nothing> {
+        // CancellationException 必须重新抛出，不能被吞掉
+        if (e is kotlinx.coroutines.CancellationException) throw e
         return when {
             e.message?.contains("timeout", ignoreCase = true) == true -> 
-                AppResult.Error(AppError.Network)
+                AppResult.Error(AppError.Timeout)
             e.message?.contains("connect", ignoreCase = true) == true -> 
                 AppResult.Error(AppError.Network)
             else -> AppResult.Error(AppError.Unknown(e))

@@ -9,6 +9,11 @@ sealed class AppError : Throwable() {
     data object Network : AppError() {
         override val message: String = "网络连接失败"
     }
+
+    /** 请求超时 */
+    data object Timeout : AppError() {
+        override val message: String = "请求超时"
+    }
     
     /** 服务器错误 */
     data class Server(val code: Int, override val message: String?) : AppError()

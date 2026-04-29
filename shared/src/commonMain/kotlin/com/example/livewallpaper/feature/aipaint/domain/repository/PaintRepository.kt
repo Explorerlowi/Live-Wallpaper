@@ -45,5 +45,20 @@ interface PaintRepository {
         sessionId: String,
         messageId: String
     ): AppResult<List<GeneratedImageFile>>
+
+    /**
+     * GPT 图片生成/编辑
+     * 无参考图时调用生成接口，有参考图时调用编辑接口
+     */
+    suspend fun generateGptImage(
+        profile: ApiProfile,
+        prompt: String,
+        images: List<PaintImage>,
+        size: GptImageSize,
+        quality: GptImageQuality,
+        outputFormat: GptOutputFormat,
+        sessionId: String,
+        messageId: String
+    ): AppResult<List<GeneratedImageFile>>
     
 }
