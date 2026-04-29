@@ -609,14 +609,7 @@ private fun ConfirmSelectionBar(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.gallery_selected_count, selectedCount),
-                fontSize = 16.sp,
-                color = TextPrimary,
-                modifier = Modifier.weight(1f)
-            )
-
-            // 预览按钮
+            // 预览按钮（左下角）
             TextButton(onClick = onPreview) {
                 Text(
                     text = stringResource(R.string.gallery_preview),
@@ -624,8 +617,8 @@ private fun ConfirmSelectionBar(
                     fontWeight = FontWeight.Medium
                 )
             }
-            
-            Spacer(modifier = Modifier.width(8.dp))
+
+            Spacer(modifier = Modifier.weight(1f))
 
             // 确认按钮
             Button(

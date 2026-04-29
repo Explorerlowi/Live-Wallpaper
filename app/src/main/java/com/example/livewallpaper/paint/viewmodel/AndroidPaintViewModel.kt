@@ -1070,6 +1070,14 @@ class AndroidPaintViewModel(
             return
         }
 
+        // 直接从 uiState 获取当前选择的参数（同步、即时），避免数据库异步更新的竞态问题
+        val currentModel = state.selectedModel
+        val currentAspectRatio = state.selectedAspectRatio
+        val currentResolution = state.selectedResolution
+        val currentGptSize = state.selectedGptSize
+        val currentGptQuality = state.selectedGptQuality
+        val currentGptFormat = state.selectedGptFormat
+
         viewModelScope.launch {
             // 获取当前消息
             val currentMessage = repository.getMessage(messageId) ?: return@launch
@@ -1078,7 +1086,6 @@ class AndroidPaintViewModel(
             if (currentMessage.senderIdentity != SenderIdentity.ASSISTANT) return@launch
             
             val sessionId = currentMessage.sessionId
-            val session = repository.getSession(sessionId).first() ?: return@launch
             
             // 找到关联的用户消息
             val userMessage = findParentUserMessage(currentMessage)
@@ -1103,7 +1110,7 @@ class AndroidPaintViewModel(
             }
             val newVersionIndex = existingVersions
             
-            // 创建新的AI消息（占位符）
+            // 创建新的AI消息（占位符）- 使用当前 UI 选择的参数
             val newAssistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = sessionId,
@@ -1114,12 +1121,12 @@ class AndroidPaintViewModel(
                 parentUserMessageId = userMessage.id,
                 versionGroup = versionGroup,
                 versionIndex = newVersionIndex,
-                generationModel = session.model,
-                generationAspectRatio = session.aspectRatio,
-                generationResolution = if (session.model.supportsResolution) session.resolution else null,
-                generationGptSize = if (session.model.isGpt) session.gptImageSize else null,
-                generationGptQuality = if (session.model.isGpt) session.gptImageQuality else null,
-                generationGptFormat = if (session.model.isGpt) session.gptOutputFormat else null
+                generationModel = currentModel,
+                generationAspectRatio = currentAspectRatio,
+                generationResolution = if (currentModel.supportsResolution) currentResolution else null,
+                generationGptSize = if (currentModel.isGpt) currentGptSize else null,
+                generationGptQuality = if (currentModel.isGpt) currentGptQuality else null,
+                generationGptFormat = if (currentModel.isGpt) currentGptFormat else null
             )
             
             repository.addMessage(newAssistantMessage)
@@ -1173,25 +1180,25 @@ class AndroidPaintViewModel(
                 var generationSuccess = false
                 var failureMessage: String? = null
                 try {
-                    val result = if (session.model.isGpt) {
+                    val result = if (currentModel.isGpt) {
                         repository.generateGptImage(
                             profile = profile,
                             prompt = userMessage.messageContent,
                             images = userImagesForApi,
-                            size = session.gptImageSize,
-                            quality = session.gptImageQuality,
-                            outputFormat = session.gptOutputFormat,
+                            size = currentGptSize,
+                            quality = currentGptQuality,
+                            outputFormat = currentGptFormat,
                             sessionId = sessionId,
                             messageId = generatingMessageId
                         )
                     } else {
                         repository.generateImage(
                             profile = profile,
-                            model = session.model,
+                            model = currentModel,
                             prompt = userMessage.messageContent,
                             images = userImagesForApi,
-                            aspectRatio = session.aspectRatio,
-                            resolution = session.resolution,
+                            aspectRatio = currentAspectRatio,
+                            resolution = currentResolution,
                             sessionId = sessionId,
                             messageId = generatingMessageId
                         )
