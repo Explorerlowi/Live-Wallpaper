@@ -76,7 +76,9 @@ data class PaintSession(
     val gptImageQuality: GptImageQuality = GptImageQuality.AUTO,
     val gptOutputFormat: GptOutputFormat = GptOutputFormat.PNG,
     val createdAt: Long = TimeProvider.currentTimeMillis(),
-    val updatedAt: Long = TimeProvider.currentTimeMillis()
+    val updatedAt: Long = TimeProvider.currentTimeMillis(),
+    val isPinned: Boolean = false,
+    val pinnedAt: Long? = null
 )
 
 /**

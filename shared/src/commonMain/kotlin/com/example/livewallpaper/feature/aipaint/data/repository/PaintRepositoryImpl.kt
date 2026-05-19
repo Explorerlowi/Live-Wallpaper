@@ -49,11 +49,11 @@ class PaintRepositoryImpl(
     override fun getSessions(): Flow<List<PaintSession>> = callbackFlow {
         val listener = settings.addStringListener(KEY_SESSIONS, "") { jsonString ->
             launch(Dispatchers.Default) {
-                trySend(parseSessions(jsonString).sortedByDescending { it.updatedAt })
+                trySend(parseSessions(jsonString).sortedForDisplay())
             }
         }
         launch(Dispatchers.Default) {
-            trySend(parseSessions(settings.getString(KEY_SESSIONS, "")).sortedByDescending { it.updatedAt })
+            trySend(parseSessions(settings.getString(KEY_SESSIONS, "")).sortedForDisplay())
         }
         awaitClose { listener.deactivate() }
     }
@@ -474,4 +474,11 @@ class PaintRepositoryImpl(
     private fun saveProfiles(profiles: List<ApiProfile>) {
         settings[KEY_API_PROFILES] = json.encodeToString(profiles)
     }
+
+    private fun List<PaintSession>.sortedForDisplay(): List<PaintSession> =
+        sortedWith(
+            compareByDescending<PaintSession> { it.isPinned }
+                .thenByDescending { it.pinnedAt ?: 0L }
+                .thenByDescending { it.updatedAt }
+        )
 }

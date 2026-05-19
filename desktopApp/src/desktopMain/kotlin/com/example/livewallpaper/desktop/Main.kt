@@ -98,6 +98,10 @@ import com.example.livewallpaper.core.design.theme.AppDesignTheme
 import com.example.livewallpaper.core.design.theme.AppDesignThemeStyle
 import com.example.livewallpaper.di.appModule
 import com.example.livewallpaper.di.platformModule
+import com.example.livewallpaper.desktop.paint.AiPaintWorkspace
+import com.example.livewallpaper.desktop.paint.DesktopPaintSidebarSection
+import com.example.livewallpaper.desktop.paint.DesktopPaintViewModel
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -289,7 +293,10 @@ private fun DesktopShell(
     onStopSlideshow: () -> Unit,
     onSetCurrentWallpaper: (String) -> Unit,
 ) {
+    val paintViewModel = remember { DesktopPaintViewModel(GlobalContext.get().get<PaintRepository>()) }
+    val paintUiState by paintViewModel.uiState.collectAsState()
     var selectedSection by remember { mutableStateOf(DesktopSection.WALLPAPERS) }
+    var sidebarCollapsed by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var selectedPath by remember(config.imageUris) { mutableStateOf(config.imageUris.firstOrNull()) }
     val effectiveSelectedPath = selectedPath?.takeIf { it in config.imageUris } ?: config.imageUris.firstOrNull()
@@ -307,12 +314,16 @@ private fun DesktopShell(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        DesktopSidebar(
-            selectedSection = selectedSection,
-            status = status,
-            onSectionSelected = { selectedSection = it },
-            onOpenSettings = { showSettings = true },
-        )
+        if (!sidebarCollapsed) {
+            DesktopSidebar(
+                selectedSection = selectedSection,
+                status = status,
+                paintUiState = paintUiState,
+                onPaintEvent = paintViewModel::onEvent,
+                onSectionSelected = { selectedSection = it },
+                onOpenSettings = { showSettings = true },
+            )
+        }
 
         when (selectedSection) {
             DesktopSection.WALLPAPERS -> WallpaperWorkspace(
@@ -326,7 +337,13 @@ private fun DesktopShell(
                 onSetWallpaperPath = onSetCurrentWallpaper,
             )
 
-            DesktopSection.AI_PAINT -> AiPaintWorkspace()
+            DesktopSection.AI_PAINT -> AiPaintWorkspace(
+                viewModel = paintViewModel,
+                isSidebarCollapsed = sidebarCollapsed,
+                onToggleSidebar = { sidebarCollapsed = !sidebarCollapsed },
+                onAddImagesToWallpapers = { paths -> onEvent(SettingsEvent.AddImages(paths)) },
+                onSetWallpaperPath = onSetCurrentWallpaper,
+            )
         }
     }
 }
@@ -335,6 +352,8 @@ private fun DesktopShell(
 private fun DesktopSidebar(
     selectedSection: DesktopSection,
     status: DesktopWallpaperStatus,
+    paintUiState: com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState,
+    onPaintEvent: (com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent) -> Unit,
     onSectionSelected: (DesktopSection) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -384,7 +403,16 @@ private fun DesktopSidebar(
                 onClick = { onSectionSelected(DesktopSection.AI_PAINT) },
             )
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(18.dp))
+
+            if (selectedSection == DesktopSection.AI_PAINT) {
+                DesktopPaintSidebarSection(
+                    uiState = paintUiState,
+                    onEvent = onPaintEvent,
+                )
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
 
             Text(
                 text = status.label(strings),
@@ -1135,40 +1163,6 @@ private class CursorPopupPositionProvider(
         }.coerceIn(margin, maxY)
 
         return IntOffset(x, y)
-    }
-}
-
-@Composable
-private fun AiPaintWorkspace() {
-    val strings = LocalDesktopStrings.current
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier.widthIn(max = 560.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = strings.aiPaintTitle,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = strings.aiPaintSubtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = strings.aiPaintComingSoon,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
@@ -1955,14 +1949,7 @@ private fun BufferedImage.scaledToMaxDimension(maxDimension: Int): BufferedImage
 }
 
 private fun pickImagePaths(title: String): List<String> {
-    val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD).apply {
-        isMultipleMode = true
-        filenameFilter = java.io.FilenameFilter { _, name ->
-            isSupportedImageName(name)
-        }
-    }
-    dialog.isVisible = true
-    return dialog.files.map { it.absolutePath }
+    return DesktopImageFilePicker.pickImagePaths(title, ::isSupportedImageName)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)

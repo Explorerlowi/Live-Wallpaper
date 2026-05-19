@@ -8,6 +8,8 @@ sealed class PaintEvent {
     data class SelectSession(val sessionId: String) : PaintEvent()
     data class DeleteSession(val sessionId: String) : PaintEvent()
     data class RenameSession(val sessionId: String, val newTitle: String) : PaintEvent()
+    data class PinSession(val sessionId: String) : PaintEvent()
+    data class UnpinSession(val sessionId: String) : PaintEvent()
     
     // 消息操作
     data object SendMessage : PaintEvent()

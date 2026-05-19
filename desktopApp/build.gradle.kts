@@ -19,6 +19,7 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 implementation(compose.foundation)
                 implementation(compose.material3)
+                implementation(compose.materialIconsExtended)
                 implementation(compose.runtime)
                 implementation(compose.ui)
                 implementation(libs.androidx.lifecycle.viewmodel)
@@ -45,7 +46,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
             packageName = "Live Wallpaper"
-            packageVersion = "1.0.21"
+            packageVersion = "1.0.28"
 
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icons/app.ico"))

@@ -100,6 +100,8 @@ class PaintViewModel(
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
             is PaintEvent.DeleteSession -> deleteSession(event.sessionId)
             is PaintEvent.RenameSession -> renameSession(event.sessionId, event.newTitle)
+            is PaintEvent.PinSession -> updateSessionPinned(event.sessionId, true)
+            is PaintEvent.UnpinSession -> updateSessionPinned(event.sessionId, false)
             is PaintEvent.SendMessage -> sendMessage()
             is PaintEvent.StopGeneration -> stopGeneration()
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
@@ -188,6 +190,21 @@ class PaintViewModel(
         viewModelScope.launch {
             repository.getSession(sessionId).first()?.let { session ->
                 val updatedSession = session.copy(title = newTitle)
+                repository.updateSession(updatedSession)
+                if (_uiState.value.currentSession?.id == sessionId) {
+                    _uiState.update { it.copy(currentSession = updatedSession) }
+                }
+            }
+        }
+    }
+
+    private fun updateSessionPinned(sessionId: String, pinned: Boolean) {
+        viewModelScope.launch {
+            repository.getSession(sessionId).first()?.let { session ->
+                val updatedSession = session.copy(
+                    isPinned = pinned,
+                    pinnedAt = if (pinned) TimeProvider.currentTimeMillis() else null
+                )
                 repository.updateSession(updatedSession)
                 if (_uiState.value.currentSession?.id == sessionId) {
                     _uiState.update { it.copy(currentSession = updatedSession) }
