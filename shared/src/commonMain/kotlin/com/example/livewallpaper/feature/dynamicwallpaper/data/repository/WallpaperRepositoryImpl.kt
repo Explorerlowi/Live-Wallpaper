@@ -125,6 +125,16 @@ class WallpaperRepositoryImpl(
         updateConfig(current.copy(themeMode = mode))
     }
 
+    override suspend fun setLaunchAtStartup(enabled: Boolean) {
+        val current = getCurrentConfig()
+        updateConfig(current.copy(launchAtStartup = enabled))
+    }
+
+    override suspend fun setRestoreSlideshowOnLaunch(enabled: Boolean) {
+        val current = getCurrentConfig()
+        updateConfig(current.copy(restoreSlideshowOnLaunch = enabled))
+    }
+
     override suspend fun checkAppUpdate(
         apiKey: String,
         appKey: String,
@@ -142,4 +152,3 @@ class WallpaperRepositoryImpl(
         return getCurrentConfig()
     }
 }
-

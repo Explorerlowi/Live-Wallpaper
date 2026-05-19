@@ -23,7 +23,9 @@ data class WallpaperConfig(
     val imageCropParams: Map<String, ImageCropParams> = emptyMap(),
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
     val languageTag: String? = null,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val launchAtStartup: Boolean = false,
+    val restoreSlideshowOnLaunch: Boolean = false
 )
 
 /**
@@ -47,4 +49,3 @@ enum class PlayMode {
     /** 随机播放 */
     RANDOM
 }
-

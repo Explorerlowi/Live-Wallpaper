@@ -11,6 +11,12 @@ kotlin {
         }
     }
 
+    jvm("desktop") {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        }
+    }
+
     listOf(
         iosX64(),
         iosArm64(),
@@ -44,6 +50,12 @@ kotlin {
         }
         
         val androidMain by getting {
+            dependencies {
+                implementation(libs.ktor.client.okhttp)
+            }
+        }
+
+        val desktopMain by getting {
             dependencies {
                 implementation(libs.ktor.client.okhttp)
             }

@@ -23,6 +23,7 @@ interface WallpaperRepository {
     suspend fun setImageCropParams(uri: String, params: ImageCropParams)
     suspend fun setLanguage(languageTag: String?)
     suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setLaunchAtStartup(enabled: Boolean)
+    suspend fun setRestoreSlideshowOnLaunch(enabled: Boolean)
     suspend fun checkAppUpdate(apiKey: String, appKey: String, buildVersion: String?, buildBuildVersion: Int?): com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
 }
-

@@ -47,6 +47,10 @@ class SettingsViewModel(
                 is SettingsEvent.UpdateImageCropParams -> repository.setImageCropParams(event.uri, event.params)
                 is SettingsEvent.UpdateLanguage -> repository.setLanguage(event.languageTag)
                 is SettingsEvent.UpdateThemeMode -> repository.setThemeMode(event.mode)
+                is SettingsEvent.UpdateLaunchAtStartup -> repository.setLaunchAtStartup(event.enabled)
+                is SettingsEvent.UpdateRestoreSlideshowOnLaunch -> {
+                    repository.setRestoreSlideshowOnLaunch(event.enabled)
+                }
                 is SettingsEvent.CheckUpdate -> checkUpdate(event)
                 is SettingsEvent.ClearUpdateStatus -> _updateStatus.value = UpdateStatus.Idle
             }
@@ -72,4 +76,3 @@ class SettingsViewModel(
         }
     }
 }
-

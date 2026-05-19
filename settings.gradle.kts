@@ -36,4 +36,5 @@ include(":app")
 include(":shared")
 include(":core:design")
 include(":core:test")
+include(":desktopApp")
  

@@ -1,7 +1,39 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
+}
+
+kotlin {
+    androidTarget {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        }
+    }
+
+    jvm("desktop") {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        }
+    }
+
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation(compose.foundation)
+                implementation(compose.material3)
+                implementation(compose.runtime)
+                implementation(compose.ui)
+            }
+        }
+
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+    }
 }
 
 android {
@@ -17,25 +49,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
-        }
-    }
-
     buildFeatures {
         compose = true
     }
 
     sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
-}
-
-dependencies {
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.foundation.layout)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.runtime)
-    implementation(libs.androidx.compose.material.icons.extended)
 }
