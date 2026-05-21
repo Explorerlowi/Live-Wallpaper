@@ -2,6 +2,11 @@
 
 package com.example.livewallpaper.desktop.paint
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,21 +34,31 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,18 +79,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -88,6 +114,7 @@ import androidx.compose.ui.window.rememberDialogState
 import com.example.livewallpaper.desktop.DesktopImageFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
+import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfile
 import com.example.livewallpaper.feature.aipaint.domain.model.AspectRatio
 import com.example.livewallpaper.feature.aipaint.domain.model.AuthMode
@@ -105,15 +132,23 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
+import java.awt.Desktop
 import java.awt.Frame
+import java.awt.Graphics2D
 import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import java.awt.Image as AwtImage
 import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.UUID
 import javax.imageio.ImageIO
 import kotlin.math.roundToInt
@@ -132,16 +167,38 @@ fun AiPaintWorkspace(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val strings = LocalDesktopStrings.current
-    val listState = rememberLazyListState()
+    val currentSessionId = uiState.currentSession?.id
+    val listState = remember(currentSessionId) { LazyListState() }
     var showApiSettings by remember { mutableStateOf(false) }
     var optionDialog by remember { mutableStateOf<PaintOptionDialog?>(null) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
+    var lastRenderedSessionId by remember { mutableStateOf<String?>(null) }
+    var lastAutoScrollKey by remember { mutableStateOf<String?>(null) }
+    var showCopyFeedback by remember { mutableStateOf(false) }
+    var copyFeedbackSerial by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        viewModel.scrollToBottomEvent.collect {
+    fun copyWithFeedback(text: String) {
+        copyToClipboard(text)
+        showCopyFeedback = true
+        copyFeedbackSerial += 1
+    }
+
+    LaunchedEffect(listState) {
+        viewModel.scrollToBottomEvent.collect { shouldAnimate ->
+            delay(50)
             if (listState.layoutInfo.totalItemsCount > 0) {
-                listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+                if (shouldAnimate) {
+                    listState.animateScrollToItem(0)
+                } else {
+                    listState.scrollToItem(0)
+                }
             }
+        }
+    }
+    LaunchedEffect(copyFeedbackSerial) {
+        if (copyFeedbackSerial > 0) {
+            delay(1400)
+            showCopyFeedback = false
         }
     }
 
@@ -165,107 +222,216 @@ fun AiPaintWorkspace(
         )
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        PaintTopBar(
-            uiState = uiState,
-            isSidebarCollapsed = isSidebarCollapsed,
-            onToggleSidebar = onToggleSidebar,
-            onShowApiSettings = { showApiSettings = true },
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            val messages = remember(uiState.messages, uiState.activeVersions) {
-                uiState.messages.visibleWithActiveVersions(uiState.activeVersions)
-            }
-            if (messages.isEmpty()) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center).widthIn(max = 420.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        text = strings.paintEmptyConversationTitle,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = strings.paintEmptyConversationSubtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        Column(modifier = Modifier.fillMaxSize()) {
+            PaintTopBar(
+                uiState = uiState,
+                isSidebarCollapsed = isSidebarCollapsed,
+                onToggleSidebar = onToggleSidebar,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                val messages = remember(uiState.messages, uiState.activeVersions) {
+                    uiState.messages.visibleWithActiveVersions(uiState.activeVersions)
                 }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 28.dp, vertical = 22.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                val latestMessage = messages.firstOrNull()
+                LaunchedEffect(
+                    currentSessionId,
+                    latestMessage?.id,
+                    latestMessage?.updatedAt,
+                    latestMessage?.status,
+                    latestMessage?.images?.size,
                 ) {
-                    items(messages, key = { it.id }) { message ->
-                        PaintMessageRow(
-                            message = message,
-                            uiState = uiState,
-                            onPreviewImage = { previewImagePath = it },
-                            onAddToWallpapers = { path -> onAddImagesToWallpapers(listOf(path)) },
-                            onSetWallpaper = onSetWallpaperPath,
-                            onRegenerate = { viewModel.onEvent(PaintEvent.RegenerateMessage(message.id)) },
-                            onDelete = { viewModel.onEvent(PaintEvent.DeleteMessage(message.id)) },
-                            onSwitchVersion = { group, index ->
-                                viewModel.onEvent(PaintEvent.SwitchMessageVersion(group, index))
-                            },
+                    val sessionId = currentSessionId ?: return@LaunchedEffect
+                    val message = latestMessage ?: return@LaunchedEffect
+                    val autoScrollKey = listOf(
+                        sessionId,
+                        message.id,
+                        message.updatedAt,
+                        message.status.name,
+                        message.images.size,
+                    ).joinToString(":")
+                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= messages.size }
+                    if (lastRenderedSessionId != sessionId) {
+                        listState.scrollToItem(0)
+                    } else if (lastAutoScrollKey != autoScrollKey) {
+                        listState.animateScrollToItem(0)
+                    }
+                    lastRenderedSessionId = sessionId
+                    lastAutoScrollKey = autoScrollKey
+                }
+                if (messages.isEmpty()) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center).widthIn(max = 420.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = strings.paintEmptyConversationTitle,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
                         )
+                        Text(
+                            text = strings.paintEmptyConversationSubtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LaunchedEffect(listState) {
+                        snapshotFlow {
+                            listState.firstVisibleItemIndex <= 1
+                        }.collect { isAtBottom ->
+                            viewModel.onEvent(PaintEvent.UpdateScrollState(isAtBottom))
+                        }
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 22.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.Bottom),
+                        reverseLayout = true,
+                    ) {
+                        items(messages, key = { it.id }) { message ->
+                            PaintMessageRow(
+                                message = message,
+                                uiState = uiState,
+                                onPreviewImage = { previewImagePath = it },
+                                onAddToWallpapers = { path -> onAddImagesToWallpapers(listOf(path)) },
+                                onAddImages = { images ->
+                                    val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
+                                    images
+                                        .mapNotNull(::selectedImageFromPaintImage)
+                                        .take(remaining.coerceAtLeast(0))
+                                        .forEach { viewModel.onEvent(PaintEvent.AddImage(it)) }
+                                },
+                                onSetWallpaper = onSetWallpaperPath,
+                                onRegenerate = { viewModel.onEvent(PaintEvent.RegenerateMessage(message.id)) },
+                                onDelete = { viewModel.onEvent(PaintEvent.DeleteMessage(message.id)) },
+                                onDeleteVersionGroup = { group -> viewModel.onEvent(PaintEvent.DeleteMessageVersion(group)) },
+                                onEdit = { viewModel.onEvent(PaintEvent.EditUserMessage(message.id)) },
+                                onSwitchVersion = { group, index ->
+                                    viewModel.onEvent(PaintEvent.SwitchMessageVersion(group, index))
+                                },
+                                onCopyText = ::copyWithFeedback,
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !uiState.isAtBottom,
+                            enter = fadeIn() + slideInVertically { it },
+                            exit = fadeOut() + slideOutVertically { it },
+                        ) {
+                            ScrollToLatestButton(
+                                newMessageCount = uiState.newMessageCount,
+                                onClick = { viewModel.onEvent(PaintEvent.ScrollToBottom) },
+                            )
+                        }
+                    }
+                }
+            }
+            PaintInputBar(
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                onShowApiSettings = { showApiSettings = true },
+                onShowOptions = { optionDialog = it },
+                onPreviewImage = { previewImagePath = it },
+            )
+            uiState.error?.let { error ->
+                Surface(
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.10f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = error.localizedPaintText(strings),
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(onClick = { viewModel.onEvent(PaintEvent.ClearError) }) {
+                            Text(strings.close)
+                        }
                     }
                 }
             }
         }
-        PaintInputBar(
-            uiState = uiState,
-            onEvent = viewModel::onEvent,
-            onShowApiSettings = { showApiSettings = true },
-            onShowOptions = { optionDialog = it },
-            onPreviewImage = { previewImagePath = it },
-        )
-        uiState.error?.let { error ->
+        if (showCopyFeedback) {
             Surface(
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.10f),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 116.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = error.localizedPaintText(strings),
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(onClick = { viewModel.onEvent(PaintEvent.ClearError) }) {
-                        Text(strings.close)
-                    }
-                }
+                Text(
+                    text = strings.paintCopied,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                )
             }
         }
     }
 }
 
 @Composable
+private fun ScrollToLatestButton(
+    newMessageCount: Int,
+    onClick: () -> Unit,
+) {
+    val active = newMessageCount > 0
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = LocalDesktopStrings.current.paintScrollToLatest,
+                modifier = Modifier.size(20.dp),
+                tint = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+            )
+            if (active) {
+                Text(
+                    text = newMessageCount.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
 fun ColumnScope.DesktopPaintSidebarSection(
     uiState: PaintUiState,
     onEvent: (PaintEvent) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
+    var addHovered by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = strings.paintSessions,
@@ -274,17 +440,35 @@ fun ColumnScope.DesktopPaintSidebarSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
         )
-        Surface(
-            onClick = { onEvent(PaintEvent.CreateSession()) },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        Box(
+            modifier = Modifier.size(44.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = strings.paintNewSession,
-                modifier = Modifier.padding(6.dp).size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(
+                            alpha = if (addHovered) 0.12f else 0f,
+                        ),
+                    )
+                    .onPointerEvent(PointerEventType.Enter) { addHovered = true }
+                    .onPointerEvent(PointerEventType.Exit) { addHovered = false }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onEvent(PaintEvent.CreateSession()) },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = strings.paintNewSession,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
     Spacer(modifier = Modifier.height(8.dp))
@@ -292,7 +476,7 @@ fun ColumnScope.DesktopPaintSidebarSection(
         if (uiState.sessions.isEmpty()) {
             Text(
                 text = strings.paintNoSessions,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -378,7 +562,7 @@ private fun PaintSessionListItem(
                 indication = null,
                 onClick = onSelect,
             )
-            .padding(start = 10.dp, end = 4.dp),
+            .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -398,19 +582,11 @@ private fun PaintSessionListItem(
             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
         }
         Box {
-            if (hovered || menuExpanded) {
-                Surface(
-                    onClick = { menuExpanded = true },
-                    shape = RoundedCornerShape(7.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
-                ) {
-                    Text(
-                        text = "...",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
+            SessionMenuButton(
+                onClick = { menuExpanded = true },
+                visible = hovered || menuExpanded,
+                active = menuExpanded,
+            )
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false },
@@ -445,11 +621,47 @@ private fun PaintSessionListItem(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun SessionMenuButton(
+    visible: Boolean,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    var hovered by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        modifier = Modifier
+            .size(width = 30.dp, height = 26.dp)
+            .clip(shape)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (hovered || active) 0.75f else 0f,
+                ),
+            )
+            .onPointerEvent(PointerEventType.Enter) { hovered = true }
+            .onPointerEvent(PointerEventType.Exit) { hovered = false }
+            .clickable(
+                enabled = visible,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.MoreHoriz,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp).alpha(if (visible) 1f else 0f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun PaintTopBar(
     uiState: PaintUiState,
     isSidebarCollapsed: Boolean,
     onToggleSidebar: () -> Unit,
-    onShowApiSettings: () -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     Box(
@@ -471,9 +683,9 @@ private fun PaintTopBar(
                 )
             }
         }
-        Column(
+        Box(
             modifier = Modifier.align(Alignment.Center).widthIn(max = 520.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = uiState.currentSession?.title ?: strings.aiPaintTitle,
@@ -481,20 +693,6 @@ private fun PaintTopBar(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${uiState.selectedModel.displayName} · ${uiState.messages.size}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-            DesktopPaintChip(
-                label = uiState.activeProfile?.name ?: strings.paintNoApi,
-                highlighted = uiState.activeProfile == null,
-                onClick = onShowApiSettings,
             )
         }
     }
@@ -506,46 +704,103 @@ private fun PaintMessageRow(
     uiState: PaintUiState,
     onPreviewImage: (String) -> Unit,
     onAddToWallpapers: (String) -> Unit,
+    onAddImages: (List<PaintImage>) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onRegenerate: () -> Unit,
     onDelete: () -> Unit,
+    onDeleteVersionGroup: (String) -> Unit,
+    onEdit: () -> Unit,
     onSwitchVersion: (String, Int) -> Unit,
+    onCopyText: (String) -> Unit,
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val strings = LocalDesktopStrings.current
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-    ) {
-        Surface(
-            modifier = Modifier.widthIn(max = 720.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-            } else {
-                MaterialTheme.colorScheme.surface
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showDeleteOptions by remember { mutableStateOf(false) }
+    val versionGroup = message.versionGroup
+    val versions = remember(versionGroup, uiState.messages) {
+        if (versionGroup != null && !isUser) {
+            uiState.messages.filter { it.versionGroup == versionGroup }.sortedBy { it.versionIndex }
+        } else {
+            emptyList()
+        }
+    }
+    val currentVersionIndex = if (versions.isNotEmpty() && versionGroup != null) {
+        (uiState.activeVersions[versionGroup] ?: (versions.size - 1)).coerceIn(0, versions.lastIndex)
+    } else {
+        0
+    }
+    val durationMillis = messageDurationMillis(message)
+    val durationText = formatDuration(durationMillis)
+    val timeText = remember(message.createdAt) { formatMessageTime(message.createdAt) }
+    val bubbleShape = RoundedCornerShape(
+        topStart = 16.dp,
+        topEnd = 16.dp,
+        bottomStart = if (isUser) 16.dp else 4.dp,
+        bottomEnd = if (isUser) 4.dp else 16.dp,
+    )
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = strings.paintDeleteMessageTitle,
+            message = strings.paintDeleteMessageConfirm,
+            confirmText = strings.paintDeleteMessage,
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = {
+                showDeleteConfirm = false
+                onDelete()
             },
-            border = if (isUser) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        )
+    }
+    if (showDeleteOptions) {
+        DeleteVersionDialog(
+            onDismiss = { showDeleteOptions = false },
+            onDeleteCurrent = {
+                showDeleteOptions = false
+                onDelete()
+            },
+            onDeleteAll = {
+                showDeleteOptions = false
+                versionGroup?.let(onDeleteVersionGroup)
+            },
+        )
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+    ) {
+        Text(
+            text = timeText,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+        )
+        Surface(
+            modifier = Modifier.widthIn(max = if (isUser) 520.dp else 760.dp),
+            shape = bubbleShape,
+            color = if (isUser) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+            },
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (message.messageContent.isNotBlank()) {
-                    Text(
-                        text = message.messageContent.localizedPaintText(strings),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                if (message.status == MessageStatus.GENERATING) {
-                    GeneratingBlock()
-                }
-                if (message.status == MessageStatus.ERROR) {
-                    StatusText(strings.paintFailed, MaterialTheme.colorScheme.error)
-                }
-                if (message.status == MessageStatus.CANCELLED) {
-                    StatusText(strings.paintCancelled, MaterialTheme.colorScheme.onSurfaceVariant)
+                    SelectionContainer {
+                        Text(
+                            text = message.messageContent.localizedPaintText(strings),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (message.status == MessageStatus.ERROR) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    }
                 }
                 if (message.images.isNotEmpty()) {
                     FlowRow(
@@ -558,74 +813,310 @@ private fun PaintMessageRow(
                                 onPreviewImage = onPreviewImage,
                                 onAddToWallpapers = onAddToWallpapers,
                                 onSetWallpaper = onSetWallpaper,
+                                onCopyText = onCopyText,
                             )
                         }
                     }
                 }
-                if (!isUser) {
-                    MessageActions(
-                        message = message,
-                        uiState = uiState,
-                        onRegenerate = onRegenerate,
-                        onDelete = onDelete,
-                        onSwitchVersion = onSwitchVersion,
+                if (!isUser && message.status == MessageStatus.GENERATING) {
+                    GeneratingBlock(
+                        aspectRatio = message.generationAspectRatio ?: uiState.selectedAspectRatio,
+                        text = strings.paintGeneratingTime(durationText),
                     )
                 }
+                if (!isUser && message.status != MessageStatus.GENERATING) {
+                    StatusText(
+                        text = strings.paintStatusTime(message.status.localizedStatus(strings), durationText),
+                        color = if (message.status == MessageStatus.ERROR) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                        },
+                    )
+                }
+                if (!isUser && message.generationModel != null) {
+                    GenerationParamsBadge(message)
+                }
             }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        if (isUser) {
+            UserMessageActions(
+                message = message,
+                onCopy = { onCopyText(message.messageContent) },
+                onEdit = onEdit,
+                onDelete = { showDeleteConfirm = true },
+            )
+        } else {
+            AssistantMessageActions(
+                message = message,
+                versions = versions,
+                currentVersionIndex = currentVersionIndex,
+                imagesAvailable = message.images.any { it.localPath?.let { path -> localImageFile(path)?.isFile } == true || it.base64Data != null },
+                onAddImages = { onAddImages(message.images) },
+                onCopy = { onCopyText(message.messageContent) },
+                onRegenerate = onRegenerate,
+                onDownload = { message.images.firstOrNull()?.localPath?.let { saveImageAs(it, strings.paintSaveAs) } },
+                onDelete = {
+                    if (versions.size > 1) showDeleteOptions = true else showDeleteConfirm = true
+                },
+                onSwitchVersion = onSwitchVersion,
+            )
         }
     }
 }
 
 @Composable
-private fun MessageActions(
+private fun AssistantMessageActions(
     message: PaintMessage,
-    uiState: PaintUiState,
+    versions: List<PaintMessage>,
+    currentVersionIndex: Int,
+    imagesAvailable: Boolean,
+    onAddImages: () -> Unit,
+    onCopy: () -> Unit,
     onRegenerate: () -> Unit,
+    onDownload: () -> Unit,
     onDelete: () -> Unit,
     onSwitchVersion: (String, Int) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     val versionGroup = message.versionGroup
-    val versions = if (versionGroup != null) {
-        uiState.messages.filter { it.versionGroup == versionGroup }.sortedBy { it.versionIndex }
-    } else {
-        emptyList()
-    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (versions.size > 1) {
-            val currentIndex = (uiState.activeVersions[versionGroup] ?: message.versionIndex).coerceIn(0, versions.lastIndex)
-            TextButton(
-                onClick = { onSwitchVersion(versionGroup!!, (currentIndex - 1).coerceAtLeast(0)) },
-                enabled = currentIndex > 0,
-            ) { Text("<") }
-            Text(
-                text = "${currentIndex + 1}/${versions.size}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            VersionSwitcher(
+                current = currentVersionIndex + 1,
+                total = versions.size,
+                onPrevious = { versionGroup?.let { onSwitchVersion(it, currentVersionIndex - 1) } },
+                onNext = { versionGroup?.let { onSwitchVersion(it, currentVersionIndex + 1) } },
             )
-            TextButton(
-                onClick = { onSwitchVersion(versionGroup!!, (currentIndex + 1).coerceAtMost(versions.lastIndex)) },
-                enabled = currentIndex < versions.lastIndex,
-            ) { Text(">") }
+            Spacer(modifier = Modifier.width(4.dp))
         }
-        TextButton(onClick = onRegenerate, enabled = message.status != MessageStatus.GENERATING) {
-            Text(strings.paintRegenerate)
+        if (imagesAvailable) {
+            MessageIconButton(Icons.Default.Add, strings.paintAddReferenceImage, onClick = onAddImages)
         }
-        TextButton(onClick = onDelete) {
-            Text(strings.paintDeleteMessage, color = MaterialTheme.colorScheme.error)
+        if (message.messageContent.isNotBlank()) {
+            MessageIconButton(Icons.Default.ContentCopy, strings.paintCopyMessage, onClick = onCopy)
+        }
+        MessageIconButton(
+            icon = Icons.Default.Refresh,
+            label = strings.paintRegenerate,
+            onClick = onRegenerate,
+        )
+        if (imagesAvailable) {
+            MessageIconButton(Icons.Default.Download, strings.paintSaveAs, onClick = onDownload)
+        }
+        MessageIconButton(
+            icon = Icons.Default.Delete,
+            label = strings.paintDeleteMessage,
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
+            onClick = onDelete,
+        )
+    }
+}
+
+@Composable
+private fun UserMessageActions(
+    message: PaintMessage,
+    onCopy: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (message.messageContent.isNotBlank()) {
+            MessageIconButton(Icons.Default.ContentCopy, strings.paintCopyMessage, onClick = onCopy)
+        }
+        MessageIconButton(Icons.Default.Edit, strings.paintEditMessage, onClick = onEdit)
+        MessageIconButton(
+            icon = Icons.Default.Delete,
+            label = strings.paintDeleteMessage,
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
+            onClick = onDelete,
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun MessageIconButton(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onClick: () -> Unit,
+) {
+    var hovered by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(shape)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (hovered && enabled) 0.50f else 0f,
+                ),
+            )
+            .onPointerEvent(PointerEventType.Enter) { hovered = true }
+            .onPointerEvent(PointerEventType.Exit) { hovered = false }
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(16.dp),
+            tint = if (enabled) tint else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+        )
+    }
+}
+
+@Composable
+private fun VersionSwitcher(
+    current: Int,
+    total: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        MessageVersionButton(
+            icon = Icons.Default.ChevronLeft,
+            enabled = current > 1,
+            onClick = onPrevious,
+        )
+        Text(
+            text = "$current / $total",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+        )
+        MessageVersionButton(
+            icon = Icons.Default.ChevronRight,
+            enabled = current < total,
+            onClick = onNext,
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun MessageVersionButton(
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    var hovered by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (hovered && enabled) 0.50f else 0f,
+                ),
+            )
+            .onPointerEvent(PointerEventType.Enter) { hovered = true }
+            .onPointerEvent(PointerEventType.Exit) { hovered = false }
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+            },
+        )
+    }
+}
+
+@Composable
+private fun GenerationParamsBadge(message: PaintMessage) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        message.generationModel?.let { GenerationParamChip(it.displayName) }
+        if (message.generationModel?.isGpt == true) {
+            message.generationGptSize?.let { GenerationParamChip(gptSizeLabel(it, LocalDesktopStrings.current)) }
+            message.generationGptQuality?.let { GenerationParamChip(gptQualityLabel(it, LocalDesktopStrings.current)) }
+        } else {
+            message.generationAspectRatio?.let { GenerationParamChip(it.displayName) }
+            message.generationResolution?.let { GenerationParamChip(it.displayName) }
         }
     }
 }
 
 @Composable
+private fun GenerationParamChip(text: String) {
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f)),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun DeleteVersionDialog(
+    onDismiss: () -> Unit,
+    onDeleteCurrent: () -> Unit,
+    onDeleteAll: () -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.paintDeleteMessageTitle) },
+        text = { Text(strings.paintDeleteVersionHint) },
+        confirmButton = {
+            TextButton(onClick = onDeleteAll) {
+                Text(strings.paintDeleteAllVersions, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDeleteCurrent) {
+                Text(strings.paintDeleteCurrentVersion)
+            }
+        },
+    )
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun PaintImageThumb(
     image: PaintImage,
     onPreviewImage: (String) -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
+    onCopyText: (String) -> Unit,
 ) {
     val path = image.localPath
     var menuExpanded by remember { mutableStateOf(false) }
@@ -635,6 +1126,11 @@ private fun PaintImageThumb(
                 .width(220.dp)
                 .aspectRatio(if (image.width > 0 && image.height > 0) image.width.toFloat() / image.height else 1f)
                 .clip(RoundedCornerShape(10.dp))
+                .onPointerEvent(PointerEventType.Press) { event ->
+                    if (event.button == PointerButton.Secondary) {
+                        menuExpanded = true
+                    }
+                }
                 .clickable(enabled = path != null) { path?.let(onPreviewImage) },
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
@@ -644,20 +1140,13 @@ private fun PaintImageThumb(
             }
         }
         if (path != null) {
-            Surface(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            ) {
-                Text("...", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-            }
             ImageActionMenu(
                 expanded = menuExpanded,
                 onDismiss = { menuExpanded = false },
                 path = path,
                 onAddToWallpapers = onAddToWallpapers,
                 onSetWallpaper = onSetWallpaper,
+                onCopyText = onCopyText,
             )
         }
     }
@@ -670,6 +1159,7 @@ private fun ImageActionMenu(
     path: String,
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
+    onCopyText: (String) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     DropdownMenu(
@@ -683,7 +1173,14 @@ private fun ImageActionMenu(
             text = { Text(strings.paintCopyPath) },
             onClick = {
                 onDismiss()
-                copyToClipboard(path)
+                onCopyText(path)
+            },
+        )
+        DropdownMenuItem(
+            text = { Text(strings.paintOpenImageLocation) },
+            onClick = {
+                onDismiss()
+                openImageLocation(path)
             },
         )
         DropdownMenuItem(
@@ -721,7 +1218,16 @@ private fun PaintInputBar(
 ) {
     val strings = LocalDesktopStrings.current
     var showAttachMenu by remember { mutableStateOf(false) }
-    val canSend = uiState.isGenerating || uiState.promptText.isNotBlank() || uiState.selectedImages.isNotEmpty()
+    val scope = rememberCoroutineScope()
+    val hasDraft = uiState.promptText.isNotBlank() || uiState.selectedImages.isNotEmpty()
+    val canSubmit = hasDraft || uiState.isGenerating
+    fun addClipboardImages(): Boolean {
+        val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
+        if (remaining <= 0) return false
+        val images = clipboardSelectedImages(remaining)
+        images.forEach { onEvent(PaintEvent.AddImage(it)) }
+        return images.isNotEmpty()
+    }
     fun addReferenceImages() {
         pickImagePaths(strings.paintAddReferenceImage)
             .take(uiState.selectedModel.maxImages - uiState.selectedImages.size)
@@ -816,7 +1322,11 @@ private fun PaintInputBar(
                                 title = strings.paintSelectRatio,
                                 selectedLabel = uiState.selectedAspectRatio.displayName,
                                 options = AspectRatio.availableFor(uiState.selectedModel).map { option ->
-                                    PaintOption(option.displayName) { onEvent(PaintEvent.SelectAspectRatio(option)) }
+                                    PaintOption(
+                                        label = option.displayName,
+                                        onClick = { onEvent(PaintEvent.SelectAspectRatio(option)) },
+                                        leadingContent = { DesktopRatioIcon(option) },
+                                    )
                                 },
                             )
                         )
@@ -848,7 +1358,16 @@ private fun PaintInputBar(
                                 title = strings.paintSelectResolution,
                                 selectedLabel = gptSizeLabel(uiState.selectedGptSize, strings),
                                 options = GptImageSize.entries.map { option ->
-                                    PaintOption(gptSizeLabel(option, strings)) { onEvent(PaintEvent.SelectGptSize(option)) }
+                                    PaintOption(
+                                        label = gptSizeLabel(option, strings),
+                                        leadingContent = if (option == GptImageSize.AUTO) {
+                                            null
+                                        } else {
+                                            { DesktopGptSizeIcon(option) }
+                                        },
+                                    ) {
+                                        onEvent(PaintEvent.SelectGptSize(option))
+                                    }
                                 },
                             )
                         )
@@ -906,7 +1425,20 @@ private fun PaintInputBar(
                     BasicTextField(
                         value = uiState.promptText,
                         onValueChange = { onEvent(PaintEvent.UpdatePrompt(it)) },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp, max = 170.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 58.dp, max = 170.dp)
+                            .onPreviewKeyEvent { event ->
+                                if (
+                                    event.type == KeyEventType.KeyDown &&
+                                    event.isCtrlPressed &&
+                                    event.key == Key.V
+                                ) {
+                                    addClipboardImages()
+                                } else {
+                                    false
+                                }
+                            },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         decorationBox = { inner ->
@@ -923,7 +1455,7 @@ private fun PaintInputBar(
                         },
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -968,7 +1500,10 @@ private fun PaintInputBar(
                                             text = { Text(strings.paintAddReferenceImage) },
                                             onClick = {
                                                 showAttachMenu = false
-                                                addReferenceImages()
+                                                scope.launch {
+                                                    delay(120)
+                                                    addReferenceImages()
+                                                }
                                             },
                                         )
                                     }
@@ -976,33 +1511,50 @@ private fun PaintInputBar(
                             }
                         }
                         if (uiState.promptText.isNotBlank()) {
-                            TextButton(onClick = { onEvent(PaintEvent.UpdatePrompt("")) }) {
-                                Text(strings.paintClear)
+                            Surface(
+                                onClick = { onEvent(PaintEvent.UpdatePrompt("")) },
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            ) {
+                                Text(
+                                    text = strings.paintClear,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.weight(1f))
                         Surface(
                             onClick = {
-                                if (uiState.isGenerating) {
-                                    onEvent(PaintEvent.StopGeneration)
-                                } else if (canSend) {
+                                if (hasDraft) {
                                     onEvent(PaintEvent.SendMessage)
+                                } else if (uiState.isGenerating) {
+                                    onEvent(PaintEvent.StopGeneration)
                                 }
                             },
                             modifier = Modifier.size(44.dp),
                             shape = CircleShape,
                             color = when {
+                                hasDraft -> MaterialTheme.colorScheme.primary
                                 uiState.isGenerating -> MaterialTheme.colorScheme.error
-                                canSend -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
                             },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = if (uiState.isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
-                                    contentDescription = if (uiState.isGenerating) strings.paintStop else strings.paintSend,
-                                    modifier = Modifier.size(if (uiState.isGenerating) 19.dp else 22.dp),
-                                    tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                    imageVector = if (!hasDraft && uiState.isGenerating) {
+                                        Icons.Default.Stop
+                                    } else {
+                                        Icons.Default.ArrowUpward
+                                    },
+                                    contentDescription = if (!hasDraft && uiState.isGenerating) {
+                                        strings.paintStop
+                                    } else {
+                                        strings.paintSend
+                                    },
+                                    modifier = Modifier.size(if (!hasDraft && uiState.isGenerating) 19.dp else 22.dp),
+                                    tint = if (canSubmit) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                 )
                             }
                         }
@@ -1191,6 +1743,7 @@ private data class PaintOptionDialog(
 
 private data class PaintOption(
     val label: String,
+    val leadingContent: (@Composable () -> Unit)? = null,
     val onClick: () -> Unit,
 )
 
@@ -1219,6 +1772,10 @@ private fun PaintOptionDialogView(
                             .padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        option.leadingContent?.let { content ->
+                            content()
+                            Spacer(modifier = Modifier.width(14.dp))
+                        }
                         Text(
                             text = option.label,
                             modifier = Modifier.weight(1f),
@@ -1237,6 +1794,55 @@ private fun PaintOptionDialogView(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DesktopRatioIcon(
+    aspectRatio: AspectRatio,
+    modifier: Modifier = Modifier,
+) {
+    val parts = aspectRatio.value.split(":")
+    val widthRatio = parts.getOrNull(0)?.toFloatOrNull() ?: 1f
+    val heightRatio = parts.getOrNull(1)?.toFloatOrNull() ?: 1f
+    DesktopRatioShape(widthRatio = widthRatio, heightRatio = heightRatio, modifier = modifier)
+}
+
+@Composable
+private fun DesktopGptSizeIcon(
+    size: GptImageSize,
+    modifier: Modifier = Modifier,
+) {
+    val parts = size.value.split("x")
+    val widthRatio = parts.getOrNull(0)?.toFloatOrNull() ?: 1f
+    val heightRatio = parts.getOrNull(1)?.toFloatOrNull() ?: 1f
+    DesktopRatioShape(widthRatio = widthRatio, heightRatio = heightRatio, modifier = modifier)
+}
+
+@Composable
+private fun DesktopRatioShape(
+    widthRatio: Float,
+    heightRatio: Float,
+    modifier: Modifier = Modifier,
+) {
+    val ratio = (widthRatio / heightRatio).takeIf { it > 0f } ?: 1f
+    val maxSize = 22.dp
+    val width = if (ratio >= 1f) maxSize else maxSize * ratio
+    val height = if (ratio >= 1f) maxSize / ratio else maxSize
+
+    Box(
+        modifier = modifier.size(maxSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = width, height = height)
+                .border(
+                    width = 1.5.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+                    shape = RoundedCornerShape(2.dp),
+                ),
+        )
     }
 }
 
@@ -1304,17 +1910,34 @@ private fun PaintImagePreviewDialog(
 }
 
 @Composable
-private fun GeneratingBlock() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+private fun GeneratingBlock(
+    aspectRatio: AspectRatio,
+    text: String,
+) {
+    val ratio = aspectRatio.value.split(":").let { parts ->
+        val width = parts.getOrNull(0)?.toFloatOrNull() ?: 1f
+        val height = parts.getOrNull(1)?.toFloatOrNull() ?: 1f
+        (width / height).coerceIn(0.45f, 2.25f)
+    }
+    Surface(
+        modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth().aspectRatio(ratio),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        Text(
-            text = LocalDesktopStrings.current.paintGenerating,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }
 
@@ -1324,37 +1947,96 @@ private fun StatusText(text: String, color: Color) {
 }
 
 @Composable
+private fun messageDurationMillis(message: PaintMessage): Long {
+    return if (message.status == MessageStatus.GENERATING) {
+        val nowMillis by produceState(initialValue = System.currentTimeMillis(), message.id) {
+            while (true) {
+                value = System.currentTimeMillis()
+                delay(1000)
+            }
+        }
+        (nowMillis - message.createdAt).coerceAtLeast(0L)
+    } else {
+        (message.updatedAt - message.createdAt).coerceAtLeast(0L)
+    }
+}
+
+private fun formatDuration(durationMillis: Long): String {
+    val totalSeconds = (durationMillis / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return if (minutes > 0) {
+        "${minutes}m ${seconds}s"
+    } else {
+        "${seconds}s"
+    }
+}
+
+private fun formatMessageTime(timestamp: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(java.util.Date(timestamp))
+}
+
+private fun MessageStatus.localizedStatus(strings: DesktopStrings): String {
+    return when (this) {
+        MessageStatus.SUCCESS -> strings.paintStatusDone
+        MessageStatus.ERROR -> strings.paintFailed
+        MessageStatus.CANCELLED -> strings.paintCancelled
+        MessageStatus.PENDING -> strings.paintStatusPending
+        MessageStatus.GENERATING -> strings.paintGenerating
+    }
+}
+
+@Composable
 private fun FileImage(
     path: String,
     modifier: Modifier,
     contentScale: ContentScale,
 ) {
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, path) {
-        value = withContext(Dispatchers.IO) { loadImageBitmap(path, 1400) }
+    val imageState by produceState<ImageLoadState>(initialValue = ImageLoadState.Loading, path) {
+        value = ImageLoadState.Loading
+        value = withContext(Dispatchers.IO) {
+            loadImageBitmap(path, 1400)?.let(ImageLoadState::Success) ?: ImageLoadState.Error
+        }
     }
     Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        val image = bitmap
-        if (image != null) {
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = contentScale,
-            )
-        } else {
-            Text(LocalDesktopStrings.current.missingFile, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when (val state = imageState) {
+            ImageLoadState.Loading -> Unit
+            ImageLoadState.Error -> {
+                Text(LocalDesktopStrings.current.missingFile, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            is ImageLoadState.Success -> {
+                Image(
+                    bitmap = state.bitmap,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = contentScale,
+                )
+            }
         }
     }
 }
 
+private sealed interface ImageLoadState {
+    data object Loading : ImageLoadState
+    data object Error : ImageLoadState
+    data class Success(val bitmap: ImageBitmap) : ImageLoadState
+}
+
 private fun List<PaintMessage>.visibleWithActiveVersions(activeVersions: Map<String, Int>): List<PaintMessage> {
+    val userMessageTimes = filter { it.senderIdentity == SenderIdentity.USER }.associate { it.id to it.createdAt }
     val versionGroups = filter { it.versionGroup != null }.groupBy { it.versionGroup!! }
     return filter { message ->
         val group = message.versionGroup ?: return@filter true
         val versions = versionGroups[group].orEmpty().sortedBy { it.versionIndex }
         val activePosition = (activeVersions[group] ?: versions.lastIndex).coerceIn(0, versions.lastIndex)
         versions.getOrNull(activePosition)?.id == message.id
-    }
+    }.sortedBy { message ->
+        if (message.senderIdentity == SenderIdentity.ASSISTANT && message.parentUserMessageId != null) {
+            userMessageTimes[message.parentUserMessageId] ?: message.createdAt
+        } else {
+            message.createdAt
+        }
+    }.asReversed()
 }
 
 private fun selectedImageFromPath(path: String): SelectedImage {
@@ -1366,6 +2048,81 @@ private fun selectedImageFromPath(path: String): SelectedImage {
         width = width,
         height = height,
     )
+}
+
+private fun clipboardSelectedImages(maxCount: Int): List<SelectedImage> {
+    if (maxCount <= 0) return emptyList()
+    return runCatching {
+        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+        when {
+            clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor) -> {
+                @Suppress("UNCHECKED_CAST")
+                val files = clipboard.getData(DataFlavor.javaFileListFlavor) as? List<File>
+                files.orEmpty()
+                    .asSequence()
+                    .flatMap { collectImageFiles(it) }
+                    .take(maxCount)
+                    .map { selectedImageFromPath(it.absolutePath) }
+                    .toList()
+            }
+            clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor) -> {
+                val image = clipboard.getData(DataFlavor.imageFlavor) as? AwtImage ?: return@runCatching emptyList()
+                val file = saveClipboardImage(image) ?: return@runCatching emptyList()
+                listOf(selectedImageFromPath(file.absolutePath))
+            }
+            else -> emptyList()
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveClipboardImage(image: AwtImage): File? {
+    val width = image.getWidth(null)
+    val height = image.getHeight(null)
+    if (width <= 0 || height <= 0) return null
+    val buffered = if (image is BufferedImage) {
+        image
+    } else {
+        BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB).also { target ->
+            val graphics: Graphics2D = target.createGraphics()
+            try {
+                graphics.drawImage(image, 0, 0, null)
+            } finally {
+                graphics.dispose()
+            }
+        }
+    }
+    val directory = DesktopAiPaintStoragePaths.clipboardCacheDirectory()
+    val file = File(directory, "clipboard-${UUID.randomUUID()}.png")
+    return if (ImageIO.write(buffered, "png", file)) file else null
+}
+
+private fun selectedImageFromPaintImage(image: PaintImage): SelectedImage? {
+    val file = image.localPath
+        ?.let(::localImageFile)
+        ?.takeIf { it.isFile }
+        ?: return null
+    val (width, height) = if (image.width > 0 && image.height > 0) {
+        image.width to image.height
+    } else {
+        imageDimensions(file.absolutePath)
+    }
+    return SelectedImage(
+        id = UUID.randomUUID().toString(),
+        uri = file.absolutePath,
+        mimeType = image.mimeType,
+        width = width,
+        height = height,
+    )
+}
+
+private fun localImageFile(path: String): File? {
+    return runCatching {
+        if (path.startsWith("file:", ignoreCase = true)) {
+            File(URI(path))
+        } else {
+            File(path.removePrefix("file://"))
+        }
+    }.getOrNull()
 }
 
 private fun pickImagePaths(title: String): List<String> {
@@ -1481,4 +2238,15 @@ private fun saveImageAs(sourcePath: String, title: String) {
     val directory = dialog.directory ?: return
     val file = dialog.file ?: return
     source.copyTo(File(directory, file), overwrite = true)
+}
+
+private fun openImageLocation(path: String) {
+    val file = localImageFile(path)?.takeIf { it.exists() } ?: return
+    runCatching {
+        if (System.getProperty("os.name").contains("windows", ignoreCase = true)) {
+            ProcessBuilder("explorer.exe", "/select,${file.absolutePath}").start()
+        } else {
+            Desktop.getDesktop().open(file.parentFile)
+        }
+    }
 }

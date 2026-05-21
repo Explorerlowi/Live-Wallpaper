@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Base64
+import java.util.prefs.Preferences
 import javax.imageio.ImageIO
 import kotlin.random.Random
 
@@ -65,11 +66,12 @@ class DesktopPaintViewModel(
     private val _uiState = MutableStateFlow(PaintUiState())
     val uiState: StateFlow<PaintUiState> = _uiState.asStateFlow()
 
-    private val _scrollToBottomEvent = MutableSharedFlow<Unit>()
-    val scrollToBottomEvent: SharedFlow<Unit> = _scrollToBottomEvent.asSharedFlow()
+    private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
+    val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
 
     private val sessionDrafts = mutableMapOf<String, SessionDraft>()
     private val generationTasks = mutableMapOf<String, GenerationTask>()
+    private val draftPreferences = Preferences.userRoot().node(DRAFT_PREFERENCES_NODE)
     private var currentSessionId: String? = null
     private var messagesCollectJob: Job? = null
 
@@ -201,7 +203,7 @@ class DesktopPaintViewModel(
         viewModelScope.launch {
             saveCurrentDraft()
             repository.getSession(sessionId).first()?.let { session ->
-                val draft = sessionDrafts[session.id] ?: SessionDraft()
+                val draft = sessionDrafts[session.id] ?: loadPersistedDraft(session.id)
                 _uiState.update {
                     it.copy(
                         currentSession = session,
@@ -232,6 +234,7 @@ class DesktopPaintViewModel(
         viewModelScope.launch {
             repository.deleteSession(sessionId)
             sessionDrafts.remove(sessionId)
+            clearPersistedDraft(sessionId)
             if (_uiState.value.currentSession?.id == sessionId) {
                 currentSessionId = null
                 messagesCollectJob?.cancel()
@@ -328,15 +331,17 @@ class DesktopPaintViewModel(
             )
 
             repository.addMessage(userMessage)
-            repository.addMessage(assistantMessage)
             if (session.title == "新会话" && prompt.isNotBlank()) {
                 repository.updateSession(session.copy(title = prompt.take(28)))
             }
-            sessionDrafts[session.id] = SessionDraft()
+            clearDraft(session.id)
             _uiState.update {
                 it.copy(promptText = "", selectedImages = emptyList(), error = null)
             }
-            _scrollToBottomEvent.emit(Unit)
+            _scrollToBottomEvent.emit(true)
+            delay(650)
+            repository.addMessage(assistantMessage)
+            _scrollToBottomEvent.emit(true)
             launchGeneration(profile, assistantMessage, prompt, userImagesForApi)
         }
     }
@@ -532,6 +537,7 @@ class DesktopPaintViewModel(
                 }
             )
         }
+        saveCurrentDraft()
     }
 
     private fun updatePrompt(text: String) {
@@ -567,6 +573,7 @@ class DesktopPaintViewModel(
                 selectedImages = state.selectedImages.take(model.maxImages)
             )
         }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
@@ -633,7 +640,7 @@ class DesktopPaintViewModel(
 
     private fun scrollToBottom() {
         viewModelScope.launch {
-            _scrollToBottomEvent.emit(Unit)
+            _scrollToBottomEvent.emit(false)
             _uiState.update { it.copy(newMessageCount = 0, isAtBottom = true) }
         }
     }
@@ -679,6 +686,7 @@ class DesktopPaintViewModel(
                 }
             )
         }
+        saveCurrentDraft()
     }
 
     private fun syncGeneratingState() {
@@ -697,10 +705,40 @@ class DesktopPaintViewModel(
 
     private fun saveCurrentDraft() {
         val sessionId = _uiState.value.currentSession?.id ?: return
-        sessionDrafts[sessionId] = SessionDraft(
+        val draft = SessionDraft(
             promptText = _uiState.value.promptText,
             selectedImages = _uiState.value.selectedImages
         )
+        sessionDrafts[sessionId] = draft
+        savePersistedDraft(sessionId, draft)
+    }
+
+    private fun clearDraft(sessionId: String) {
+        sessionDrafts[sessionId] = SessionDraft()
+        clearPersistedDraft(sessionId)
+    }
+
+    private fun loadPersistedDraft(sessionId: String): SessionDraft {
+        val raw = draftPreferences.get(draftKey(sessionId), "")
+        if (raw.isBlank()) return SessionDraft()
+        return decodeDraft(raw).let { draft ->
+            SessionDraft(
+                promptText = draft.promptText,
+                selectedImages = draft.selectedImages.filter { File(it.uri.removePrefix("file://")).isFile }
+            )
+        }
+    }
+
+    private fun savePersistedDraft(sessionId: String, draft: SessionDraft) {
+        if (draft.promptText.isBlank() && draft.selectedImages.isEmpty()) {
+            clearPersistedDraft(sessionId)
+            return
+        }
+        draftPreferences.put(draftKey(sessionId), encodeDraft(draft))
+    }
+
+    private fun clearPersistedDraft(sessionId: String) {
+        draftPreferences.remove(draftKey(sessionId))
     }
 
     private fun PaintImage.asApiReferenceImage(): PaintImage? {
@@ -728,4 +766,52 @@ class DesktopPaintViewModel(
 
     private fun generateId(): String =
         "${System.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
+
+    private fun encodeDraft(draft: SessionDraft): String {
+        val encoder = Base64.getUrlEncoder().withoutPadding()
+        return buildString {
+            appendLine(DRAFT_FORMAT_VERSION)
+            appendLine(encoder.encodeToString(draft.promptText.toByteArray(Charsets.UTF_8)))
+            draft.selectedImages.forEach { image ->
+                append(image.id)
+                append('\t')
+                append(encoder.encodeToString(image.uri.toByteArray(Charsets.UTF_8)))
+                append('\t')
+                append(encoder.encodeToString(image.mimeType.toByteArray(Charsets.UTF_8)))
+                append('\t')
+                append(image.width)
+                append('\t')
+                append(image.height)
+                appendLine()
+            }
+        }
+    }
+
+    private fun decodeDraft(raw: String): SessionDraft {
+        return runCatching {
+            val lines = raw.lineSequence().toList()
+            if (lines.size < 2 || lines[0] != DRAFT_FORMAT_VERSION) return@runCatching SessionDraft()
+            val decoder = Base64.getUrlDecoder()
+            val prompt = String(decoder.decode(lines[1]), Charsets.UTF_8)
+            val images = lines.drop(2).mapNotNull { line ->
+                val parts = line.split('\t')
+                if (parts.size != 5) return@mapNotNull null
+                SelectedImage(
+                    id = parts[0],
+                    uri = String(decoder.decode(parts[1]), Charsets.UTF_8),
+                    mimeType = String(decoder.decode(parts[2]), Charsets.UTF_8),
+                    width = parts[3].toIntOrNull() ?: 0,
+                    height = parts[4].toIntOrNull() ?: 0
+                )
+            }
+            SessionDraft(promptText = prompt, selectedImages = images)
+        }.getOrDefault(SessionDraft())
+    }
+
+    private fun draftKey(sessionId: String): String = "paint_draft_$sessionId"
+
+    private companion object {
+        private const val DRAFT_PREFERENCES_NODE = "com.example.livewallpaper.desktop"
+        private const val DRAFT_FORMAT_VERSION = "v1"
+    }
 }

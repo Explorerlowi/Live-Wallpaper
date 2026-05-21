@@ -70,10 +70,10 @@ private suspend fun processImageResponse(
 }
 
 private fun desktopAiPaintRoot(): File =
-    File(System.getProperty("user.home"), ".live-wallpaper/aipaint").apply { mkdirs() }
+    DesktopAiPaintStoragePaths.generatedImagesDirectory()
 
 private fun desktopAiPaintCacheRoot(): File =
-    File(System.getProperty("java.io.tmpdir"), "live-wallpaper-aipaint").apply { mkdirs() }
+    DesktopAiPaintStoragePaths.responseCacheDirectory()
 
 private suspend fun streamResponseToFile(response: HttpResponse, file: File) {
     withTimeout(STREAM_TIMEOUT_MS) {

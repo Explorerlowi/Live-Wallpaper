@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -96,6 +97,7 @@ import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.core.design.theme.AppDesignTheme
 import com.example.livewallpaper.core.design.theme.AppDesignThemeStyle
+import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
 import com.example.livewallpaper.di.appModule
 import com.example.livewallpaper.di.platformModule
 import com.example.livewallpaper.desktop.paint.AiPaintWorkspace
@@ -118,9 +120,11 @@ import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
-import java.util.concurrent.ConcurrentHashMap
+import java.util.LinkedHashMap
 import javax.imageio.ImageIO
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -1516,6 +1520,103 @@ private fun SettingsContent(
                 onCheckedChange = { onEvent(SettingsEvent.UpdateRestoreSlideshowOnLaunch(it)) },
             )
         }
+
+        SettingsGroupCard(title = strings.paintStorageSettings) {
+            var generatedImagesPath by remember { mutableStateOf(DesktopAiPaintStoragePaths.generatedImagesPath()) }
+            var responseCachePath by remember { mutableStateOf(DesktopAiPaintStoragePaths.responseCachePath()) }
+            var clipboardCachePath by remember { mutableStateOf(DesktopAiPaintStoragePaths.clipboardCachePath()) }
+
+            PathSettingRow(
+                title = strings.paintGeneratedImagesDirectory,
+                path = generatedImagesPath,
+                onChoose = {
+                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, generatedImagesPath)?.let { path ->
+                        DesktopAiPaintStoragePaths.setGeneratedImagesPath(path)
+                        generatedImagesPath = DesktopAiPaintStoragePaths.generatedImagesPath()
+                    }
+                },
+                onReset = {
+                    DesktopAiPaintStoragePaths.resetGeneratedImagesPath()
+                    generatedImagesPath = DesktopAiPaintStoragePaths.generatedImagesPath()
+                },
+            )
+            SettingsItemDivider()
+            PathSettingRow(
+                title = strings.paintResponseCacheDirectory,
+                path = responseCachePath,
+                onChoose = {
+                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, responseCachePath)?.let { path ->
+                        DesktopAiPaintStoragePaths.setResponseCachePath(path)
+                        responseCachePath = DesktopAiPaintStoragePaths.responseCachePath()
+                    }
+                },
+                onReset = {
+                    DesktopAiPaintStoragePaths.resetResponseCachePath()
+                    responseCachePath = DesktopAiPaintStoragePaths.responseCachePath()
+                },
+            )
+            SettingsItemDivider()
+            PathSettingRow(
+                title = strings.paintClipboardCacheDirectory,
+                path = clipboardCachePath,
+                onChoose = {
+                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, clipboardCachePath)?.let { path ->
+                        DesktopAiPaintStoragePaths.setClipboardCachePath(path)
+                        clipboardCachePath = DesktopAiPaintStoragePaths.clipboardCachePath()
+                    }
+                },
+                onReset = {
+                    DesktopAiPaintStoragePaths.resetClipboardCachePath()
+                    clipboardCachePath = DesktopAiPaintStoragePaths.clipboardCachePath()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PathSettingRow(
+    title: String,
+    path: String,
+    onChoose: () -> Unit,
+    onReset: () -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    val scope = rememberCoroutineScope()
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = path,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    delay(220)
+                    onChoose()
+                }
+            },
+        ) {
+            Text(strings.chooseFolder)
+        }
+        TextButton(onClick = onReset) {
+            Text(strings.reset)
+        }
     }
 }
 
@@ -1895,17 +1996,24 @@ private fun Thumbnail(
 }
 
 private object ThumbnailMemoryCache {
-    private val cache = ConcurrentHashMap<String, ImageBitmap>()
+    private const val MAX_ENTRIES = 96
+    private val cache = object : LinkedHashMap<String, ImageBitmap>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
+            return size > MAX_ENTRIES
+        }
+    }
 
+    @Synchronized
     fun get(path: String): ImageBitmap? = cache[path]
 
+    @Synchronized
     fun put(path: String, bitmap: ImageBitmap) {
         cache[path] = bitmap
     }
 }
 
 private fun loadImageBitmap(path: String): ImageBitmap? {
-    return loadImageBitmap(path, maxDimension = 900)
+    return loadImageBitmap(path, maxDimension = 480)
 }
 
 private const val PREVIEW_MIN_SCALE = 0.25f
