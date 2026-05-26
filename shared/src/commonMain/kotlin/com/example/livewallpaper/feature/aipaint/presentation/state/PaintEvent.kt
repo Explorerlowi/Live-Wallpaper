@@ -34,6 +34,7 @@ sealed class PaintEvent {
     data class UpdatePrompt(val text: String) : PaintEvent()
     data class AddImage(val image: SelectedImage) : PaintEvent()
     data class RemoveImage(val imageId: String) : PaintEvent()
+    data class ReorderImages(val images: List<SelectedImage>) : PaintEvent()
     data object ClearImages : PaintEvent()
     
     // 设置操作

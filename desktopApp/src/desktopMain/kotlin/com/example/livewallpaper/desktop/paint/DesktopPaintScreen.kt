@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -35,12 +36,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -103,6 +105,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -143,9 +146,11 @@ import java.awt.Graphics2D
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
 import java.awt.Image as AwtImage
 import java.awt.image.BufferedImage
 import java.io.File
+import java.io.IOException
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -153,9 +158,14 @@ import java.util.UUID
 import javax.imageio.ImageIO
 import kotlin.math.roundToInt
 import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+import androidx.compose.ui.draganddrop.DragAndDropTransferable
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.DragData
 import androidx.compose.ui.draganddrop.dragData
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 fun AiPaintWorkspace(
@@ -181,6 +191,13 @@ fun AiPaintWorkspace(
         copyToClipboard(text)
         showCopyFeedback = true
         copyFeedbackSerial += 1
+    }
+
+    fun copyImageWithFeedback(path: String) {
+        if (copyImageToClipboard(path)) {
+            showCopyFeedback = true
+            copyFeedbackSerial += 1
+        }
     }
 
     LaunchedEffect(listState) {
@@ -318,6 +335,7 @@ fun AiPaintWorkspace(
                                     viewModel.onEvent(PaintEvent.SwitchMessageVersion(group, index))
                                 },
                                 onCopyText = ::copyWithFeedback,
+                                onCopyImage = ::copyImageWithFeedback,
                             )
                         }
                     }
@@ -712,6 +730,7 @@ private fun PaintMessageRow(
     onEdit: () -> Unit,
     onSwitchVersion: (String, Int) -> Unit,
     onCopyText: (String) -> Unit,
+    onCopyImage: (String) -> Unit,
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val strings = LocalDesktopStrings.current
@@ -790,17 +809,23 @@ private fun PaintMessageRow(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (message.messageContent.isNotBlank()) {
-                    SelectionContainer {
-                        Text(
-                            text = message.messageContent.localizedPaintText(strings),
-                            style = MaterialTheme.typography.bodyMedium,
+                    val displayText = message.messageContent.localizedPaintText(strings)
+                    var selectableText by remember(message.id, displayText) {
+                        mutableStateOf(TextFieldValue(displayText))
+                    }
+                    BasicTextField(
+                        value = selectableText,
+                        onValueChange = { selectableText = it },
+                        readOnly = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
                             color = if (message.status == MessageStatus.ERROR) {
                                 MaterialTheme.colorScheme.error
                             } else {
                                 MaterialTheme.colorScheme.onSurface
                             },
-                        )
-                    }
+                        ),
+                        cursorBrush = SolidColor(Color.Transparent),
+                    )
                 }
                 if (message.images.isNotEmpty()) {
                     FlowRow(
@@ -814,6 +839,7 @@ private fun PaintMessageRow(
                                 onAddToWallpapers = onAddToWallpapers,
                                 onSetWallpaper = onSetWallpaper,
                                 onCopyText = onCopyText,
+                                onCopyImage = onCopyImage,
                             )
                         }
                     }
@@ -1117,6 +1143,7 @@ private fun PaintImageThumb(
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
+    onCopyImage: (String) -> Unit,
 ) {
     val path = image.localPath
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1125,19 +1152,33 @@ private fun PaintImageThumb(
             modifier = Modifier
                 .width(220.dp)
                 .aspectRatio(if (image.width > 0 && image.height > 0) image.width.toFloat() / image.height else 1f)
-                .clip(RoundedCornerShape(10.dp))
-                .onPointerEvent(PointerEventType.Press) { event ->
-                    if (event.button == PointerButton.Secondary) {
-                        menuExpanded = true
-                    }
-                }
-                .clickable(enabled = path != null) { path?.let(onPreviewImage) },
+                .clip(RoundedCornerShape(10.dp)),
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
         ) {
             if (path != null) {
                 FileImage(path, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
+        }
+        if (path != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .dragAndDropSource {
+                        dragTransferDataForFile(path)
+                    }
+                    .onPointerEvent(PointerEventType.Press) { event ->
+                        if (event.button == PointerButton.Secondary) {
+                            menuExpanded = true
+                        }
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onPreviewImage(path) },
+                    ),
+            )
         }
         if (path != null) {
             ImageActionMenu(
@@ -1147,6 +1188,7 @@ private fun PaintImageThumb(
                 onAddToWallpapers = onAddToWallpapers,
                 onSetWallpaper = onSetWallpaper,
                 onCopyText = onCopyText,
+                onCopyImage = onCopyImage,
             )
         }
     }
@@ -1160,6 +1202,7 @@ private fun ImageActionMenu(
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
+    onCopyImage: (String) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     DropdownMenu(
@@ -1169,6 +1212,13 @@ private fun ImageActionMenu(
         containerColor = MaterialTheme.colorScheme.surface,
         shadowElevation = 12.dp,
     ) {
+        DropdownMenuItem(
+            text = { Text(strings.paintCopyImage) },
+            onClick = {
+                onDismiss()
+                onCopyImage(path)
+            },
+        )
         DropdownMenuItem(
             text = { Text(strings.paintCopyPath) },
             onClick = {
@@ -1221,6 +1271,13 @@ private fun PaintInputBar(
     val scope = rememberCoroutineScope()
     val hasDraft = uiState.promptText.isNotBlank() || uiState.selectedImages.isNotEmpty()
     val canSubmit = hasDraft || uiState.isGenerating
+    val referenceListState = rememberLazyListState()
+    val referenceReorderState = rememberReorderableLazyListState(referenceListState) { from, to ->
+        val reordered = uiState.selectedImages.toMutableList()
+        val moved = reordered.removeAt(from.index)
+        reordered.add(to.index, moved)
+        onEvent(PaintEvent.ReorderImages(reordered))
+    }
     fun addClipboardImages(): Boolean {
         val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
         if (remaining <= 0) return false
@@ -1256,33 +1313,36 @@ private fun PaintInputBar(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (uiState.selectedImages.isNotEmpty()) {
-            Row(
+            LazyRow(
+                state = referenceListState,
                 modifier = Modifier.widthIn(max = 1080.dp).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                uiState.selectedImages.forEach { selected ->
-                    Box {
-                        Surface(
-                            modifier = Modifier.size(62.dp).clip(RoundedCornerShape(8.dp)).clickable {
-                                onPreviewImage(selected.uri)
-                            },
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                        ) {
-                            FileImage(selected.uri, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
-                        Surface(
-                            onClick = { onEvent(PaintEvent.RemoveImage(selected.id)) },
-                            modifier = Modifier.align(Alignment.TopEnd).size(20.dp),
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.64f),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp),
-                                    tint = Color.White,
-                                )
+                items(uiState.selectedImages, key = { it.id }) { selected ->
+                    ReorderableItem(referenceReorderState, key = selected.id) { _ ->
+                        Box(modifier = Modifier.longPressDraggableHandle()) {
+                            Surface(
+                                modifier = Modifier.size(62.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                                    onPreviewImage(selected.uri)
+                                },
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                FileImage(selected.uri, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            }
+                            Surface(
+                                onClick = { onEvent(PaintEvent.RemoveImage(selected.id)) },
+                                modifier = Modifier.align(Alignment.TopEnd).size(20.dp),
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.64f),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = Color.White,
+                                    )
+                                }
                             }
                         }
                     }
@@ -2228,6 +2288,24 @@ private fun copyToClipboard(text: String) {
     Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
 }
 
+private fun copyImageToClipboard(path: String): Boolean {
+    val file = localImageFile(path)?.takeIf { it.isFile } ?: return false
+    val image = runCatching { ImageIO.read(file) }.getOrNull() ?: return false
+    return runCatching {
+        Toolkit.getDefaultToolkit().systemClipboard.setContents(ImageTransferable(image, file), null)
+        true
+    }.getOrDefault(false)
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+private fun dragTransferDataForFile(path: String): DragAndDropTransferData? {
+    val file = localImageFile(path)?.takeIf { it.isFile } ?: return null
+    return DragAndDropTransferData(
+        transferable = DragAndDropTransferable(FileTransferable(listOf(file))),
+        supportedActions = listOf(DragAndDropTransferAction.Copy),
+    )
+}
+
 private fun saveImageAs(sourcePath: String, title: String) {
     val source = File(sourcePath)
     if (!source.isFile) return
@@ -2247,6 +2325,38 @@ private fun openImageLocation(path: String) {
             ProcessBuilder("explorer.exe", "/select,${file.absolutePath}").start()
         } else {
             Desktop.getDesktop().open(file.parentFile)
+        }
+    }
+}
+
+private class FileTransferable(
+    private val files: List<File>,
+) : Transferable {
+    override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DataFlavor.javaFileListFlavor)
+
+    override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DataFlavor.javaFileListFlavor
+
+    override fun getTransferData(flavor: DataFlavor): Any {
+        if (!isDataFlavorSupported(flavor)) throw IOException("Unsupported data flavor: $flavor")
+        return files
+    }
+}
+
+private class ImageTransferable(
+    private val image: BufferedImage,
+    private val file: File,
+) : Transferable {
+    override fun getTransferDataFlavors(): Array<DataFlavor> =
+        arrayOf(DataFlavor.imageFlavor, DataFlavor.javaFileListFlavor)
+
+    override fun isDataFlavorSupported(flavor: DataFlavor): Boolean =
+        flavor == DataFlavor.imageFlavor || flavor == DataFlavor.javaFileListFlavor
+
+    override fun getTransferData(flavor: DataFlavor): Any {
+        return when (flavor) {
+            DataFlavor.imageFlavor -> image
+            DataFlavor.javaFileListFlavor -> listOf(file)
+            else -> throw IOException("Unsupported data flavor: $flavor")
         }
     }
 }

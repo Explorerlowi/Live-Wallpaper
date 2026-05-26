@@ -51,6 +51,9 @@ class SettingsViewModel(
                 is SettingsEvent.UpdateRestoreSlideshowOnLaunch -> {
                     repository.setRestoreSlideshowOnLaunch(event.enabled)
                 }
+                is SettingsEvent.UpdatePaintGenerationSuccessNotification -> {
+                    repository.setPaintGenerationSuccessNotification(event.enabled)
+                }
                 is SettingsEvent.CheckUpdate -> checkUpdate(event)
                 is SettingsEvent.ClearUpdateStatus -> _updateStatus.value = UpdateStatus.Idle
             }

@@ -135,6 +135,11 @@ class WallpaperRepositoryImpl(
         updateConfig(current.copy(restoreSlideshowOnLaunch = enabled))
     }
 
+    override suspend fun setPaintGenerationSuccessNotification(enabled: Boolean) {
+        val current = getCurrentConfig()
+        updateConfig(current.copy(paintGenerationSuccessNotification = enabled))
+    }
+
     override suspend fun checkAppUpdate(
         apiKey: String,
         appKey: String,

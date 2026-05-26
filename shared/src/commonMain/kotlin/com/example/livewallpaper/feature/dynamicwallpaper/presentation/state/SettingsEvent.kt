@@ -19,6 +19,7 @@ sealed interface SettingsEvent {
     data class UpdateThemeMode(val mode: ThemeMode) : SettingsEvent
     data class UpdateLaunchAtStartup(val enabled: Boolean) : SettingsEvent
     data class UpdateRestoreSlideshowOnLaunch(val enabled: Boolean) : SettingsEvent
+    data class UpdatePaintGenerationSuccessNotification(val enabled: Boolean) : SettingsEvent
     data class CheckUpdate(val apiKey: String, val appKey: String, val version: String, val build: Int) : SettingsEvent
     data object ClearUpdateStatus : SettingsEvent
 }

@@ -48,6 +48,12 @@ internal object DesktopPaintErrorText {
     const val GENERATION_FAILED = "__desktop_paint_generation_failed__"
 }
 
+data class DesktopPaintGenerationSuccess(
+    val sessionId: String,
+    val messageId: String,
+    val imageCount: Int
+)
+
 class DesktopPaintViewModel(
     private val repository: PaintRepository
 ) : ViewModel() {
@@ -68,6 +74,9 @@ class DesktopPaintViewModel(
 
     private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
     val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
+
+    private val _generationSuccessEvent = MutableSharedFlow<DesktopPaintGenerationSuccess>()
+    val generationSuccessEvent: SharedFlow<DesktopPaintGenerationSuccess> = _generationSuccessEvent.asSharedFlow()
 
     private val sessionDrafts = mutableMapOf<String, SessionDraft>()
     private val generationTasks = mutableMapOf<String, GenerationTask>()
@@ -113,6 +122,7 @@ class DesktopPaintViewModel(
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
+            is PaintEvent.ReorderImages -> reorderImages(event.images)
             PaintEvent.ClearImages -> clearImages()
             is PaintEvent.SelectModel -> selectModel(event.model)
             is PaintEvent.SelectAspectRatio -> selectAspectRatio(event.ratio)
@@ -448,6 +458,15 @@ class DesktopPaintViewModel(
             )
         )
         repository.getSession(assistantMessage.sessionId).first()?.let { repository.updateSession(it) }
+        if (images.isNotEmpty()) {
+            _generationSuccessEvent.emit(
+                DesktopPaintGenerationSuccess(
+                    sessionId = assistantMessage.sessionId,
+                    messageId = assistantMessage.id,
+                    imageCount = images.size
+                )
+            )
+        }
     }
 
     private fun stopGeneration() {
@@ -554,6 +573,13 @@ class DesktopPaintViewModel(
 
     private fun removeImage(imageId: String) {
         _uiState.update { state -> state.copy(selectedImages = state.selectedImages.filter { it.id != imageId }) }
+        saveCurrentDraft()
+    }
+
+    private fun reorderImages(images: List<SelectedImage>) {
+        val selectedIds = _uiState.value.selectedImages.map { it.id }.toSet()
+        if (images.map { it.id }.toSet() != selectedIds) return
+        _uiState.update { it.copy(selectedImages = images) }
         saveCurrentDraft()
     }
 
@@ -719,7 +745,18 @@ class DesktopPaintViewModel(
     }
 
     private fun loadPersistedDraft(sessionId: String): SessionDraft {
-        val raw = draftPreferences.get(draftKey(sessionId), "")
+        val raw = runCatching {
+            val chunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
+            if (chunkCount in 1..MAX_DRAFT_CHUNKS) {
+                buildString {
+                    repeat(chunkCount) { index ->
+                        append(draftPreferences.get(draftChunkKey(sessionId, index), ""))
+                    }
+                }
+            } else {
+                draftPreferences.get(draftKey(sessionId), "")
+            }
+        }.getOrDefault("")
         if (raw.isBlank()) return SessionDraft()
         return decodeDraft(raw).let { draft ->
             SessionDraft(
@@ -734,11 +771,36 @@ class DesktopPaintViewModel(
             clearPersistedDraft(sessionId)
             return
         }
-        draftPreferences.put(draftKey(sessionId), encodeDraft(draft))
+        val raw = encodeDraft(draft)
+        runCatching {
+            val oldChunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
+            val chunks = raw.chunked(DRAFT_VALUE_CHUNK_SIZE)
+            if (chunks.size == 1) {
+                draftPreferences.put(draftKey(sessionId), raw)
+                draftPreferences.remove(draftChunkCountKey(sessionId))
+            } else {
+                chunks.forEachIndexed { index, chunk ->
+                    draftPreferences.put(draftChunkKey(sessionId, index), chunk)
+                }
+                draftPreferences.putInt(draftChunkCountKey(sessionId), chunks.size)
+                draftPreferences.remove(draftKey(sessionId))
+            }
+            val staleChunkStart = if (chunks.size == 1) 0 else chunks.size
+            (staleChunkStart until oldChunkCount.coerceAtMost(MAX_DRAFT_CHUNKS)).forEach { index ->
+                draftPreferences.remove(draftChunkKey(sessionId, index))
+            }
+        }
     }
 
     private fun clearPersistedDraft(sessionId: String) {
-        draftPreferences.remove(draftKey(sessionId))
+        runCatching {
+            val chunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
+            draftPreferences.remove(draftKey(sessionId))
+            draftPreferences.remove(draftChunkCountKey(sessionId))
+            repeat(chunkCount.coerceIn(0, MAX_DRAFT_CHUNKS)) { index ->
+                draftPreferences.remove(draftChunkKey(sessionId, index))
+            }
+        }
     }
 
     private fun PaintImage.asApiReferenceImage(): PaintImage? {
@@ -810,8 +872,14 @@ class DesktopPaintViewModel(
 
     private fun draftKey(sessionId: String): String = "paint_draft_$sessionId"
 
+    private fun draftChunkCountKey(sessionId: String): String = "${draftKey(sessionId)}_parts"
+
+    private fun draftChunkKey(sessionId: String, index: Int): String = "${draftKey(sessionId)}_$index"
+
     private companion object {
         private const val DRAFT_PREFERENCES_NODE = "com.example.livewallpaper.desktop"
         private const val DRAFT_FORMAT_VERSION = "v1"
+        private const val DRAFT_VALUE_CHUNK_SIZE = 6000
+        private const val MAX_DRAFT_CHUNKS = 4096
     }
 }

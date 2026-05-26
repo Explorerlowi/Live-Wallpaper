@@ -25,7 +25,8 @@ data class WallpaperConfig(
     val languageTag: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val launchAtStartup: Boolean = false,
-    val restoreSlideshowOnLaunch: Boolean = false
+    val restoreSlideshowOnLaunch: Boolean = false,
+    val paintGenerationSuccessNotification: Boolean = true
 )
 
 /**

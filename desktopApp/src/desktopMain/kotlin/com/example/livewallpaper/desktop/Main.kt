@@ -89,6 +89,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.rememberDialogState
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
@@ -186,7 +187,18 @@ fun main() {
                 DesktopApp(
                     wallpaperController = wallpaperController,
                     runtimeSettings = runtimeSettings,
-                    onConfigChanged = { latestConfig = it }
+                    onConfigChanged = { latestConfig = it },
+                    onPaintGenerationSuccess = { imageCount ->
+                        if (latestConfig.paintGenerationSuccessNotification) {
+                            trayState.sendNotification(
+                                Notification(
+                                    title = strings.paintGenerationSuccessTitle,
+                                    message = strings.paintGenerationSuccessMessage(imageCount),
+                                    type = Notification.Type.Info,
+                                )
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -211,6 +223,7 @@ private fun DesktopApp(
     wallpaperController: DesktopWallpaperController,
     runtimeSettings: DesktopRuntimeSettings,
     onConfigChanged: (WallpaperConfig) -> Unit,
+    onPaintGenerationSuccess: (Int) -> Unit,
 ) {
     val viewModel = remember { GlobalContext.get().get<SettingsViewModel>() }
     val uiState by viewModel.uiState.collectAsState()
@@ -259,6 +272,7 @@ private fun DesktopApp(
                     onSetCurrentWallpaper = { path ->
                         wallpaperController.setWallpaper(path, uiState.config.scaleMode)
                     },
+                    onPaintGenerationSuccess = onPaintGenerationSuccess,
                 )
             }
         }
@@ -296,6 +310,7 @@ private fun DesktopShell(
     onStartSlideshow: () -> Unit,
     onStopSlideshow: () -> Unit,
     onSetCurrentWallpaper: (String) -> Unit,
+    onPaintGenerationSuccess: (Int) -> Unit,
 ) {
     val paintViewModel = remember { DesktopPaintViewModel(GlobalContext.get().get<PaintRepository>()) }
     val paintUiState by paintViewModel.uiState.collectAsState()
@@ -304,6 +319,14 @@ private fun DesktopShell(
     var showSettings by remember { mutableStateOf(false) }
     var selectedPath by remember(config.imageUris) { mutableStateOf(config.imageUris.firstOrNull()) }
     val effectiveSelectedPath = selectedPath?.takeIf { it in config.imageUris } ?: config.imageUris.firstOrNull()
+
+    LaunchedEffect(paintViewModel, config.paintGenerationSuccessNotification) {
+        paintViewModel.generationSuccessEvent.collect { event ->
+            if (config.paintGenerationSuccessNotification) {
+                onPaintGenerationSuccess(event.imageCount)
+            }
+        }
+    }
 
     if (showSettings) {
         SettingsDialog(
@@ -1518,6 +1541,13 @@ private fun SettingsContent(
                 description = strings.restoreSlideshowOnLaunchDescription,
                 checked = config.restoreSlideshowOnLaunch,
                 onCheckedChange = { onEvent(SettingsEvent.UpdateRestoreSlideshowOnLaunch(it)) },
+            )
+            SettingsItemDivider()
+            SwitchSettingRow(
+                title = strings.paintGenerationSuccessNotification,
+                description = strings.paintGenerationSuccessNotificationDescription,
+                checked = config.paintGenerationSuccessNotification,
+                onCheckedChange = { onEvent(SettingsEvent.UpdatePaintGenerationSuccessNotification(it)) },
             )
         }
 

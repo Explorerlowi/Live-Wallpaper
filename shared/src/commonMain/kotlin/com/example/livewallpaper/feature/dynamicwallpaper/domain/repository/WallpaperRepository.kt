@@ -25,5 +25,6 @@ interface WallpaperRepository {
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setLaunchAtStartup(enabled: Boolean)
     suspend fun setRestoreSlideshowOnLaunch(enabled: Boolean)
+    suspend fun setPaintGenerationSuccessNotification(enabled: Boolean)
     suspend fun checkAppUpdate(apiKey: String, appKey: String, buildVersion: String?, buildBuildVersion: Int?): com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
 }

@@ -111,6 +111,7 @@ class PaintViewModel(
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
             is PaintEvent.RemoveImage -> removeImage(event.imageId)
+            is PaintEvent.ReorderImages -> reorderImages(event.images)
             is PaintEvent.ClearImages -> clearImages()
             is PaintEvent.SelectModel -> selectModel(event.model)
             is PaintEvent.SelectAspectRatio -> selectAspectRatio(event.ratio)
@@ -426,6 +427,12 @@ class PaintViewModel(
         _uiState.update { 
             it.copy(selectedImages = it.selectedImages.filter { img -> img.id != imageId }) 
         }
+    }
+
+    private fun reorderImages(images: List<SelectedImage>) {
+        val selectedIds = _uiState.value.selectedImages.map { it.id }.toSet()
+        if (images.map { it.id }.toSet() != selectedIds) return
+        _uiState.update { it.copy(selectedImages = images) }
     }
 
     private fun clearImages() {
