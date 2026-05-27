@@ -377,6 +377,10 @@
     <string name="image_edit_shape_rect">Rectangle</string>
     <string name="image_edit_shape_circle">Circle</string>
     <string name="image_edit_shape_arrow">Arrow</string>
+    <string name="image_edit_add_text">Add Text</string>
+    <string name="image_edit_update_text">Edit Text</string>
+    <string name="image_edit_text_placeholder">Enter text to place on the image</string>
+    <string name="image_edit_text_size">%1$d pt</string>
     
     <!-- Cache Management -->
     <string name="cache_management">Cache Management</string>

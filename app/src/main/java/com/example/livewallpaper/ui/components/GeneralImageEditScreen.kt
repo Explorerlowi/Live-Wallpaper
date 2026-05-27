@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CheckCircleOutline
@@ -89,6 +90,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -118,6 +120,7 @@ import com.example.livewallpaper.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URL
@@ -173,7 +176,7 @@ private enum class DragAction {
 /**
  * 绘制操作记录（用于撤销）
  *
- * 矩形/圆形/箭头支持变换属性（偏移、缩放、旋转），用于选中后的交互编辑。
+ * 矩形/圆形/箭头/文字支持变换属性（偏移、缩放、旋转），用于选中后的交互编辑。
  */
 sealed class DrawOperation {
     /** 自由画笔路径 */
@@ -220,6 +223,17 @@ sealed class DrawOperation {
         val brushRadius: Float,
         val mosaicBlockSize: Int = 20
     ) : DrawOperation()
+
+    /** 文字叠加层（以 [center] 为变换中心） */
+    data class TextOverlay(
+        val text: String,
+        val center: Offset,
+        val color: Color,
+        val textSize: Float,
+        val translateOffset: Offset = Offset.Zero,
+        val scaleFactor: Float = 1f,
+        val rotationDeg: Float = 0f
+    ) : DrawOperation()
 }
 
 /**
@@ -254,6 +268,12 @@ private const val HANDLE_HIT_RADIUS = 22f
 private const val ROTATE_HIT_RADIUS = 40f
 /** 命中检测容差 */
 private const val HIT_TOLERANCE = 30f
+/** 默认文字大小（Canvas 坐标） */
+private const val DEFAULT_TEXT_SIZE = 48f
+/** 文字输入长度上限 */
+private const val MAX_TEXT_LENGTH = 100
+/** 长按文字后开始拖动的等待时间 */
+private const val TEXT_LONG_PRESS_MILLIS = 450L
 
 
 // ==================== 命中检测工具 ====================
@@ -307,6 +327,24 @@ private fun getTransformedCorners(
         rotate(hw, -hh),  // 右上
         rotate(hw, hh),   // 右下
         rotate(-hw, hh)   // 左下
+    )
+}
+
+/**
+ * 获取文字操作的选择边框，以便文字和图形使用相同的变换交互。
+ */
+private fun getTextCorners(op: DrawOperation.TextOverlay): List<Offset> {
+    val paint = createTextPaint(op.color, op.textSize)
+    val lines = op.text.lines()
+    val width = lines.maxOfOrNull { paint.measureText(it) }?.coerceAtLeast(1f) ?: 1f
+    val height = textLineHeight(paint) * lines.size.coerceAtLeast(1)
+    val halfSize = Offset(width / 2f + 12f, height / 2f + 12f)
+    return getTransformedCorners(
+        start = op.center - halfSize,
+        end = op.center + halfSize,
+        translate = op.translateOffset,
+        scaleFactor = op.scaleFactor,
+        rotationDeg = op.rotationDeg
     )
 }
 
@@ -365,21 +403,24 @@ private fun isPointNearEllipse(
 private fun hitTestOperation(
     canvasPos: Offset,
     drawHistory: List<DrawOperation>,
-    selectedBrushShape: BrushShape
+    selectedBrushShape: BrushShape,
+    textMode: Boolean
 ): Int {
-    // 只有在画圆/框/箭头模式下才可选中
-    if (selectedBrushShape == BrushShape.PEN) return -1
+    // 文字模式仅编辑文字；画笔的形状模式仅编辑矢量图形。
+    if (!textMode && selectedBrushShape == BrushShape.PEN) return -1
 
     for (i in drawHistory.indices.reversed()) {
         val op = drawHistory[i]
         val hit = when (op) {
             is DrawOperation.RectStroke -> {
+                if (textMode) continue
                 val corners = getTransformedCorners(
                     op.start, op.end, op.translateOffset, op.scaleFactor, op.rotationDeg
                 )
                 isPointInQuad(canvasPos, corners)
             }
             is DrawOperation.CircleStroke -> {
+                if (textMode) continue
                 isPointNearEllipse(
                     canvasPos, op.start, op.end,
                     op.translateOffset, op.scaleFactor, op.rotationDeg,
@@ -387,10 +428,12 @@ private fun hitTestOperation(
                 )
             }
             is DrawOperation.ArrowStroke -> {
+                if (textMode) continue
                 val s = op.start + op.translateOffset
                 val e = op.end + op.translateOffset
                 pointToSegmentDistance(canvasPos, s, e) < HIT_TOLERANCE
             }
+            is DrawOperation.TextOverlay -> textMode && isPointInQuad(canvasPos, getTextCorners(op))
             is DrawOperation.PenStroke -> false
             is DrawOperation.MosaicStroke -> false
         }
@@ -461,6 +504,19 @@ private fun hitTestHandle(
             }
             // 线段上 → 移动
             if (pointToSegmentDistance(canvasPos, s, e) < HIT_TOLERANCE) {
+                return DragAction.MOVE
+            }
+        }
+        is DrawOperation.TextOverlay -> {
+            val corners = getTextCorners(op)
+            if (distanceBetween(canvasPos, corners[2]) < handleHitRadius) {
+                return DragAction.SCALE
+            }
+            val rotatePos = getRotateHandlePosition(corners[0], corners)
+            if (distanceBetween(canvasPos, rotatePos) < ROTATE_HIT_RADIUS) {
+                return DragAction.ROTATE
+            }
+            if (isPointInQuad(canvasPos, corners)) {
                 return DragAction.MOVE
             }
         }
@@ -612,6 +668,12 @@ private fun ImageEditBody(
     var showShapePicker by remember { mutableStateOf(false) }
     val drawHistory = remember { mutableStateListOf<DrawOperation>() }
 
+    // ── 文字状态 ──
+    var isTextMode by remember { mutableStateOf(false) }
+    var showTextInputDialog by remember { mutableStateOf(false) }
+    var editingTextIndex by remember { mutableIntStateOf(-1) }
+    var textSize by remember { mutableFloatStateOf(DEFAULT_TEXT_SIZE) }
+
     // ── 马赛克状态 ──
     var isMosaicMode by remember { mutableStateOf(false) }
     var mosaicBrushRadius by remember { mutableFloatStateOf(30f) }
@@ -662,7 +724,7 @@ private fun ImageEditBody(
     var selectedIndex by remember { mutableIntStateOf(-1) }
 
     // 切换画笔形状或退出画笔模式时取消选中
-    LaunchedEffect(selectedBrushShape, isBrushMode, isMosaicMode) {
+    LaunchedEffect(selectedBrushShape, isBrushMode, isMosaicMode, isTextMode) {
         selectedIndex = -1
     }
 
@@ -757,8 +819,14 @@ private fun ImageEditBody(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isBrushMode || isMosaicMode) {
-                        Modifier.pointerInput(selectedBrushShape, selectedColor, isMosaicMode, mosaicBrushRadius) {
+                    if (isBrushMode || isMosaicMode || isTextMode) {
+                        Modifier.pointerInput(
+                            selectedBrushShape,
+                            selectedColor,
+                            isMosaicMode,
+                            isTextMode,
+                            mosaicBrushRadius
+                        ) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 down.consume()
@@ -805,9 +873,57 @@ private fun ImageEditBody(
                                     }
                                 } else {
                                     // ── 检测是否点击了某个可选中的图形 ──
-                                    val hitIdx = hitTestOperation(canvasDown, drawHistory, selectedBrushShape)
+                                    val hitIdx = hitTestOperation(
+                                        canvasDown,
+                                        drawHistory,
+                                        selectedBrushShape,
+                                        isTextMode
+                                    )
 
-                                    if (hitIdx >= 0 && hitIdx != selectedIndex) {
+                                    val hitText = drawHistory.getOrNull(hitIdx) as? DrawOperation.TextOverlay
+                                    if (isTextMode && hitText != null) {
+                                        selectedIndex = hitIdx
+
+                                        var previousCanvas = canvasDown
+                                        val releasedBeforeLongPress = withTimeoutOrNull(TEXT_LONG_PRESS_MILLIS) {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val pressed = event.changes.filter { it.pressed }
+                                                event.changes.forEach { it.consume() }
+                                                if (pressed.isEmpty()) return@withTimeoutOrNull true
+                                                previousCanvas = screenToCanvas(pressed.first().position)
+                                            }
+                                            @Suppress("UNREACHABLE_CODE")
+                                            false
+                                        } == true
+
+                                        if (releasedBeforeLongPress) {
+                                            selectedColor = hitText.color
+                                            textSize = hitText.textSize
+                                            editingTextIndex = hitIdx
+                                            showTextInputDialog = true
+                                        } else {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val pressed = event.changes.filter { it.pressed }
+                                                if (pressed.isEmpty()) break
+
+                                                val currentCanvas = screenToCanvas(pressed.first().position)
+                                                val delta = currentCanvas - previousCanvas
+                                                previousCanvas = currentCanvas
+                                                val operation = drawHistory[hitIdx]
+                                                drawHistory[hitIdx] = applyDragAction(
+                                                    operation,
+                                                    DragAction.MOVE,
+                                                    delta,
+                                                    currentCanvas
+                                                )
+                                                event.changes.forEach { it.consume() }
+                                            }
+                                            selectedColor = hitText.color
+                                            textSize = hitText.textSize
+                                        }
+                                    } else if (hitIdx >= 0 && hitIdx != selectedIndex) {
                                         // 选中新图形，消费本次手势
                                         selectedIndex = hitIdx
                                         // 等待抬起
@@ -848,7 +964,7 @@ private fun ImageEditBody(
                                             event.changes.forEach { it.consume() }
                                             if (pressed.isEmpty()) break
                                         }
-                                    } else {
+                                    } else if (!isTextMode) {
 
                                         currentDrawStart = canvasDown
                                         currentDrawEnd = canvasDown
@@ -917,6 +1033,7 @@ private fun ImageEditBody(
                                                             is DrawOperation.ArrowStroke ->
                                                                 distanceBetween(op.start, op.end) < minSize
                                                             is DrawOperation.MosaicStroke -> op.points.size < 2
+                                                            is DrawOperation.TextOverlay -> false
                                                         }
                                                         if (!tooSmall) {
                                                             drawHistory.add(op)
@@ -1070,85 +1187,150 @@ private fun ImageEditBody(
                     .fillMaxWidth()
                     .padding(bottom = navInset + 12.dp)
             ) {
-                // 形状选择面板
+                // 互斥工具使用固定高度的承载区，模式切换时不会互相挤占布局空间。
                 AnimatedVisibility(
-                    visible = isBrushMode && showShapePicker,
+                    visible = isBrushMode || isMosaicMode || isTextMode,
                     enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
                     exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
                 ) {
-                    ShapePickerBar(
-                        selectedShape = selectedBrushShape,
-                        onShapeSelected = { shape ->
-                            selectedBrushShape = shape
-                            showShapePicker = false
-                        }
-                    )
-                }
-
-                // 画笔工具栏（颜色选择 + 撤销）
-                AnimatedVisibility(
-                    visible = isBrushMode,
-                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
-                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
-                ) {
-                    BrushToolBar(
-                        selectedColor = selectedColor,
-                        canUndo = drawHistory.isNotEmpty(),
-                        onToggleShapePicker = { showShapePicker = !showShapePicker },
-                        onColorSelected = { selectedColor = it },
-                        onUndo = {
-                            if (drawHistory.isNotEmpty()) {
-                                if (selectedIndex == drawHistory.lastIndex) {
-                                    selectedIndex = -1
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(112.dp)
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isBrushMode && showShapePicker,
+                            enter = fadeIn(tween(150)),
+                            exit = fadeOut(tween(150)),
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        ) {
+                            ShapePickerBar(
+                                selectedShape = selectedBrushShape,
+                                onShapeSelected = { shape ->
+                                    selectedBrushShape = shape
+                                    showShapePicker = false
                                 }
-                                drawHistory.removeAt(drawHistory.lastIndex)
-                                if (selectedIndex >= drawHistory.size) {
-                                    selectedIndex = -1
-                                }
-                            }
+                            )
                         }
-                    )
-                }
 
-                // 马赛克工具栏（画笔大小 + 撤销）
-                AnimatedVisibility(
-                    visible = isMosaicMode,
-                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
-                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
-                ) {
-                    MosaicToolBar(
-                        brushRadius = mosaicBrushRadius,
-                        canUndo = drawHistory.isNotEmpty(),
-                        onBrushRadiusChange = { mosaicBrushRadius = it },
-                        onUndo = {
-                            if (drawHistory.isNotEmpty()) {
-                                drawHistory.removeAt(drawHistory.lastIndex)
-                            }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isBrushMode,
+                            enter = fadeIn(tween(150)),
+                            exit = fadeOut(tween(150)),
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        ) {
+                            BrushToolBar(
+                                selectedColor = selectedColor,
+                                canUndo = drawHistory.isNotEmpty(),
+                                onToggleShapePicker = { showShapePicker = !showShapePicker },
+                                onColorSelected = { selectedColor = it },
+                                onUndo = {
+                                    if (drawHistory.isNotEmpty()) {
+                                        if (selectedIndex == drawHistory.lastIndex) {
+                                            selectedIndex = -1
+                                        }
+                                        drawHistory.removeAt(drawHistory.lastIndex)
+                                        if (selectedIndex >= drawHistory.size) {
+                                            selectedIndex = -1
+                                        }
+                                    }
+                                }
+                            )
                         }
-                    )
+
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isMosaicMode,
+                            enter = fadeIn(tween(150)),
+                            exit = fadeOut(tween(150)),
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        ) {
+                            MosaicToolBar(
+                                brushRadius = mosaicBrushRadius,
+                                canUndo = drawHistory.isNotEmpty(),
+                                onBrushRadiusChange = { mosaicBrushRadius = it },
+                                onUndo = {
+                                    if (drawHistory.isNotEmpty()) {
+                                        drawHistory.removeAt(drawHistory.lastIndex)
+                                    }
+                                }
+                            )
+                        }
+
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isTextMode,
+                            enter = fadeIn(tween(150)),
+                            exit = fadeOut(tween(150)),
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        ) {
+                            TextToolBar(
+                                selectedColor = selectedColor,
+                                textSize = textSize,
+                                canUndo = drawHistory.isNotEmpty(),
+                                onColorSelected = { color ->
+                                    selectedColor = color
+                                    val operation = drawHistory.getOrNull(selectedIndex)
+                                    if (operation is DrawOperation.TextOverlay) {
+                                        drawHistory[selectedIndex] = operation.copy(color = color)
+                                    }
+                                },
+                                onTextSizeChange = { newSize ->
+                                    textSize = newSize
+                                    val operation = drawHistory.getOrNull(selectedIndex)
+                                    if (operation is DrawOperation.TextOverlay) {
+                                        drawHistory[selectedIndex] = operation.copy(textSize = newSize)
+                                    }
+                                },
+                                onAddText = {
+                                    editingTextIndex = -1
+                                    showTextInputDialog = true
+                                },
+                                onUndo = {
+                                    if (drawHistory.isNotEmpty()) {
+                                        drawHistory.removeAt(drawHistory.lastIndex)
+                                        selectedIndex = -1
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
 
                 // 主工具栏
                 EditBottomBar(
                     isBrushMode = isBrushMode,
                     isMosaicMode = isMosaicMode,
+                    isTextMode = isTextMode,
                     onToolSelected = { tool ->
                         when (tool) {
                             EditTool.BRUSH -> {
                                 isBrushMode = !isBrushMode
-                                if (isBrushMode) isMosaicMode = false
+                                if (isBrushMode) {
+                                    isMosaicMode = false
+                                    isTextMode = false
+                                }
                                 if (!isBrushMode) showShapePicker = false
                             }
                             EditTool.MOSAIC -> {
                                 isMosaicMode = !isMosaicMode
                                 if (isMosaicMode) {
                                     isBrushMode = false
+                                    isTextMode = false
                                     showShapePicker = false
                                 }
+                            }
+                            EditTool.TEXT -> {
+                                isTextMode = true
+                                isBrushMode = false
+                                isMosaicMode = false
+                                showShapePicker = false
+                                editingTextIndex = -1
+                                showTextInputDialog = true
+                                onToolSelected(tool)
                             }
                             EditTool.CROP -> {
                                 isBrushMode = false
                                 isMosaicMode = false
+                                isTextMode = false
                                 showShapePicker = false
                                 scope.launch {
                                     val bitmap = withContext(Dispatchers.IO) {
@@ -1170,7 +1352,6 @@ private fun ImageEditBody(
                                     }
                                 }
                             }
-                            else -> onToolSelected(tool)
                         }
                     },
                     onDone = {
@@ -1207,6 +1388,47 @@ private fun ImageEditBody(
             progress = saveProgress,
             modifier = Modifier.align(Alignment.Center)
         )
+
+        if (showTextInputDialog) {
+            TextInputDialog(
+                title = stringResource(
+                    if (editingTextIndex >= 0) R.string.image_edit_update_text
+                    else R.string.image_edit_add_text
+                ),
+                initialValue = (drawHistory.getOrNull(editingTextIndex) as? DrawOperation.TextOverlay)
+                    ?.text
+                    .orEmpty(),
+                label = stringResource(R.string.image_edit_text),
+                placeholder = stringResource(R.string.image_edit_text_placeholder),
+                confirmText = stringResource(R.string.confirm),
+                dismissText = stringResource(R.string.cancel),
+                singleLine = false,
+                maxLength = MAX_TEXT_LENGTH,
+                onConfirm = { value ->
+                    val existing = drawHistory.getOrNull(editingTextIndex) as? DrawOperation.TextOverlay
+                    if (existing != null) {
+                        drawHistory[editingTextIndex] = existing.copy(text = value)
+                        selectedIndex = editingTextIndex
+                    } else {
+                        val operation = DrawOperation.TextOverlay(
+                            text = value,
+                            center = Offset(
+                                containerSize.width / 2f,
+                                containerSize.height / 2f
+                            ),
+                            color = selectedColor,
+                            textSize = textSize
+                        )
+                        drawHistory.add(operation)
+                        selectedIndex = drawHistory.lastIndex
+                    }
+                },
+                onDismiss = {
+                    showTextInputDialog = false
+                    editingTextIndex = -1
+                }
+            )
+        }
 
         // ── 裁剪界面 ──
         if (isCropMode && cropBitmap != null) {
@@ -1340,6 +1562,38 @@ private fun applyDragAction(
                 else -> op
             }
         }
+        is DrawOperation.TextOverlay -> {
+            when (action) {
+                DragAction.MOVE -> op.copy(translateOffset = op.translateOffset + delta)
+                DragAction.SCALE -> {
+                    val center = op.center + op.translateOffset
+                    val previousDistance = distanceBetween(currentPos - delta, center)
+                    val currentDistance = distanceBetween(currentPos, center)
+                    if (previousDistance > 1f) {
+                        op.copy(
+                            scaleFactor = (op.scaleFactor * currentDistance / previousDistance)
+                                .coerceIn(0.3f, 5f)
+                        )
+                    } else {
+                        op
+                    }
+                }
+                DragAction.ROTATE -> {
+                    val center = op.center + op.translateOffset
+                    val previousAngle = atan2(
+                        (currentPos.y - delta.y) - center.y,
+                        (currentPos.x - delta.x) - center.x
+                    )
+                    val currentAngle = atan2(
+                        currentPos.y - center.y,
+                        currentPos.x - center.x
+                    )
+                    val angleDelta = Math.toDegrees((currentAngle - previousAngle).toDouble()).toFloat()
+                    op.copy(rotationDeg = op.rotationDeg + angleDelta)
+                }
+                else -> op
+            }
+        }
         else -> op
     }
 }
@@ -1398,6 +1652,7 @@ private fun DrawScope.drawOperationWithTransform(op: DrawOperation) {
             val e = op.end + op.translateOffset
             drawArrowShape(s, e, op.color, op.strokeWidth)
         }
+        is DrawOperation.TextOverlay -> drawTextOverlay(op)
     }
 }
 
@@ -1457,6 +1712,7 @@ private fun DrawScope.drawSelectionHandles(op: DrawOperation) {
                 style = Stroke(width = 1.5f)
             )
         }
+        is DrawOperation.TextOverlay -> drawShapeSelectionHandles(getTextCorners(op))
         else -> {}
     }
 }
@@ -1629,6 +1885,52 @@ private fun DrawScope.drawArrowShape(start: Offset, end: Offset, color: Color, s
         color = color,
         style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
     )
+}
+
+/**
+ * 创建预览与导出共用的文字画笔。
+ */
+private fun createTextPaint(color: Color, textSize: Float): android.graphics.Paint {
+    return android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = color.toArgb()
+        this.textSize = textSize
+        textAlign = android.graphics.Paint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        style = android.graphics.Paint.Style.FILL
+    }
+}
+
+private fun textLineHeight(paint: android.graphics.Paint): Float {
+    val metrics = paint.fontMetrics
+    return metrics.descent - metrics.ascent
+}
+
+private fun firstTextBaseline(paint: android.graphics.Paint, lineCount: Int): Float {
+    val metrics = paint.fontMetrics
+    val lineHeight = textLineHeight(paint)
+    return -((lineCount - 1) * lineHeight) / 2f - (metrics.ascent + metrics.descent) / 2f
+}
+
+/**
+ * 在预览 Canvas 上绘制支持变换的文字叠加层。
+ */
+private fun DrawScope.drawTextOverlay(op: DrawOperation.TextOverlay) {
+    val paint = createTextPaint(op.color, op.textSize)
+    val lines = op.text.lines()
+    val lineHeight = textLineHeight(paint)
+    val firstBaseline = firstTextBaseline(paint, lines.size)
+    val center = op.center + op.translateOffset
+
+    drawContext.canvas.nativeCanvas.apply {
+        save()
+        translate(center.x, center.y)
+        rotate(op.rotationDeg)
+        scale(op.scaleFactor, op.scaleFactor)
+        lines.forEachIndexed { index, line ->
+            drawText(line, 0f, firstBaseline + index * lineHeight, paint)
+        }
+        restore()
+    }
 }
 
 
@@ -1837,6 +2139,91 @@ private fun BrushToolBar(
 }
 
 /**
+ * 文字工具栏：添加文字、颜色、字号与撤销控制。
+ */
+@Composable
+private fun TextToolBar(
+    selectedColor: Color,
+    textSize: Float,
+    canUndo: Boolean,
+    onColorSelected: (Color) -> Unit,
+    onTextSizeChange: (Float) -> Unit,
+    onAddText: () -> Unit,
+    onUndo: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onAddText, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.image_edit_add_text),
+                    tint = Color.White
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BRUSH_COLORS.forEach { color ->
+                    val selected = color == selectedColor
+                    Box(
+                        modifier = Modifier
+                            .size(if (selected) 28.dp else 24.dp)
+                            .then(
+                                if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(4.dp))
+                                else Modifier
+                            )
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(color)
+                            .clickable(
+                                onClick = { onColorSelected(color) },
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            )
+                    )
+                }
+            }
+            IconButton(onClick = onUndo, enabled = canUndo, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Undo,
+                    contentDescription = stringResource(R.string.image_edit_undo),
+                    tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f)
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.image_edit_text_size, textSize.roundToInt()),
+                color = Color.White,
+                fontSize = 12.sp,
+                modifier = Modifier.width(72.dp)
+            )
+            Slider(
+                value = textSize,
+                onValueChange = onTextSizeChange,
+                valueRange = 20f..120f,
+                modifier = Modifier.weight(1f),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color(0xFF4A90D9),
+                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                )
+            )
+        }
+    }
+}
+
+/**
  * 保存进度/结果浮层
  */
 @Composable
@@ -1991,6 +2378,7 @@ private fun EditTopBar(
 private fun EditBottomBar(
     isBrushMode: Boolean,
     isMosaicMode: Boolean,
+    isTextMode: Boolean,
     onToolSelected: (EditTool) -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier
@@ -2018,6 +2406,7 @@ private fun EditBottomBar(
             ToolIcon(
                 icon = Icons.Default.TextFields,
                 label = stringResource(R.string.image_edit_text),
+                isActive = isTextMode,
                 onClick = { onToolSelected(EditTool.TEXT) }
             )
             ToolIcon(
@@ -2461,6 +2850,23 @@ private fun renderDrawingsOntoBitmap(
                     canvas.drawLine(e.x, e.y, x1, y1, paint)
                     canvas.drawLine(e.x, e.y, x2, y2, paint)
                 }
+            }
+
+            is DrawOperation.TextOverlay -> {
+                val center = toImgOffset(op.center + op.translateOffset)
+                val paint = createTextPaint(op.color, toImgLen(op.textSize))
+                val lines = op.text.lines()
+                val lineHeight = textLineHeight(paint)
+                val firstBaseline = firstTextBaseline(paint, lines.size)
+
+                canvas.save()
+                canvas.translate(center.x, center.y)
+                canvas.rotate(op.rotationDeg)
+                canvas.scale(op.scaleFactor, op.scaleFactor)
+                lines.forEachIndexed { index, line ->
+                    canvas.drawText(line, 0f, firstBaseline + index * lineHeight, paint)
+                }
+                canvas.restore()
             }
 
             is DrawOperation.MosaicStroke -> {

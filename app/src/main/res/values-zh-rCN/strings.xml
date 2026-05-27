@@ -379,6 +379,10 @@
     <string name="image_edit_shape_rect">方形</string>
     <string name="image_edit_shape_circle">圆形</string>
     <string name="image_edit_shape_arrow">箭头</string>
+    <string name="image_edit_add_text">添加文字</string>
+    <string name="image_edit_update_text">编辑文字</string>
+    <string name="image_edit_text_placeholder">输入要显示在图片上的文字</string>
+    <string name="image_edit_text_size">%1$d 磅</string>
     
     <!-- 缓存管理 -->
     <string name="cache_management">缓存管理</string>
