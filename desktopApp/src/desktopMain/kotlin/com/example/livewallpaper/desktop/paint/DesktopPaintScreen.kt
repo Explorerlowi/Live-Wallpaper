@@ -1322,9 +1322,14 @@ private fun PaintInputBar(
                     ReorderableItem(referenceReorderState, key = selected.id) { _ ->
                         Box(modifier = Modifier.longPressDraggableHandle()) {
                             Surface(
-                                modifier = Modifier.size(62.dp).clip(RoundedCornerShape(8.dp)).clickable {
-                                    onPreviewImage(selected.uri)
-                                },
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onPreviewImage(selected.uri) },
+                                    ),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                             ) {
                                 FileImage(selected.uri, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

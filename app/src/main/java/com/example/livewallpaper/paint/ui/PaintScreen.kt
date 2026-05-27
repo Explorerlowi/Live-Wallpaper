@@ -503,6 +503,7 @@ fun PaintScreen(
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
                     onPickImage = openImagePicker,
                     onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
+                    onReorderImages = { viewModel.onEvent(PaintEvent.ReorderImages(it)) },
                     onSettingsClick = { showApiSettings = true },
                     onModelClick = { showModelSelector = true },
                     onRatioClick = { showRatioSelector = true },
@@ -757,6 +758,7 @@ fun PaintScreen(
                     onStop = { viewModel.onEvent(PaintEvent.StopGeneration) },
                     onPickImage = openImagePicker,
                     onRemoveImage = { viewModel.onEvent(PaintEvent.RemoveImage(it)) },
+                    onReorderImages = { viewModel.onEvent(PaintEvent.ReorderImages(it)) },
                     onImagePreview = { images, index ->
                         previewImages = images
                         previewInitialIndex = index

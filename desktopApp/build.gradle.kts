@@ -46,7 +46,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
             packageName = "Live Wallpaper"
-            packageVersion = "1.0.48"
+            packageVersion = "1.0.49"
 
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icons/app.ico"))

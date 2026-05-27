@@ -7,6 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +47,8 @@ import com.example.livewallpaper.ui.components.ConfirmDialog
 import com.example.livewallpaper.ui.components.ImageSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 fun PaintBottomBar(
@@ -66,6 +71,7 @@ fun PaintBottomBar(
     onStop: () -> Unit,
     onPickImage: () -> Unit,
     onRemoveImage: (String) -> Unit,
+    onReorderImages: (List<SelectedImage>) -> Unit,
     onSettingsClick: () -> Unit,
     onModelClick: () -> Unit,
     onRatioClick: () -> Unit,
@@ -99,6 +105,12 @@ fun PaintBottomBar(
             )
         )
     }
+    val selectedImageListState = rememberLazyListState()
+    val selectedImageReorderState = rememberReorderableLazyListState(selectedImageListState) { from, to ->
+        onReorderImages(selectedImages.toMutableList().apply {
+            add(to.index, removeAt(from.index))
+        })
+    }
 
     LaunchedEffect(promptText) {
         if (promptText != promptFieldValue.text) {
@@ -131,14 +143,14 @@ fun PaintBottomBar(
             ) {
                 // 选中的图片预览
                 if (selectedImages.isNotEmpty()) {
-                    Row(
+                    LazyRow(
+                        state = selectedImageListState,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        selectedImages.forEachIndexed { index, image ->
+                        itemsIndexed(selectedImages, key = { _, image -> image.id }) { index, image ->
                             // 计算该图片的推荐比例
                             val imageRatio = remember(image.width, image.height) {
                                 if (image.width > 0 && image.height > 0) {
@@ -146,22 +158,28 @@ fun PaintBottomBar(
                                 } else null
                             }
                             
-                            SelectedImagePreview(
-                                image = image,
-                                recommendedRatio = imageRatio,
-                                isRatioSelected = imageRatio == selectedRatio,
-                                onRemove = { onRemoveImage(image.id) },
-                                onClick = { 
-                                    val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
-                                    onImagePreview?.invoke(allImages, index)
-                                },
-                                onRatioClick = {
-                                    imageRatio?.let { onApplyRatio?.invoke(it) }
+                            ReorderableItem(state = selectedImageReorderState, key = image.id) {
+                                Box(modifier = Modifier.longPressDraggableHandle()) {
+                                    SelectedImagePreview(
+                                        image = image,
+                                        recommendedRatio = imageRatio,
+                                        isRatioSelected = imageRatio == selectedRatio,
+                                        onRemove = { onRemoveImage(image.id) },
+                                        onClick = {
+                                            val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
+                                            onImagePreview?.invoke(allImages, index)
+                                        },
+                                        onRatioClick = {
+                                            imageRatio?.let { onApplyRatio?.invoke(it) }
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
                         // 添加参考图占位卡片
-                        AddReferenceImageCard(onClick = onPickImage)
+                        item {
+                            AddReferenceImageCard(onClick = onPickImage)
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
@@ -598,7 +616,11 @@ private fun SelectedImagePreview(
         Box(
             modifier = Modifier
                 .size(64.dp)
-                .clickable(onClick = onClick)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                )
         ) {
             AsyncImage(
                 model = image.uri,
@@ -669,6 +691,7 @@ fun FullScreenPromptOverlay(
     onStop: () -> Unit,
     onPickImage: () -> Unit,
     onRemoveImage: (String) -> Unit,
+    onReorderImages: (List<SelectedImage>) -> Unit,
     onImagePreview: ((List<ImageSource>, Int) -> Unit)?,
     onDismiss: () -> Unit
 ) {
@@ -685,6 +708,12 @@ fun FullScreenPromptOverlay(
     // 确认弹窗状态
     var showClearConfirm by remember { mutableStateOf(false) }
     var showStopConfirm by remember { mutableStateOf(false) }
+    val selectedImageListState = rememberLazyListState()
+    val selectedImageReorderState = rememberReorderableLazyListState(selectedImageListState) { from, to ->
+        onReorderImages(selectedImages.toMutableList().apply {
+            add(to.index, removeAt(from.index))
+        })
+    }
     
     LaunchedEffect(Unit) {
         textFieldValue = textFieldValue.copy(selection = TextRange(textFieldValue.text.length))
@@ -757,25 +786,31 @@ fun FullScreenPromptOverlay(
             }
 
             if (selectedImages.isNotEmpty()) {
-                Row(
+                LazyRow(
+                    state = selectedImageListState,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    selectedImages.forEachIndexed { index, image ->
-                        SelectedImagePreview(
-                            image = image,
-                            onRemove = { onRemoveImage(image.id) },
-                            onClick = {
-                                val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
-                                onImagePreview?.invoke(allImages, index)
+                    itemsIndexed(selectedImages, key = { _, image -> image.id }) { index, image ->
+                        ReorderableItem(state = selectedImageReorderState, key = image.id) {
+                            Box(modifier = Modifier.longPressDraggableHandle()) {
+                                SelectedImagePreview(
+                                    image = image,
+                                    onRemove = { onRemoveImage(image.id) },
+                                    onClick = {
+                                        val allImages = selectedImages.map { ImageSource.StringSource(it.uri) }
+                                        onImagePreview?.invoke(allImages, index)
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                     // 添加参考图占位卡片
-                    AddReferenceImageCard(onClick = onPickImage)
+                    item {
+                        AddReferenceImageCard(onClick = onPickImage)
+                    }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
