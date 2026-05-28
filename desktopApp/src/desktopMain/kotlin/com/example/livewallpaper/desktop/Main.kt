@@ -115,6 +115,7 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
+import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.RenderingHints
@@ -266,6 +267,7 @@ private fun DesktopApp(
                 DesktopShell(
                     config = uiState.config,
                     status = wallpaperStatus,
+                    runtimeSettings = runtimeSettings,
                     onEvent = viewModel::onEvent,
                     onStartSlideshow = { startSlideshow(uiState.config) },
                     onStopSlideshow = ::stopSlideshow,
@@ -306,6 +308,7 @@ private fun DesktopLiveWallpaperTheme(
 private fun DesktopShell(
     config: WallpaperConfig,
     status: DesktopWallpaperStatus,
+    runtimeSettings: DesktopRuntimeSettings,
     onEvent: (SettingsEvent) -> Unit,
     onStartSlideshow: () -> Unit,
     onStopSlideshow: () -> Unit,
@@ -315,7 +318,7 @@ private fun DesktopShell(
     val paintViewModel = remember { DesktopPaintViewModel(GlobalContext.get().get<PaintRepository>()) }
     val paintUiState by paintViewModel.uiState.collectAsState()
     var selectedSection by remember { mutableStateOf(DesktopSection.WALLPAPERS) }
-    var sidebarCollapsed by remember { mutableStateOf(false) }
+    var sidebarCollapsed by remember { mutableStateOf(runtimeSettings.isAiPaintSidebarCollapsed()) }
     var showSettings by remember { mutableStateOf(false) }
     var selectedPath by remember(config.imageUris) { mutableStateOf(config.imageUris.firstOrNull()) }
     val effectiveSelectedPath = selectedPath?.takeIf { it in config.imageUris } ?: config.imageUris.firstOrNull()
@@ -367,7 +370,10 @@ private fun DesktopShell(
             DesktopSection.AI_PAINT -> AiPaintWorkspace(
                 viewModel = paintViewModel,
                 isSidebarCollapsed = sidebarCollapsed,
-                onToggleSidebar = { sidebarCollapsed = !sidebarCollapsed },
+                onToggleSidebar = {
+                    sidebarCollapsed = !sidebarCollapsed
+                    runtimeSettings.setAiPaintSidebarCollapsed(sidebarCollapsed)
+                },
                 onAddImagesToWallpapers = { paths -> onEvent(SettingsEvent.AddImages(paths)) },
                 onSetWallpaperPath = onSetCurrentWallpaper,
             )
@@ -1559,12 +1565,14 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintGeneratedImagesDirectory,
                 path = generatedImagesPath,
+                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.generatedImagesDirectory()) },
                 onChoose = {
                     DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, generatedImagesPath)?.let { path ->
                         DesktopAiPaintStoragePaths.setGeneratedImagesPath(path)
                         generatedImagesPath = DesktopAiPaintStoragePaths.generatedImagesPath()
                     }
                 },
+                onOpen = { openDirectory(generatedImagesPath) },
                 onReset = {
                     DesktopAiPaintStoragePaths.resetGeneratedImagesPath()
                     generatedImagesPath = DesktopAiPaintStoragePaths.generatedImagesPath()
@@ -1574,12 +1582,15 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintResponseCacheDirectory,
                 path = responseCachePath,
+                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.responseCacheDirectory()) },
                 onChoose = {
                     DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, responseCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setResponseCachePath(path)
                         responseCachePath = DesktopAiPaintStoragePaths.responseCachePath()
                     }
                 },
+                onOpen = { openDirectory(responseCachePath) },
+                onClear = { DesktopAiPaintStoragePaths.clearResponseCache() },
                 onReset = {
                     DesktopAiPaintStoragePaths.resetResponseCachePath()
                     responseCachePath = DesktopAiPaintStoragePaths.responseCachePath()
@@ -1589,12 +1600,15 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintClipboardCacheDirectory,
                 path = clipboardCachePath,
+                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.clipboardCacheDirectory()) },
                 onChoose = {
                     DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, clipboardCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setClipboardCachePath(path)
                         clipboardCachePath = DesktopAiPaintStoragePaths.clipboardCachePath()
                     }
                 },
+                onOpen = { openDirectory(clipboardCachePath) },
+                onClear = { DesktopAiPaintStoragePaths.clearClipboardCache() },
                 onReset = {
                     DesktopAiPaintStoragePaths.resetClipboardCachePath()
                     clipboardCachePath = DesktopAiPaintStoragePaths.clipboardCachePath()
@@ -1608,11 +1622,18 @@ private fun SettingsContent(
 private fun PathSettingRow(
     title: String,
     path: String,
+    sizeProvider: () -> Long,
     onChoose: () -> Unit,
+    onOpen: () -> Unit,
     onReset: () -> Unit,
+    onClear: (() -> Long)? = null,
 ) {
     val strings = LocalDesktopStrings.current
     val scope = rememberCoroutineScope()
+    var refreshToken by remember(path) { mutableStateOf(0) }
+    val directorySize by produceState(initialValue = 0L, path, refreshToken) {
+        value = withContext(Dispatchers.IO) { sizeProvider() }
+    }
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1633,6 +1654,12 @@ private fun PathSettingRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Text(
+                text = strings.paintDirectorySize(formatBytes(directorySize)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                maxLines = 1,
+            )
         }
         OutlinedButton(
             onClick = {
@@ -1644,9 +1671,48 @@ private fun PathSettingRow(
         ) {
             Text(strings.chooseFolder)
         }
+        TextButton(onClick = onOpen) {
+            Text(strings.paintOpenDirectory)
+        }
+        if (onClear != null) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { onClear() }
+                        refreshToken += 1
+                    }
+                },
+            ) {
+                Text(strings.paintClearCache)
+            }
+        }
         TextButton(onClick = onReset) {
             Text(strings.reset)
         }
+    }
+}
+
+private fun openDirectory(path: String) {
+    runCatching {
+        val directory = File(path).absoluteFile.apply { mkdirs() }
+        if (Desktop.isDesktopSupported()) {
+            Desktop.getDesktop().open(directory)
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    val units = listOf("B", "KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unitIndex = 0
+    while (value >= 1024.0 && unitIndex < units.lastIndex) {
+        value /= 1024.0
+        unitIndex += 1
+    }
+    return if (unitIndex == 0) {
+        "${bytes} ${units[unitIndex]}"
+    } else {
+        "%.1f %s".format(java.util.Locale.US, value, units[unitIndex])
     }
 }
 

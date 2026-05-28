@@ -14,6 +14,9 @@ sealed class PaintEvent {
     // 消息操作
     data object SendMessage : PaintEvent()
     data object StopGeneration : PaintEvent()
+    data class CancelGeneration(val messageId: String) : PaintEvent()
+    data class DismissGenerationTask(val messageId: String) : PaintEvent()
+    data object ClearGenerationTaskHistory : PaintEvent()
     data object LoadMoreMessages : PaintEvent()
     data class DeleteMessage(val messageId: String) : PaintEvent()
     data class DeleteMessageVersion(val versionGroup: String) : PaintEvent()  // 删除整个版本组

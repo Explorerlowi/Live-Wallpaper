@@ -132,6 +132,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
+import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.Dispatchers
@@ -186,6 +187,7 @@ fun AiPaintWorkspace(
     var lastAutoScrollKey by remember { mutableStateOf<String?>(null) }
     var showCopyFeedback by remember { mutableStateOf(false) }
     var copyFeedbackSerial by remember { mutableStateOf(0) }
+    var pendingJumpMessageId by remember { mutableStateOf<String?>(null) }
 
     fun copyWithFeedback(text: String) {
         copyToClipboard(text)
@@ -249,11 +251,47 @@ fun AiPaintWorkspace(
                 uiState = uiState,
                 isSidebarCollapsed = isSidebarCollapsed,
                 onToggleSidebar = onToggleSidebar,
+                onEvent = viewModel::onEvent,
+                onJumpToTask = { task ->
+                    pendingJumpMessageId = task.messageId
+                    viewModel.onEvent(PaintEvent.DismissGenerationTask(task.messageId))
+                    if (currentSessionId != task.sessionId) {
+                        viewModel.onEvent(PaintEvent.SelectSession(task.sessionId))
+                    }
+                },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val messages = remember(uiState.messages, uiState.activeVersions) {
                     uiState.messages.visibleWithActiveVersions(uiState.activeVersions)
+                }
+                LaunchedEffect(currentSessionId, uiState.messages, uiState.activeVersions, pendingJumpMessageId) {
+                    val messageId = pendingJumpMessageId ?: return@LaunchedEffect
+                    val targetMessage = uiState.messages.firstOrNull { it.id == messageId } ?: return@LaunchedEffect
+                    targetMessage.versionGroup?.let { group ->
+                        if (uiState.activeVersions[group] != targetMessage.versionIndex) {
+                            viewModel.onEvent(PaintEvent.SwitchMessageVersion(group, targetMessage.versionIndex))
+                            return@LaunchedEffect
+                        }
+                    }
+                    val targetIndex = messages.indexOfFirst { it.id == messageId }
+                    if (targetIndex >= 0) {
+                        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= messages.size }
+                        if (pendingJumpMessageId != messageId) return@LaunchedEffect
+                        listState.scrollToItem(targetIndex)
+                        val latest = messages.firstOrNull()
+                        if (currentSessionId != null && latest != null) {
+                            lastRenderedSessionId = currentSessionId
+                            lastAutoScrollKey = listOf(
+                                currentSessionId,
+                                latest.id,
+                                latest.updatedAt,
+                                latest.status.name,
+                                latest.images.size,
+                            ).joinToString(":")
+                        }
+                        pendingJumpMessageId = null
+                    }
                 }
                 val latestMessage = messages.firstOrNull()
                 LaunchedEffect(
@@ -262,8 +300,10 @@ fun AiPaintWorkspace(
                     latestMessage?.updatedAt,
                     latestMessage?.status,
                     latestMessage?.images?.size,
+                    pendingJumpMessageId,
                 ) {
                     val sessionId = currentSessionId ?: return@LaunchedEffect
+                    if (pendingJumpMessageId != null) return@LaunchedEffect
                     val message = latestMessage ?: return@LaunchedEffect
                     val autoScrollKey = listOf(
                         sessionId,
@@ -273,6 +313,7 @@ fun AiPaintWorkspace(
                         message.images.size,
                     ).joinToString(":")
                     snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= messages.size }
+                    if (pendingJumpMessageId != null) return@LaunchedEffect
                     if (lastRenderedSessionId != sessionId) {
                         listState.scrollToItem(0)
                     } else if (lastAutoScrollKey != autoScrollKey) {
@@ -308,7 +349,11 @@ fun AiPaintWorkspace(
                     }
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .widthIn(max = 1136.dp)
+                            .fillMaxWidth()
+                            .fillMaxHeight(),
                         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 22.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.Bottom),
                         reverseLayout = true,
@@ -680,8 +725,12 @@ private fun PaintTopBar(
     uiState: PaintUiState,
     isSidebarCollapsed: Boolean,
     onToggleSidebar: () -> Unit,
+    onEvent: (PaintEvent) -> Unit,
+    onJumpToTask: (PaintGenerationTaskUiState) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
+    var showTasks by remember { mutableStateOf(false) }
+    val activeTaskCount = uiState.generationTasks.count { it.status == MessageStatus.GENERATING }
     Box(
         modifier = Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 24.dp),
     ) {
@@ -712,6 +761,130 @@ private fun PaintTopBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (uiState.generationTasks.isNotEmpty()) {
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                Surface(
+                    onClick = { showTasks = true },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (activeTaskCount > 0) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = strings.paintGenerationTaskCount(uiState.generationTasks.size),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                DropdownMenu(
+                    expanded = showTasks,
+                    onDismissRequest = { showTasks = false },
+                    shape = RoundedCornerShape(12.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 12.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.widthIn(min = 360.dp).padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = strings.paintGenerationTasks,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (uiState.generationTasks.any { it.status != MessageStatus.GENERATING }) {
+                            TextButton(
+                                onClick = {
+                                    showTasks = false
+                                    onEvent(PaintEvent.ClearGenerationTaskHistory)
+                                },
+                            ) {
+                                Text(strings.paintTaskClearHistory)
+                            }
+                        }
+                    }
+                    uiState.generationTasks.forEach { task ->
+                        GenerationTaskMenuItem(
+                            task = task,
+                            onJump = {
+                                showTasks = false
+                                onJumpToTask(task)
+                            },
+                            onCancel = {
+                                showTasks = false
+                                onEvent(PaintEvent.CancelGeneration(task.messageId))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenerationTaskMenuItem(
+    task: PaintGenerationTaskUiState,
+    onJump: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    Column(
+        modifier = Modifier.widthIn(min = 280.dp, max = 360.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = task.sessionTitle.ifBlank { strings.paintNewSession },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = listOf(
+                task.status.localizedStatus(strings),
+                task.modelName,
+                strings.paintTaskStartedAt(formatMessageTime(task.startedAt))
+            )
+                .filter { it.isNotBlank() }
+                .joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onJump) {
+                Text(strings.paintTaskJump)
+            }
+            if (task.status == MessageStatus.GENERATING) {
+                TextButton(onClick = onCancel) {
+                    Text(strings.paintTaskCancel, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
     }
 }
@@ -840,6 +1013,7 @@ private fun PaintMessageRow(
                                 onSetWallpaper = onSetWallpaper,
                                 onCopyText = onCopyText,
                                 onCopyImage = onCopyImage,
+                                onDelete = onDelete,
                             )
                         }
                     }
@@ -1144,6 +1318,7 @@ private fun PaintImageThumb(
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
     onCopyImage: (String) -> Unit,
+    onDelete: () -> Unit,
 ) {
     val path = image.localPath
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1189,6 +1364,7 @@ private fun PaintImageThumb(
                 onSetWallpaper = onSetWallpaper,
                 onCopyText = onCopyText,
                 onCopyImage = onCopyImage,
+                onDelete = onDelete,
             )
         }
     }
@@ -1203,6 +1379,7 @@ private fun ImageActionMenu(
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
     onCopyImage: (String) -> Unit,
+    onDelete: () -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     DropdownMenu(
@@ -1252,6 +1429,13 @@ private fun ImageActionMenu(
             onClick = {
                 onDismiss()
                 onSetWallpaper(path)
+            },
+        )
+        DropdownMenuItem(
+            text = { Text(strings.paintDeleteMessage, color = MaterialTheme.colorScheme.error) },
+            onClick = {
+                onDismiss()
+                onDelete()
             },
         )
     }
@@ -1590,6 +1774,14 @@ private fun PaintInputBar(
                             }
                         }
                         Spacer(modifier = Modifier.weight(1f))
+                        if (uiState.promptText.isNotEmpty()) {
+                            Text(
+                                text = uiState.promptText.length.toString(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+                                maxLines = 1,
+                            )
+                        }
                         Surface(
                             onClick = {
                                 if (hasDraft) {

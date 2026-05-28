@@ -3,6 +3,8 @@ package com.example.livewallpaper.desktop.paint
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.livewallpaper.core.error.AppResult
+import com.example.livewallpaper.core.platform.DesktopPaintDraft
+import com.example.livewallpaper.core.platform.DesktopPaintDraftStore
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfile
 import com.example.livewallpaper.feature.aipaint.domain.model.AspectRatio
 import com.example.livewallpaper.feature.aipaint.domain.model.GeneratedImageFile
@@ -19,6 +21,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
+import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.CancellationException
@@ -39,7 +42,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Base64
-import java.util.prefs.Preferences
 import javax.imageio.ImageIO
 import kotlin.random.Random
 
@@ -58,13 +60,9 @@ class DesktopPaintViewModel(
     private val repository: PaintRepository
 ) : ViewModel() {
 
-    private data class SessionDraft(
-        val promptText: String = "",
-        val selectedImages: List<SelectedImage> = emptyList()
-    )
-
     private data class GenerationTask(
         val sessionId: String,
+        val modelName: String,
         val startedAt: Long,
         val job: Job
     )
@@ -78,9 +76,9 @@ class DesktopPaintViewModel(
     private val _generationSuccessEvent = MutableSharedFlow<DesktopPaintGenerationSuccess>()
     val generationSuccessEvent: SharedFlow<DesktopPaintGenerationSuccess> = _generationSuccessEvent.asSharedFlow()
 
-    private val sessionDrafts = mutableMapOf<String, SessionDraft>()
+    private val sessionDrafts = mutableMapOf<String, DesktopPaintDraft>()
     private val generationTasks = mutableMapOf<String, GenerationTask>()
-    private val draftPreferences = Preferences.userRoot().node(DRAFT_PREFERENCES_NODE)
+    private val generationTaskHistory = mutableListOf<PaintGenerationTaskUiState>()
     private var currentSessionId: String? = null
     private var messagesCollectJob: Job? = null
 
@@ -106,6 +104,9 @@ class DesktopPaintViewModel(
             is PaintEvent.UnpinSession -> updateSessionPinned(event.sessionId, false)
             PaintEvent.SendMessage -> sendMessage()
             PaintEvent.StopGeneration -> stopGeneration()
+            is PaintEvent.CancelGeneration -> cancelGeneration(event.messageId)
+            is PaintEvent.DismissGenerationTask -> dismissGenerationTask(event.messageId)
+            PaintEvent.ClearGenerationTaskHistory -> clearGenerationTaskHistory()
             PaintEvent.LoadMoreMessages -> Unit
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
@@ -156,6 +157,7 @@ class DesktopPaintViewModel(
         viewModelScope.launch {
             repository.getSessions().collect { sessions ->
                 _uiState.update { it.copy(sessions = sessions) }
+                syncGeneratingState()
             }
         }
     }
@@ -217,12 +219,12 @@ class DesktopPaintViewModel(
                 _uiState.update {
                     it.copy(
                         currentSession = session,
-                        selectedModel = session.model,
-                        selectedAspectRatio = session.aspectRatio,
-                        selectedResolution = session.resolution,
-                        selectedGptSize = session.gptImageSize,
-                        selectedGptQuality = session.gptImageQuality,
-                        selectedGptFormat = session.gptOutputFormat,
+                        selectedModel = draft.selectedModel ?: session.model,
+                        selectedAspectRatio = draft.selectedAspectRatio ?: session.aspectRatio,
+                        selectedResolution = draft.selectedResolution ?: session.resolution,
+                        selectedGptSize = draft.selectedGptSize ?: session.gptImageSize,
+                        selectedGptQuality = draft.selectedGptQuality ?: session.gptImageQuality,
+                        selectedGptFormat = draft.selectedGptFormat ?: session.gptOutputFormat,
                         messages = emptyList(),
                         promptText = draft.promptText,
                         selectedImages = draft.selectedImages,
@@ -244,7 +246,13 @@ class DesktopPaintViewModel(
         viewModelScope.launch {
             repository.deleteSession(sessionId)
             sessionDrafts.remove(sessionId)
+            generationTaskHistory.removeAll { it.sessionId == sessionId }
             clearPersistedDraft(sessionId)
+            generationTasks
+                .filterValues { it.sessionId == sessionId }
+                .keys
+                .toList()
+                .forEach { cancelGeneration(it) }
             if (_uiState.value.currentSession?.id == sessionId) {
                 currentSessionId = null
                 messagesCollectJob?.cancel()
@@ -380,6 +388,7 @@ class DesktopPaintViewModel(
     ) {
         val startedAt = System.currentTimeMillis()
         val job = viewModelScope.launch {
+            var finalStatus = MessageStatus.ERROR
             try {
                 val result = if (assistantMessage.generationModel?.isGpt == true) {
                     repository.generateGptImage(
@@ -405,16 +414,23 @@ class DesktopPaintViewModel(
                     )
                 }
                 when (result) {
-                    is AppResult.Success -> saveGeneratedImages(assistantMessage, result.data)
-                    is AppResult.Error -> repository.updateMessage(
-                        assistantMessage.copy(
-                            messageContent = result.error.message ?: DesktopPaintErrorText.GENERATION_FAILED,
-                            status = MessageStatus.ERROR,
-                            updatedAt = System.currentTimeMillis()
+                    is AppResult.Success -> {
+                        finalStatus = MessageStatus.SUCCESS
+                        saveGeneratedImages(assistantMessage, result.data)
+                    }
+                    is AppResult.Error -> {
+                        finalStatus = MessageStatus.ERROR
+                        repository.updateMessage(
+                            assistantMessage.copy(
+                                messageContent = result.error.message ?: DesktopPaintErrorText.GENERATION_FAILED,
+                                status = MessageStatus.ERROR,
+                                updatedAt = System.currentTimeMillis()
+                            )
                         )
-                    )
+                    }
                 }
             } catch (e: CancellationException) {
+                finalStatus = MessageStatus.CANCELLED
                 withContext(NonCancellable) {
                     repository.updateMessage(
                         assistantMessage.copy(status = MessageStatus.CANCELLED, updatedAt = System.currentTimeMillis())
@@ -429,11 +445,16 @@ class DesktopPaintViewModel(
                     )
                 )
             } finally {
-                generationTasks.remove(assistantMessage.id)
+                completeGenerationTask(assistantMessage.id, finalStatus)
                 syncGeneratingState()
             }
         }
-        generationTasks[assistantMessage.id] = GenerationTask(assistantMessage.sessionId, startedAt, job)
+        generationTasks[assistantMessage.id] = GenerationTask(
+            sessionId = assistantMessage.sessionId,
+            modelName = assistantMessage.generationModel?.displayName ?: "",
+            startedAt = startedAt,
+            job = job
+        )
         syncGeneratingState()
     }
 
@@ -471,8 +492,43 @@ class DesktopPaintViewModel(
 
     private fun stopGeneration() {
         generationTasks.values.forEach { it.job.cancel() }
-        generationTasks.clear()
         syncGeneratingState()
+    }
+
+    private fun cancelGeneration(messageId: String) {
+        generationTasks[messageId]?.job?.cancel()
+        syncGeneratingState()
+    }
+
+    private fun dismissGenerationTask(messageId: String) {
+        generationTaskHistory.removeAll { it.messageId == messageId }
+        syncGeneratingState()
+    }
+
+    private fun clearGenerationTaskHistory() {
+        generationTaskHistory.clear()
+        syncGeneratingState()
+    }
+
+    private fun completeGenerationTask(messageId: String, status: MessageStatus) {
+        val task = generationTasks.remove(messageId) ?: return
+        val sessionTitle = _uiState.value.sessions.firstOrNull { it.id == task.sessionId }?.title.orEmpty()
+        generationTaskHistory.removeAll { it.messageId == messageId }
+        generationTaskHistory.add(
+            0,
+            PaintGenerationTaskUiState(
+                messageId = messageId,
+                sessionId = task.sessionId,
+                sessionTitle = sessionTitle,
+                modelName = task.modelName,
+                startedAt = task.startedAt,
+                status = status,
+                completedAt = System.currentTimeMillis()
+            )
+        )
+        if (generationTaskHistory.size > MAX_GENERATION_TASK_HISTORY) {
+            generationTaskHistory.subList(MAX_GENERATION_TASK_HISTORY, generationTaskHistory.size).clear()
+        }
     }
 
     private fun regenerateMessage(messageId: String) {
@@ -608,26 +664,31 @@ class DesktopPaintViewModel(
             val gptSize = if (state.selectedModel.isGpt) GptImageSize.fromAspectRatio(ratio) else state.selectedGptSize
             state.copy(selectedAspectRatio = ratio, selectedGptSize = gptSize)
         }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
     private fun selectResolution(resolution: Resolution) {
         _uiState.update { it.copy(selectedResolution = resolution) }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
     private fun selectGptSize(size: GptImageSize) {
         _uiState.update { it.copy(selectedGptSize = size) }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
     private fun selectGptQuality(quality: GptImageQuality) {
         _uiState.update { it.copy(selectedGptQuality = quality) }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
     private fun selectGptFormat(format: GptOutputFormat) {
         _uiState.update { it.copy(selectedGptFormat = format) }
+        saveCurrentDraft()
         updateCurrentSessionSettings()
     }
 
@@ -718,89 +779,61 @@ class DesktopPaintViewModel(
     private fun syncGeneratingState() {
         val sessionCounts = generationTasks.values.groupingBy { it.sessionId }.eachCount()
         val currentSession = _uiState.value.currentSession?.id
+        val sessionTitles = _uiState.value.sessions.associate { it.id to it.title }
+        val taskItems = generationTasks.map { (messageId, task) ->
+            PaintGenerationTaskUiState(
+                messageId = messageId,
+                sessionId = task.sessionId,
+                sessionTitle = sessionTitles[task.sessionId] ?: "",
+                modelName = task.modelName,
+                startedAt = task.startedAt,
+                status = MessageStatus.GENERATING
+            )
+        }.sortedBy { it.startedAt } + generationTaskHistory.map { task ->
+            task.copy(sessionTitle = sessionTitles[task.sessionId] ?: task.sessionTitle)
+        }
         _uiState.update {
             it.copy(
                 isGenerating = generationTasks.isNotEmpty(),
                 generatingMessageIds = generationTasks.keys,
                 generatingSessionCounts = sessionCounts,
                 generatingSessionId = if (currentSession != null && currentSession in sessionCounts) currentSession else null,
-                generationStartTime = generationTasks.values.minOfOrNull { task -> task.startedAt } ?: 0L
+                generationStartTime = generationTasks.values.minOfOrNull { task -> task.startedAt } ?: 0L,
+                generationTasks = taskItems
             )
         }
     }
 
     private fun saveCurrentDraft() {
         val sessionId = _uiState.value.currentSession?.id ?: return
-        val draft = SessionDraft(
+        val draft = DesktopPaintDraft(
             promptText = _uiState.value.promptText,
-            selectedImages = _uiState.value.selectedImages
+            selectedImages = _uiState.value.selectedImages,
+            selectedModel = _uiState.value.selectedModel,
+            selectedAspectRatio = _uiState.value.selectedAspectRatio,
+            selectedResolution = _uiState.value.selectedResolution,
+            selectedGptSize = _uiState.value.selectedGptSize,
+            selectedGptQuality = _uiState.value.selectedGptQuality,
+            selectedGptFormat = _uiState.value.selectedGptFormat
         )
         sessionDrafts[sessionId] = draft
         savePersistedDraft(sessionId, draft)
     }
 
     private fun clearDraft(sessionId: String) {
-        sessionDrafts[sessionId] = SessionDraft()
+        sessionDrafts[sessionId] = DesktopPaintDraft()
         clearPersistedDraft(sessionId)
     }
 
-    private fun loadPersistedDraft(sessionId: String): SessionDraft {
-        val raw = runCatching {
-            val chunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
-            if (chunkCount in 1..MAX_DRAFT_CHUNKS) {
-                buildString {
-                    repeat(chunkCount) { index ->
-                        append(draftPreferences.get(draftChunkKey(sessionId, index), ""))
-                    }
-                }
-            } else {
-                draftPreferences.get(draftKey(sessionId), "")
-            }
-        }.getOrDefault("")
-        if (raw.isBlank()) return SessionDraft()
-        return decodeDraft(raw).let { draft ->
-            SessionDraft(
-                promptText = draft.promptText,
-                selectedImages = draft.selectedImages.filter { File(it.uri.removePrefix("file://")).isFile }
-            )
-        }
-    }
+    private fun loadPersistedDraft(sessionId: String): DesktopPaintDraft =
+        DesktopPaintDraftStore.readDraft(sessionId)
 
-    private fun savePersistedDraft(sessionId: String, draft: SessionDraft) {
-        if (draft.promptText.isBlank() && draft.selectedImages.isEmpty()) {
-            clearPersistedDraft(sessionId)
-            return
-        }
-        val raw = encodeDraft(draft)
-        runCatching {
-            val oldChunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
-            val chunks = raw.chunked(DRAFT_VALUE_CHUNK_SIZE)
-            if (chunks.size == 1) {
-                draftPreferences.put(draftKey(sessionId), raw)
-                draftPreferences.remove(draftChunkCountKey(sessionId))
-            } else {
-                chunks.forEachIndexed { index, chunk ->
-                    draftPreferences.put(draftChunkKey(sessionId, index), chunk)
-                }
-                draftPreferences.putInt(draftChunkCountKey(sessionId), chunks.size)
-                draftPreferences.remove(draftKey(sessionId))
-            }
-            val staleChunkStart = if (chunks.size == 1) 0 else chunks.size
-            (staleChunkStart until oldChunkCount.coerceAtMost(MAX_DRAFT_CHUNKS)).forEach { index ->
-                draftPreferences.remove(draftChunkKey(sessionId, index))
-            }
-        }
+    private fun savePersistedDraft(sessionId: String, draft: DesktopPaintDraft) {
+        DesktopPaintDraftStore.writeDraft(sessionId, draft)
     }
 
     private fun clearPersistedDraft(sessionId: String) {
-        runCatching {
-            val chunkCount = draftPreferences.getInt(draftChunkCountKey(sessionId), 0)
-            draftPreferences.remove(draftKey(sessionId))
-            draftPreferences.remove(draftChunkCountKey(sessionId))
-            repeat(chunkCount.coerceIn(0, MAX_DRAFT_CHUNKS)) { index ->
-                draftPreferences.remove(draftChunkKey(sessionId, index))
-            }
-        }
+        DesktopPaintDraftStore.deleteDraft(sessionId)
     }
 
     private fun PaintImage.asApiReferenceImage(): PaintImage? {
@@ -829,57 +862,7 @@ class DesktopPaintViewModel(
     private fun generateId(): String =
         "${System.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
 
-    private fun encodeDraft(draft: SessionDraft): String {
-        val encoder = Base64.getUrlEncoder().withoutPadding()
-        return buildString {
-            appendLine(DRAFT_FORMAT_VERSION)
-            appendLine(encoder.encodeToString(draft.promptText.toByteArray(Charsets.UTF_8)))
-            draft.selectedImages.forEach { image ->
-                append(image.id)
-                append('\t')
-                append(encoder.encodeToString(image.uri.toByteArray(Charsets.UTF_8)))
-                append('\t')
-                append(encoder.encodeToString(image.mimeType.toByteArray(Charsets.UTF_8)))
-                append('\t')
-                append(image.width)
-                append('\t')
-                append(image.height)
-                appendLine()
-            }
-        }
-    }
-
-    private fun decodeDraft(raw: String): SessionDraft {
-        return runCatching {
-            val lines = raw.lineSequence().toList()
-            if (lines.size < 2 || lines[0] != DRAFT_FORMAT_VERSION) return@runCatching SessionDraft()
-            val decoder = Base64.getUrlDecoder()
-            val prompt = String(decoder.decode(lines[1]), Charsets.UTF_8)
-            val images = lines.drop(2).mapNotNull { line ->
-                val parts = line.split('\t')
-                if (parts.size != 5) return@mapNotNull null
-                SelectedImage(
-                    id = parts[0],
-                    uri = String(decoder.decode(parts[1]), Charsets.UTF_8),
-                    mimeType = String(decoder.decode(parts[2]), Charsets.UTF_8),
-                    width = parts[3].toIntOrNull() ?: 0,
-                    height = parts[4].toIntOrNull() ?: 0
-                )
-            }
-            SessionDraft(promptText = prompt, selectedImages = images)
-        }.getOrDefault(SessionDraft())
-    }
-
-    private fun draftKey(sessionId: String): String = "paint_draft_$sessionId"
-
-    private fun draftChunkCountKey(sessionId: String): String = "${draftKey(sessionId)}_parts"
-
-    private fun draftChunkKey(sessionId: String, index: Int): String = "${draftKey(sessionId)}_$index"
-
     private companion object {
-        private const val DRAFT_PREFERENCES_NODE = "com.example.livewallpaper.desktop"
-        private const val DRAFT_FORMAT_VERSION = "v1"
-        private const val DRAFT_VALUE_CHUNK_SIZE = 6000
-        private const val MAX_DRAFT_CHUNKS = 4096
+        private const val MAX_GENERATION_TASK_HISTORY = 50
     }
 }

@@ -12,6 +12,7 @@ data class PaintUiState(
     val generationStartTime: Long = 0L, // 最早的生成开始时间
     val generatingMessageIds: Set<String> = emptySet(), // 所有正在生成的消息ID
     val generatingSessionCounts: Map<String, Int> = emptyMap(), // 每个会话正在生成的任务数
+    val generationTasks: List<PaintGenerationTaskUiState> = emptyList(),
     val error: String? = null,
     
     // 输入状态
@@ -53,4 +54,14 @@ data class SelectedImage(
     val mimeType: String = "image/png",
     val width: Int = 0,
     val height: Int = 0
+)
+
+data class PaintGenerationTaskUiState(
+    val messageId: String,
+    val sessionId: String,
+    val sessionTitle: String,
+    val modelName: String,
+    val startedAt: Long,
+    val status: MessageStatus = MessageStatus.GENERATING,
+    val completedAt: Long? = null,
 )

@@ -15,6 +15,8 @@ object DesktopAiPaintStoragePaths {
 
     fun clipboardCacheDirectory(): File = configuredDirectory(KEY_CLIPBOARD_CACHE, defaultClipboardCacheDirectory())
 
+    fun draftDirectory(): File = File(defaultGeneratedImagesDirectory(), "drafts").apply { mkdirs() }
+
     fun generatedImagesPath(): String = generatedImagesDirectory().absolutePath
 
     fun responseCachePath(): String = responseCacheDirectory().absolutePath
@@ -45,6 +47,28 @@ object DesktopAiPaintStoragePaths {
         preferences.remove(KEY_CLIPBOARD_CACHE)
     }
 
+    fun directorySize(directory: File): Long = runCatching {
+        if (!directory.exists()) return@runCatching 0L
+        directory.walkTopDown()
+            .filter { it.isFile }
+            .sumOf { it.length() }
+    }.getOrDefault(0L)
+
+    fun clearResponseCache(): Long = clearManagedFiles(
+        directory = responseCacheDirectory(),
+        filePredicate = { file ->
+            file.isFile && (
+                file.name.startsWith("gemini_resp_") ||
+                    file.name.startsWith("gpt_resp_")
+                )
+        }
+    )
+
+    fun clearClipboardCache(): Long = clearManagedFiles(
+        directory = clipboardCacheDirectory(),
+        filePredicate = { file -> file.isFile && file.name.startsWith("clipboard-") && file.extension == "png" }
+    )
+
     private fun configuredDirectory(key: String, defaultDirectory: File): File {
         val configuredPath = preferences.get(key, "").trim()
         val directory = if (configuredPath.isBlank()) defaultDirectory else File(configuredPath)
@@ -69,6 +93,20 @@ object DesktopAiPaintStoragePaths {
 
     private fun defaultClipboardCacheDirectory(): File =
         File(System.getProperty("java.io.tmpdir"), "LiveWallpaper/clipboard")
+
+    private fun clearManagedFiles(directory: File, filePredicate: (File) -> Boolean): Long {
+        if (!directory.exists()) return 0L
+        var clearedBytes = 0L
+        directory.walkBottomUp().forEach { file ->
+            if (filePredicate(file)) {
+                val length = file.length()
+                if (file.delete()) {
+                    clearedBytes += length
+                }
+            }
+        }
+        return clearedBytes
+    }
 
     private const val PREFERENCES_NODE = "com.example.livewallpaper.desktop"
     private const val KEY_GENERATED_IMAGES = "aipaint_generated_images_directory"

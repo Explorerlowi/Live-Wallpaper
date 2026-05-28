@@ -15,6 +15,12 @@ internal class DesktopRuntimeSettings {
         preferences.putBoolean(KEY_SLIDESHOW_RUNNING, running)
     }
 
+    fun isAiPaintSidebarCollapsed(): Boolean = preferences.getBoolean(KEY_AI_PAINT_SIDEBAR_COLLAPSED, false)
+
+    fun setAiPaintSidebarCollapsed(collapsed: Boolean) {
+        preferences.putBoolean(KEY_AI_PAINT_SIDEBAR_COLLAPSED, collapsed)
+    }
+
     fun applyLaunchAtStartup(enabled: Boolean): Boolean {
         if (!isWindows) return false
         return runCatching {
@@ -57,6 +63,7 @@ internal class DesktopRuntimeSettings {
     private companion object {
         private const val PREFERENCES_NODE = "com.example.livewallpaper.desktop"
         private const val KEY_SLIDESHOW_RUNNING = "slideshow_running"
+        private const val KEY_AI_PAINT_SIDEBAR_COLLAPSED = "aipaint_sidebar_collapsed"
         private const val RUN_REGISTRY_PATH = "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
         private const val RUN_VALUE_NAME = "Live Wallpaper"
     }

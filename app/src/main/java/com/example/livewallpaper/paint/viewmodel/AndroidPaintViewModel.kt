@@ -282,6 +282,9 @@ class AndroidPaintViewModel(
             is PaintEvent.UnpinSession -> updateSessionPinned(event.sessionId, false)
             is PaintEvent.SendMessage -> sendMessage()
             is PaintEvent.StopGeneration -> stopGeneration()
+            is PaintEvent.CancelGeneration -> Unit
+            is PaintEvent.DismissGenerationTask -> Unit
+            PaintEvent.ClearGenerationTaskHistory -> Unit
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
