@@ -103,15 +103,21 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.rememberDialogState
 import com.example.livewallpaper.desktop.DesktopImageFilePicker
@@ -1322,12 +1328,18 @@ private fun PaintImageThumb(
 ) {
     val path = image.localPath
     var menuExpanded by remember { mutableStateOf(false) }
+    var menuPosition by remember { mutableStateOf(IntOffset.Zero) }
+    var imagePosition by remember { mutableStateOf(IntOffset.Zero) }
     Box {
         Surface(
             modifier = Modifier
                 .width(220.dp)
                 .aspectRatio(if (image.width > 0 && image.height > 0) image.width.toFloat() / image.height else 1f)
-                .clip(RoundedCornerShape(10.dp)),
+                .clip(RoundedCornerShape(10.dp))
+                .onGloballyPositioned { coordinates ->
+                    val windowPosition = coordinates.positionInWindow()
+                    imagePosition = IntOffset(windowPosition.x.roundToInt(), windowPosition.y.roundToInt())
+                },
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
         ) {
@@ -1345,6 +1357,13 @@ private fun PaintImageThumb(
                     }
                     .onPointerEvent(PointerEventType.Press) { event ->
                         if (event.button == PointerButton.Secondary) {
+                            val pointerPosition = event.changes.firstOrNull()?.position
+                            if (pointerPosition != null) {
+                                menuPosition = IntOffset(
+                                    x = imagePosition.x + pointerPosition.x.roundToInt(),
+                                    y = imagePosition.y + pointerPosition.y.roundToInt(),
+                                )
+                            }
                             menuExpanded = true
                         }
                     }
@@ -1358,6 +1377,7 @@ private fun PaintImageThumb(
         if (path != null) {
             ImageActionMenu(
                 expanded = menuExpanded,
+                position = menuPosition,
                 onDismiss = { menuExpanded = false },
                 path = path,
                 onAddToWallpapers = onAddToWallpapers,
@@ -1373,6 +1393,7 @@ private fun PaintImageThumb(
 @Composable
 private fun ImageActionMenu(
     expanded: Boolean,
+    position: IntOffset,
     onDismiss: () -> Unit,
     path: String,
     onAddToWallpapers: (String) -> Unit,
@@ -1381,63 +1402,131 @@ private fun ImageActionMenu(
     onCopyImage: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
+    if (!expanded) return
     val strings = LocalDesktopStrings.current
-    DropdownMenu(
-        expanded = expanded,
+    Popup(
+        popupPositionProvider = ImageCursorPopupPositionProvider(position),
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(12.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        shadowElevation = 12.dp,
+        properties = PopupProperties(focusable = false),
     ) {
-        DropdownMenuItem(
-            text = { Text(strings.paintCopyImage) },
-            onClick = {
-                onDismiss()
-                onCopyImage(path)
-            },
+        Surface(
+            modifier = Modifier.width(220.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp,
+            shadowElevation = 12.dp,
+        ) {
+            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                ImageActionMenuItem(strings.paintCopyImage) {
+                    onDismiss()
+                    onCopyImage(path)
+                }
+                ImageActionMenuItem(strings.paintCopyPath) {
+                    onDismiss()
+                    onCopyText(path)
+                }
+                ImageActionMenuItem(strings.paintOpenImageLocation) {
+                    onDismiss()
+                    openImageLocation(path)
+                }
+                ImageActionMenuItem(strings.paintSaveAs) {
+                    onDismiss()
+                    saveImageAs(path, strings.paintSaveAs)
+                }
+                ImageActionMenuItem(strings.paintAddToWallpaper) {
+                    onDismiss()
+                    onAddToWallpapers(path)
+                }
+                ImageActionMenuItem(strings.paintSetWallpaper) {
+                    onDismiss()
+                    onSetWallpaper(path)
+                }
+                ImageActionMenuItem(
+                    text = strings.paintDeleteMessage,
+                    destructive = true,
+                ) {
+                    onDismiss()
+                    onDelete()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun ImageActionMenuItem(
+    text: String,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    var hovered by remember { mutableStateOf(false) }
+    val contentColor = when {
+        destructive -> MaterialTheme.colorScheme.error
+        hovered -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val background = when {
+        destructive && hovered -> MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
+        hovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else -> Color.Transparent
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .padding(horizontal = 6.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(background)
+            .onPointerEvent(PointerEventType.Enter) { hovered = true }
+            .onPointerEvent(PointerEventType.Exit) { hovered = false }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        DropdownMenuItem(
-            text = { Text(strings.paintCopyPath) },
-            onClick = {
-                onDismiss()
-                onCopyText(path)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(strings.paintOpenImageLocation) },
-            onClick = {
-                onDismiss()
-                openImageLocation(path)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(strings.paintSaveAs) },
-            onClick = {
-                onDismiss()
-                saveImageAs(path, strings.paintSaveAs)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(strings.paintAddToWallpaper) },
-            onClick = {
-                onDismiss()
-                onAddToWallpapers(path)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(strings.paintSetWallpaper) },
-            onClick = {
-                onDismiss()
-                onSetWallpaper(path)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(strings.paintDeleteMessage, color = MaterialTheme.colorScheme.error) },
-            onClick = {
-                onDismiss()
-                onDelete()
-            },
-        )
+    }
+}
+
+private class ImageCursorPopupPositionProvider(
+    private val cursorPosition: IntOffset,
+    private val margin: Int = 8,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val rightX = cursorPosition.x + margin
+        val leftX = cursorPosition.x - popupContentSize.width - margin
+        val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
+        val x = if (rightX + popupContentSize.width + margin <= windowSize.width) {
+            rightX
+        } else {
+            leftX
+        }.coerceIn(margin, maxX)
+
+        val belowY = cursorPosition.y
+        val aboveY = cursorPosition.y - popupContentSize.height
+        val maxY = (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
+        val y = if (belowY + popupContentSize.height + margin <= windowSize.height) {
+            belowY
+        } else {
+            aboveY
+        }.coerceIn(margin, maxY)
+
+        return IntOffset(x, y)
     }
 }
 
