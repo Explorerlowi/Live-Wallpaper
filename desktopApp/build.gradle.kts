@@ -1,7 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
+}
+
+val desktopAppVersion = Properties().run {
+    project.file("src/desktopMain/resources/app.properties").inputStream().use(::load)
+    requireNotNull(getProperty("version")) { "Missing desktop app version" }
 }
 
 kotlin {
@@ -46,7 +53,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
             packageName = "Live Wallpaper"
-            packageVersion = "1.0.56"
+            packageVersion = desktopAppVersion
 
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icons/app.ico"))

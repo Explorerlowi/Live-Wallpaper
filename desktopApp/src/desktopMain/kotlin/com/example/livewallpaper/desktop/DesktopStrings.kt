@@ -7,6 +7,7 @@ import java.util.Properties
 
 data class DesktopStrings(
     val appTitle: String,
+    val appVersion: (String) -> String,
     val images: String,
     val wallpapers: String,
     val aiPaint: String,
@@ -170,6 +171,8 @@ data class DesktopStrings(
 
 val LocalDesktopStrings = compositionLocalOf { desktopStringsFor(null) }
 
+val desktopAppVersion: String = loadDesktopAppVersion()
+
 fun desktopStringsFor(languageTag: String?): DesktopStrings {
     val language = languageTag ?: Locale.getDefault().language
     return if (language.startsWith("zh", ignoreCase = true)) zhCnDesktopStrings else enDesktopStrings
@@ -178,6 +181,19 @@ fun desktopStringsFor(languageTag: String?): DesktopStrings {
 private val enDesktopStrings = loadDesktopStrings("i18n/desktop_en.properties")
 
 private val zhCnDesktopStrings = loadDesktopStrings("i18n/desktop_zh_CN.properties")
+
+private fun loadDesktopAppVersion(): String {
+    val properties = Properties()
+    val stream = checkNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")) {
+        "Missing desktop app properties resource"
+    }
+    stream.use {
+        properties.load(InputStreamReader(it, Charsets.UTF_8))
+    }
+    return checkNotNull(properties.getProperty("version")) {
+        "Missing desktop app version"
+    }
+}
 
 private fun loadDesktopStrings(resourcePath: String): DesktopStrings {
     val properties = Properties()
@@ -194,6 +210,7 @@ private fun loadDesktopStrings(resourcePath: String): DesktopStrings {
 
     return DesktopStrings(
         appTitle = text("appTitle"),
+        appVersion = { text("appVersion").format(it) },
         images = text("images"),
         wallpapers = text("wallpapers"),
         aiPaint = text("aiPaint"),

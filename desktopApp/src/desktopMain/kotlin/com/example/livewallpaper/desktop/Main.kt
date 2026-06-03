@@ -48,7 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +81,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -89,12 +92,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.DialogWindow
-import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.rememberDialogState
-import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.core.design.theme.AppDesignTheme
 import com.example.livewallpaper.core.design.theme.AppDesignThemeStyle
@@ -111,19 +111,45 @@ import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperConfig
 import com.example.livewallpaper.feature.dynamicwallpaper.presentation.state.SettingsEvent
 import com.example.livewallpaper.feature.dynamicwallpaper.presentation.viewmodel.SettingsViewModel
+import com.sun.jna.Native
+import com.sun.jna.win32.StdCallLibrary
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 import java.awt.Desktop
+import java.awt.BorderLayout
+import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.FileDialog
+import java.awt.Font
 import java.awt.Frame
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.MouseInfo
+import java.awt.Point
 import java.awt.RenderingHints
+import java.awt.SystemTray
+import java.awt.TrayIcon
+import java.awt.Toolkit
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
 import java.util.LinkedHashMap
 import javax.imageio.ImageIO
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JWindow
+import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
+import javax.swing.Timer
+import javax.swing.border.EmptyBorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -146,8 +172,10 @@ fun main() {
         var isWindowVisible by remember { mutableStateOf(true) }
         var latestConfig by remember { mutableStateOf(WallpaperConfig()) }
         val strings = desktopStringsFor(latestConfig.languageTag)
-        val trayStrings = desktopStringsFor("en")
-        val trayState = rememberTrayState()
+        val wallpaperStatus by wallpaperController.status.collectAsState()
+        val trayStrings = strings
+        val canStartSlideshow = latestConfig.imageUris.any { File(it).isFile }
+        val isSlideshowRunning = wallpaperStatus is DesktopWallpaperStatus.Running
 
         fun startSlideshow(config: WallpaperConfig) {
             runtimeSettings.setSlideshowRunning(config.imageUris.any { File(it).isFile })
@@ -159,24 +187,23 @@ fun main() {
             wallpaperController.stop()
         }
 
-        Tray(
-            state = trayState,
-            icon = rememberTrayIconPainter(),
-            menu = {
-                Item(trayStrings.openWindow, onClick = { isWindowVisible = true })
-                Separator()
-                Item(trayStrings.startSlideshow, onClick = { startSlideshow(latestConfig) })
-                Item(trayStrings.stopSlideshow, onClick = { stopSlideshow() })
-                Separator()
-                Item(
-                    trayStrings.quit,
-                    onClick = {
-                        wallpaperController.close()
-                        exitApplication()
-                    }
-                )
+        val trayController = rememberDesktopTrayController(
+            tooltip = trayStrings.appTitle,
+            onOpenWindow = { isWindowVisible = true },
+            onExit = {
+                wallpaperController.close()
+                exitApplication()
             }
         )
+        LaunchedEffect(trayController, trayStrings, canStartSlideshow, isSlideshowRunning, latestConfig) {
+            trayController.updateMenu(
+                strings = trayStrings,
+                canStartSlideshow = canStartSlideshow,
+                isSlideshowRunning = isSlideshowRunning,
+                onStartSlideshow = { startSlideshow(latestConfig) },
+                onStopSlideshow = { stopSlideshow() },
+            )
+        }
 
         if (isWindowVisible) {
             Window(
@@ -191,12 +218,9 @@ fun main() {
                     onConfigChanged = { latestConfig = it },
                     onPaintGenerationSuccess = { imageCount ->
                         if (latestConfig.paintGenerationSuccessNotification) {
-                            trayState.sendNotification(
-                                Notification(
-                                    title = strings.paintGenerationSuccessTitle,
-                                    message = strings.paintGenerationSuccessMessage(imageCount),
-                                    type = Notification.Type.Info,
-                                )
+                            trayController.displayMessage(
+                                title = strings.paintGenerationSuccessTitle,
+                                message = strings.paintGenerationSuccessMessage(imageCount),
                             )
                         }
                     },
@@ -1615,6 +1639,14 @@ private fun SettingsContent(
                 },
             )
         }
+
+        Text(
+            text = strings.appVersion(desktopAppVersion),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -2275,6 +2307,428 @@ private fun String?.languageLabel(strings: DesktopStrings): String {
         "zh" -> strings.chinese
         else -> strings.followSystem
     }
+}
+
+@Composable
+private fun rememberDesktopTrayController(
+    tooltip: String,
+    onOpenWindow: () -> Unit,
+    onExit: () -> Unit,
+): DesktopTrayController {
+    val controller = remember { DesktopTrayController(loadAppIconImage(), tooltip) }
+    SideEffect {
+        controller.updateTooltip(tooltip)
+        controller.updateWindowCallbacks(onOpenWindow, onExit)
+    }
+    DisposableEffect(controller) {
+        controller.install()
+        onDispose { controller.dispose() }
+    }
+    return controller
+}
+
+private data class DesktopTrayMenuModel(
+    val strings: DesktopStrings,
+    val canStartSlideshow: Boolean,
+    val isSlideshowRunning: Boolean,
+    val onStartSlideshow: () -> Unit,
+    val onStopSlideshow: () -> Unit,
+)
+
+private class DesktopTrayController(
+    private val iconImage: java.awt.Image,
+    tooltip: String,
+) {
+    private var tooltip: String = tooltip
+    private var trayIcon: TrayIcon? = null
+    private var menuWindow: DesktopTrayMenuWindow? = null
+    private var onOpenWindow: () -> Unit = {}
+    private var onExit: () -> Unit = {}
+    private var menuModel = DesktopTrayMenuModel(
+        strings = desktopStringsFor(null),
+        canStartSlideshow = false,
+        isSlideshowRunning = false,
+        onStartSlideshow = {},
+        onStopSlideshow = {},
+    )
+
+    fun install() {
+        if (!SystemTray.isSupported()) return
+        SwingUtilities.invokeLater {
+            if (trayIcon != null) return@invokeLater
+            val icon = TrayIcon(iconImage, tooltip).apply {
+                isImageAutoSize = true
+                addMouseListener(
+                    object : MouseAdapter() {
+                        override fun mousePressed(event: MouseEvent) {
+                            if (SwingUtilities.isRightMouseButton(event) || event.isPopupTrigger) {
+                                showMenu(currentMouseLocation(event))
+                            }
+                        }
+                    }
+                )
+            }
+            SystemTray.getSystemTray().add(icon)
+            trayIcon = icon
+        }
+    }
+
+    fun dispose() {
+        SwingUtilities.invokeLater {
+            hideMenu()
+            trayIcon?.let { SystemTray.getSystemTray().remove(it) }
+            trayIcon = null
+        }
+    }
+
+    fun updateTooltip(value: String) {
+        tooltip = value
+        SwingUtilities.invokeLater {
+            trayIcon?.toolTip = value
+        }
+    }
+
+    fun updateWindowCallbacks(
+        onOpenWindow: () -> Unit,
+        onExit: () -> Unit,
+    ) {
+        this.onOpenWindow = onOpenWindow
+        this.onExit = onExit
+    }
+
+    fun updateMenu(
+        strings: DesktopStrings,
+        canStartSlideshow: Boolean,
+        isSlideshowRunning: Boolean,
+        onStartSlideshow: () -> Unit,
+        onStopSlideshow: () -> Unit,
+    ) {
+        menuModel = DesktopTrayMenuModel(
+            strings = strings,
+            canStartSlideshow = canStartSlideshow,
+            isSlideshowRunning = isSlideshowRunning,
+            onStartSlideshow = onStartSlideshow,
+            onStopSlideshow = onStopSlideshow,
+        )
+    }
+
+    fun displayMessage(title: String, message: String) {
+        SwingUtilities.invokeLater {
+            trayIcon?.displayMessage(title, message, TrayIcon.MessageType.INFO)
+        }
+    }
+
+    private fun showMenu(anchor: Point) {
+        if (menuWindow?.isVisible == true) {
+            hideMenu()
+            return
+        }
+
+        val model = menuModel
+        val window = menuWindow ?: DesktopTrayMenuWindow(::hideMenu).also { menuWindow = it }
+        window.showAt(
+            anchor = anchor,
+            model = model,
+            onOpenWindow = {
+                hideMenu()
+                onOpenWindow()
+            },
+            onStartSlideshow = {
+                hideMenu()
+                model.onStartSlideshow()
+            },
+            onStopSlideshow = {
+                hideMenu()
+                model.onStopSlideshow()
+            },
+            onExit = {
+                hideMenu()
+                onExit()
+            },
+        )
+    }
+
+    private fun hideMenu() {
+        menuWindow?.isVisible = false
+    }
+
+    private fun currentMouseLocation(event: MouseEvent): Point {
+        return MouseInfo.getPointerInfo()?.location ?: Point(event.xOnScreen, event.yOnScreen)
+    }
+}
+
+private class DesktopTrayMenuWindow(
+    private val onDismiss: () -> Unit,
+) : JWindow() {
+    private var dismissOnFocusLost = false
+    private var previousMouseButtonPressed = false
+    private var outsideClickMonitorStartedAt = 0L
+    private val outsideClickTimer = Timer(45) { dismissOnOutsideClick() }
+
+    init {
+        background = java.awt.Color(0, 0, 0, 0)
+        isAlwaysOnTop = true
+        focusableWindowState = true
+        type = java.awt.Window.Type.POPUP
+        addWindowFocusListener(
+            object : WindowAdapter() {
+                override fun windowLostFocus(event: WindowEvent) {
+                    if (dismissOnFocusLost) onDismiss()
+                }
+            }
+        )
+    }
+
+    fun showAt(
+        anchor: Point,
+        model: DesktopTrayMenuModel,
+        onOpenWindow: () -> Unit,
+        onStartSlideshow: () -> Unit,
+        onStopSlideshow: () -> Unit,
+        onExit: () -> Unit,
+    ) {
+        val actionText = if (model.isSlideshowRunning) {
+            model.strings.stopSlideshow
+        } else {
+            model.strings.startSlideshow
+        }
+        val menuWidth = trayMenuWidth(model.strings.openWindow, actionText, model.strings.quit)
+        contentPane = DesktopTrayMenuPanel().apply {
+            add(DesktopTrayMenuItem(model.strings.openWindow, menuWidth, enabled = true, onClick = onOpenWindow))
+            add(DesktopTraySeparator(menuWidth))
+            if (model.isSlideshowRunning) {
+                add(DesktopTrayMenuItem(model.strings.stopSlideshow, menuWidth, enabled = true, onClick = onStopSlideshow))
+            } else {
+                add(
+                    DesktopTrayMenuItem(
+                        text = model.strings.startSlideshow,
+                        menuWidth = menuWidth,
+                        enabled = model.canStartSlideshow,
+                        onClick = onStartSlideshow,
+                    )
+                )
+            }
+            add(DesktopTraySeparator(menuWidth))
+            add(DesktopTrayMenuItem(model.strings.quit, menuWidth, enabled = true, onClick = onExit))
+        }
+        pack()
+
+        val screen = Toolkit.getDefaultToolkit().screenSize
+        val x = (anchor.x - width / 2).coerceIn(8, screen.width - width - 8)
+        val preferredY = anchor.y - height - 12
+        val y = if (preferredY > 8) preferredY else (anchor.y + 12).coerceAtMost(screen.height - height - 8)
+        setLocation(x, y)
+        dismissOnFocusLost = false
+        isVisible = true
+        toFront()
+        previousMouseButtonPressed = DesktopMouseButtons.isAnyPressed()
+        outsideClickMonitorStartedAt = System.currentTimeMillis()
+        outsideClickTimer.start()
+        Timer(180) {
+            dismissOnFocusLost = true
+            requestFocus()
+        }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
+    override fun setVisible(visible: Boolean) {
+        super.setVisible(visible)
+        if (!visible) outsideClickTimer.stop()
+    }
+
+    private fun dismissOnOutsideClick() {
+        val mouseButtonPressed = DesktopMouseButtons.isAnyPressed()
+        val isNewPress = mouseButtonPressed && !previousMouseButtonPressed
+        val canDismiss = System.currentTimeMillis() - outsideClickMonitorStartedAt >= OUTSIDE_CLICK_GRACE_PERIOD_MS
+        if (isNewPress && canDismiss) {
+            val pointerLocation = MouseInfo.getPointerInfo()?.location
+            if (pointerLocation == null || !bounds.contains(pointerLocation)) {
+                onDismiss()
+            }
+        }
+        previousMouseButtonPressed = mouseButtonPressed
+    }
+
+    private companion object {
+        private const val OUTSIDE_CLICK_GRACE_PERIOD_MS = 140L
+    }
+}
+
+private object DesktopMouseButtons {
+    private val user32 by lazy { Native.load("user32", User32AsyncKeyState::class.java) }
+
+    fun isAnyPressed(): Boolean {
+        return runCatching {
+            isPressed(VK_LBUTTON) || isPressed(VK_RBUTTON) || isPressed(VK_MBUTTON)
+        }.getOrDefault(false)
+    }
+
+    private fun isPressed(keyCode: Int): Boolean {
+        return user32.GetAsyncKeyState(keyCode).toInt() and KEY_PRESSED_MASK != 0
+    }
+
+    private const val VK_LBUTTON = 0x01
+    private const val VK_RBUTTON = 0x02
+    private const val VK_MBUTTON = 0x04
+    private const val KEY_PRESSED_MASK = 0x8000
+
+    private interface User32AsyncKeyState : StdCallLibrary {
+        fun GetAsyncKeyState(vKey: Int): Short
+    }
+}
+
+private class DesktopTrayMenuPanel : JPanel() {
+    init {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = EmptyBorder(SHADOW_SIZE + 4, SHADOW_SIZE, SHADOW_SIZE + 4, SHADOW_SIZE)
+        isOpaque = false
+    }
+
+    override fun paintComponent(graphics: Graphics) {
+        val g = graphics.create() as Graphics2D
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val rectX = SHADOW_SIZE
+            val rectY = SHADOW_SIZE
+            val rectWidth = width - SHADOW_SIZE * 2
+            val rectHeight = height - SHADOW_SIZE * 2
+            for (step in 5 downTo 1) {
+                g.color = java.awt.Color(0, 0, 0, 7 * step)
+                g.fillRoundRect(
+                    rectX - step / 2,
+                    rectY + step / 2,
+                    rectWidth + step,
+                    rectHeight + step,
+                    CORNER_RADIUS,
+                    CORNER_RADIUS,
+                )
+            }
+            g.color = java.awt.Color.WHITE
+            g.fillRoundRect(rectX, rectY, rectWidth, rectHeight, CORNER_RADIUS, CORNER_RADIUS)
+            g.color = java.awt.Color(224, 228, 234)
+            g.drawRoundRect(rectX, rectY, rectWidth - 1, rectHeight - 1, CORNER_RADIUS, CORNER_RADIUS)
+        } finally {
+            g.dispose()
+        }
+        super.paintComponent(graphics)
+    }
+
+    private companion object {
+        private const val SHADOW_SIZE = 8
+        private const val CORNER_RADIUS = 10
+    }
+}
+
+private class DesktopTrayMenuItem(
+    text: String,
+    menuWidth: Int,
+    enabled: Boolean,
+    private val onClick: () -> Unit,
+) : JPanel(BorderLayout()) {
+    private var hovered = false
+
+    init {
+        isOpaque = false
+        isEnabled = enabled
+        preferredSize = Dimension(menuWidth, ITEM_HEIGHT)
+        maximumSize = Dimension(menuWidth, ITEM_HEIGHT)
+        minimumSize = Dimension(menuWidth, ITEM_HEIGHT)
+        cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+
+        add(
+            JLabel(text).apply {
+                border = EmptyBorder(0, 14, 0, 14)
+                font = Font(TRAY_MENU_FONT, Font.PLAIN, TRAY_MENU_FONT_SIZE)
+                foreground = if (enabled) java.awt.Color(22, 24, 29) else java.awt.Color(146, 152, 164)
+                horizontalAlignment = SwingConstants.LEFT
+                verticalAlignment = SwingConstants.CENTER
+            },
+            BorderLayout.CENTER,
+        )
+
+        if (enabled) {
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseEntered(event: MouseEvent) {
+                        hovered = true
+                        repaint()
+                    }
+
+                    override fun mouseExited(event: MouseEvent) {
+                        hovered = false
+                        repaint()
+                    }
+
+                    override fun mouseReleased(event: MouseEvent) {
+                        if (contains(event.point)) onClick()
+                    }
+                }
+            )
+        }
+    }
+
+    override fun paintComponent(graphics: Graphics) {
+        if (hovered) {
+            val g = graphics.create() as Graphics2D
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g.color = java.awt.Color(243, 246, 250)
+                g.fillRoundRect(6, 2, width - 12, height - 4, 7, 7)
+            } finally {
+                g.dispose()
+            }
+        }
+        super.paintComponent(graphics)
+    }
+
+    private companion object {
+        private const val ITEM_HEIGHT = 30
+    }
+}
+
+private class DesktopTraySeparator(
+    menuWidth: Int,
+) : JComponent() {
+    init {
+        preferredSize = Dimension(menuWidth, SEPARATOR_HEIGHT)
+        maximumSize = Dimension(menuWidth, SEPARATOR_HEIGHT)
+        minimumSize = Dimension(menuWidth, SEPARATOR_HEIGHT)
+        isOpaque = false
+    }
+
+    override fun paintComponent(graphics: Graphics) {
+        val g = graphics.create() as Graphics2D
+        try {
+            g.color = java.awt.Color(228, 232, 238)
+            g.drawLine(14, height / 2, width - 14, height / 2)
+        } finally {
+            g.dispose()
+        }
+    }
+
+    private companion object {
+        private const val SEPARATOR_HEIGHT = 7
+    }
+}
+
+private const val TRAY_MENU_FONT = "Microsoft YaHei UI"
+private const val TRAY_MENU_FONT_SIZE = 13
+
+private fun trayMenuWidth(vararg labels: String): Int {
+    val font = Font(TRAY_MENU_FONT, Font.PLAIN, TRAY_MENU_FONT_SIZE)
+    val metrics = JLabel().getFontMetrics(font)
+    return labels.maxOf { metrics.stringWidth(it) }
+        .plus(28)
+        .coerceIn(136, 190)
+}
+
+private fun loadAppIconImage(): java.awt.Image {
+    val stream = checkNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("icons/app.png")) {
+        "Missing desktop app icon resource"
+    }
+    return stream.use { ImageIO.read(it) }
 }
 
 @Composable
