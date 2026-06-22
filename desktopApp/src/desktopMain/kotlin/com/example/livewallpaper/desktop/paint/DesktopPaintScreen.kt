@@ -14,6 +14,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +40,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -56,11 +59,14 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Rotate90DegreesCcw
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -89,13 +95,18 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -104,6 +115,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -114,12 +126,12 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import androidx.compose.ui.window.rememberDialogState
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.desktop.DesktopImageFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
@@ -150,11 +162,13 @@ import java.awt.FileDialog
 import java.awt.Desktop
 import java.awt.Frame
 import java.awt.Graphics2D
+import java.awt.RenderingHints
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.Image as AwtImage
+import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
 import java.io.IOException
@@ -163,6 +177,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.UUID
 import javax.imageio.ImageIO
+import kotlin.math.sin
 import kotlin.math.roundToInt
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTransferAction
@@ -173,6 +188,24 @@ import androidx.compose.ui.draganddrop.DragData
 import androidx.compose.ui.draganddrop.dragData
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+
+private data class DesktopImagePreviewState(
+    val paths: List<String>,
+    val initialIndex: Int,
+    val requestId: Int,
+)
+
+private data class DesktopImageTransformState(
+    val rotation: Float = 0f,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false,
+)
+
+private const val DESKTOP_PREVIEW_MIN_SCALE = 0.5f
+
+private const val DESKTOP_PREVIEW_MAX_SCALE = 5f
+
+private const val DESKTOP_PREVIEW_DOUBLE_TAP_SCALE = 2.5f
 
 @Composable
 fun AiPaintWorkspace(
@@ -188,7 +221,8 @@ fun AiPaintWorkspace(
     val listState = remember(currentSessionId) { LazyListState() }
     var showApiSettings by remember { mutableStateOf(false) }
     var optionDialog by remember { mutableStateOf<PaintOptionDialog?>(null) }
-    var previewImagePath by remember { mutableStateOf<String?>(null) }
+    var previewState by remember { mutableStateOf<DesktopImagePreviewState?>(null) }
+    var previewRequestId by remember { mutableStateOf(0) }
     var lastRenderedSessionId by remember { mutableStateOf<String?>(null) }
     var lastAutoScrollKey by remember { mutableStateOf<String?>(null) }
     var showCopyFeedback by remember { mutableStateOf(false) }
@@ -206,6 +240,20 @@ fun AiPaintWorkspace(
             showCopyFeedback = true
             copyFeedbackSerial += 1
         }
+    }
+
+    fun showImagePreview(paths: List<String>, initialIndex: Int) {
+        val selectedPath = paths.getOrNull(initialIndex)
+        val existingPaths = paths.filter { localImageFile(it)?.isFile == true }
+        if (existingPaths.isEmpty()) return
+        val safeInitialIndex = existingPaths.indexOf(selectedPath).takeIf { it >= 0 }
+            ?: initialIndex.coerceIn(0, existingPaths.lastIndex)
+        previewRequestId += 1
+        previewState = DesktopImagePreviewState(
+            paths = existingPaths,
+            initialIndex = safeInitialIndex,
+            requestId = previewRequestId,
+        )
     }
 
     LaunchedEffect(listState) {
@@ -240,10 +288,12 @@ fun AiPaintWorkspace(
             onDismiss = { optionDialog = null },
         )
     }
-    previewImagePath?.let { path ->
+    previewState?.let { state ->
         PaintImagePreviewDialog(
-            path = path,
-            onDismiss = { previewImagePath = null },
+            paths = state.paths,
+            initialIndex = state.initialIndex,
+            requestId = state.requestId,
+            onDismiss = { previewState = null },
         )
     }
 
@@ -368,7 +418,7 @@ fun AiPaintWorkspace(
                             PaintMessageRow(
                                 message = message,
                                 uiState = uiState,
-                                onPreviewImage = { previewImagePath = it },
+                                onPreviewImage = ::showImagePreview,
                                 onAddToWallpapers = { path -> onAddImagesToWallpapers(listOf(path)) },
                                 onAddImages = { images ->
                                     val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
@@ -409,7 +459,7 @@ fun AiPaintWorkspace(
                 onEvent = viewModel::onEvent,
                 onShowApiSettings = { showApiSettings = true },
                 onShowOptions = { optionDialog = it },
-                onPreviewImage = { previewImagePath = it },
+                onPreviewImage = ::showImagePreview,
             )
             uiState.error?.let { error ->
                 Surface(
@@ -899,7 +949,7 @@ private fun GenerationTaskMenuItem(
 private fun PaintMessageRow(
     message: PaintMessage,
     uiState: PaintUiState,
-    onPreviewImage: (String) -> Unit,
+    onPreviewImage: (List<String>, Int) -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onAddImages: (List<PaintImage>) -> Unit,
     onSetWallpaper: (String) -> Unit,
@@ -1007,13 +1057,19 @@ private fun PaintMessageRow(
                     )
                 }
                 if (message.images.isNotEmpty()) {
+                    val previewPaths = message.images.mapNotNull { image ->
+                        image.localPath?.takeIf { localImageFile(it)?.isFile == true }
+                    }
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         message.images.forEach { image ->
+                            val previewIndex = image.localPath?.let(previewPaths::indexOf) ?: -1
                             PaintImageThumb(
                                 image = image,
+                                previewPaths = previewPaths,
+                                previewIndex = previewIndex,
                                 onPreviewImage = onPreviewImage,
                                 onAddToWallpapers = onAddToWallpapers,
                                 onSetWallpaper = onSetWallpaper,
@@ -1319,7 +1375,9 @@ private fun DeleteVersionDialog(
 @OptIn(ExperimentalComposeUiApi::class)
 private fun PaintImageThumb(
     image: PaintImage,
-    onPreviewImage: (String) -> Unit,
+    previewPaths: List<String>,
+    previewIndex: Int,
+    onPreviewImage: (List<String>, Int) -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
@@ -1370,7 +1428,11 @@ private fun PaintImageThumb(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = { onPreviewImage(path) },
+                        onClick = {
+                            if (previewIndex >= 0) {
+                                onPreviewImage(previewPaths, previewIndex)
+                            }
+                        },
                     ),
             )
         }
@@ -1537,7 +1599,7 @@ private fun PaintInputBar(
     onEvent: (PaintEvent) -> Unit,
     onShowApiSettings: () -> Unit,
     onShowOptions: (PaintOptionDialog) -> Unit,
-    onPreviewImage: (String) -> Unit,
+    onPreviewImage: (List<String>, Int) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     var showAttachMenu by remember { mutableStateOf(false) }
@@ -1551,6 +1613,7 @@ private fun PaintInputBar(
         reordered.add(to.index, moved)
         onEvent(PaintEvent.ReorderImages(reordered))
     }
+    val referencePreviewPaths = remember(uiState.selectedImages) { uiState.selectedImages.map { it.uri } }
     fun addClipboardImages(): Boolean {
         val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
         if (remaining <= 0) return false
@@ -1591,7 +1654,7 @@ private fun PaintInputBar(
                 modifier = Modifier.widthIn(max = 1080.dp).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(uiState.selectedImages, key = { it.id }) { selected ->
+                itemsIndexed(uiState.selectedImages, key = { _, selected -> selected.id }) { index, selected ->
                     ReorderableItem(referenceReorderState, key = selected.id) { _ ->
                         Box(modifier = Modifier.longPressDraggableHandle()) {
                             Surface(
@@ -1601,7 +1664,7 @@ private fun PaintInputBar(
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
-                                        onClick = { onPreviewImage(selected.uri) },
+                                        onClick = { onPreviewImage(referencePreviewPaths, index) },
                                     ),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                             ) {
@@ -2238,20 +2301,349 @@ private fun ConfirmDialog(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun PaintImagePreviewDialog(
-    path: String,
+    paths: List<String>,
+    initialIndex: Int,
+    requestId: Int,
     onDismiss: () -> Unit,
 ) {
-    DialogWindow(
+    val strings = LocalDesktopStrings.current
+    if (paths.isEmpty()) {
+        onDismiss()
+        return
+    }
+
+    var currentIndex by remember(paths) {
+        mutableStateOf(initialIndex.coerceIn(0, paths.lastIndex))
+    }
+    LaunchedEffect(paths, initialIndex, requestId) {
+        currentIndex = initialIndex.coerceIn(0, paths.lastIndex)
+    }
+    val path = paths[currentIndex]
+    val file = remember(path) { localImageFile(path) ?: File(path.removePrefix("file://")) }
+    var displayedPath by remember { mutableStateOf<String?>(null) }
+    var imageState by remember { mutableStateOf<ImageLoadState>(ImageLoadState.Loading) }
+    LaunchedEffect(path) {
+        if (imageState !is ImageLoadState.Success) {
+            displayedPath = null
+            imageState = ImageLoadState.Loading
+        }
+        val loadedState = withContext(Dispatchers.IO) {
+            loadImageBitmap(path, 4096)?.let(ImageLoadState::Success) ?: ImageLoadState.Error
+        }
+        displayedPath = path
+        imageState = loadedState
+    }
+    var transformStates by remember(paths) {
+        mutableStateOf(paths.associateWith { DesktopImageTransformState() })
+    }
+    val transform = transformStates[path] ?: DesktopImageTransformState()
+    var showControls by remember { mutableStateOf(true) }
+    var previewScale by remember(path) { mutableStateOf(1f) }
+    var previewOffset by remember(path) { mutableStateOf(Offset.Zero) }
+    var previewViewportSize by remember(path) { mutableStateOf(IntSize.Zero) }
+
+    fun updateTransform(transform: DesktopImageTransformState) {
+        transformStates = transformStates.toMutableMap().apply {
+            put(path, transform)
+        }
+    }
+
+    fun applyPreviewTransform(scale: Float, offset: Offset = previewOffset) {
+        val boundedScale = scale.coerceIn(DESKTOP_PREVIEW_MIN_SCALE, DESKTOP_PREVIEW_MAX_SCALE)
+        previewScale = boundedScale
+        previewOffset = if (boundedScale <= 1f) {
+            Offset.Zero
+        } else {
+            offset.clampedForScale(previewViewportSize, boundedScale)
+        }
+    }
+
+    fun navigate(delta: Int) {
+        val nextIndex = (currentIndex + delta).coerceIn(0, paths.lastIndex)
+        if (nextIndex != currentIndex) {
+            currentIndex = nextIndex
+        }
+    }
+
+    val previewWindowState = rememberWindowState(width = 1120.dp, height = 780.dp)
+
+    Window(
         onCloseRequest = onDismiss,
-        title = LocalDesktopStrings.current.paintImagePreview,
-        state = rememberDialogState(width = 980.dp, height = 720.dp),
+        title = strings.paintImagePreview,
+        icon = rememberPreviewAppIconPainter(),
+        state = previewWindowState,
+        resizable = true,
     ) {
-        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxSize().padding(18.dp), contentAlignment = Alignment.Center) {
-                FileImage(path, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        val previewWindow = window
+        LaunchedEffect(requestId, previewWindow) {
+            if (previewWindowState.isMinimized) {
+                previewWindowState.isMinimized = false
+                previewWindow.toFront()
+                previewWindow.requestFocus()
             }
         }
+
+        Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.96f)),
+            ) {
+                AnimatedVisibility(
+                    visible = showControls,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = strings.paintImagePreview,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = file.name.ifBlank { path },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.66f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = if (showControls) 8.dp else 20.dp)
+                        .onPointerEvent(PointerEventType.Scroll) { event ->
+                            val scrollDelta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                            if (scrollDelta != 0f) {
+                                val zoomFactor = if (scrollDelta < 0f) 1.12f else 0.90f
+                                applyPreviewTransform(previewScale * zoomFactor)
+                            }
+                        }
+                        .pointerInput(path, previewScale, previewViewportSize) {
+                            detectDragGestures { change, dragAmount ->
+                                if (previewScale > 1f) {
+                                    change.consume()
+                                    applyPreviewTransform(previewScale, previewOffset + dragAmount)
+                                }
+                            }
+                        }
+                        .pointerInput(path) {
+                            detectTapGestures(
+                                onTap = { showControls = !showControls },
+                                onDoubleTap = { tapOffset ->
+                                    if (previewScale > 1f) {
+                                        applyPreviewTransform(1f, Offset.Zero)
+                                    } else {
+                                        val targetScale = DESKTOP_PREVIEW_DOUBLE_TAP_SCALE
+                                        val centerX = previewViewportSize.width / 2f
+                                        val centerY = previewViewportSize.height / 2f
+                                        val targetOffset = Offset(
+                                            x = (centerX - tapOffset.x) * (targetScale - 1f),
+                                            y = (centerY - tapOffset.y) * (targetScale - 1f),
+                                        )
+                                        applyPreviewTransform(targetScale, targetOffset)
+                                    }
+                                },
+                            )
+                        }
+                        .onSizeChanged { previewViewportSize = it },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val isAwaitingCurrentImage = displayedPath != path
+                    val visibleTransform = transformStates[displayedPath ?: path] ?: DesktopImageTransformState()
+                    when (val state = imageState) {
+                        ImageLoadState.Loading -> {
+                            CircularProgressIndicator(color = Color.White)
+                        }
+                        ImageLoadState.Error -> {
+                            Text(strings.missingFile, color = Color.White.copy(alpha = 0.72f))
+                        }
+                        is ImageLoadState.Success -> {
+                            val compensation = previewRotationCompensation(
+                                bitmap = state.bitmap,
+                                viewportSize = previewViewportSize,
+                                rotation = visibleTransform.rotation,
+                            )
+                            Image(
+                                bitmap = state.bitmap,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        val horizontalDirection = if (visibleTransform.flipHorizontal) -1f else 1f
+                                        val verticalDirection = if (visibleTransform.flipVertical) -1f else 1f
+                                        scaleX = previewScale * compensation * horizontalDirection
+                                        scaleY = previewScale * compensation * verticalDirection
+                                        translationX = previewOffset.x
+                                        translationY = previewOffset.y
+                                        rotationZ = visibleTransform.rotation
+                                    },
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
+                    if (isAwaitingCurrentImage) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White.copy(alpha = 0.86f),
+                            )
+                        }
+                    }
+
+                    if (showControls && paths.size > 1) {
+                        PreviewRoundIconButton(
+                            icon = Icons.Default.ChevronLeft,
+                            contentDescription = strings.previous,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+                            enabled = currentIndex > 0,
+                            onClick = { navigate(-1) },
+                        )
+                    }
+
+                    if (showControls && paths.size > 1) {
+                        PreviewRoundIconButton(
+                            icon = Icons.Default.ChevronRight,
+                            contentDescription = strings.next,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+                            enabled = currentIndex < paths.lastIndex,
+                            onClick = { navigate(1) },
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showControls,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Rotate90DegreesCcw,
+                                contentDescription = strings.imagePreviewRotateLeft,
+                                onClick = { updateTransform(transform.copy(rotation = transform.rotation - 90f)) },
+                            )
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Rotate90DegreesCw,
+                                contentDescription = strings.imagePreviewRotateRight,
+                                onClick = { updateTransform(transform.copy(rotation = transform.rotation + 90f)) },
+                            )
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Flip,
+                                contentDescription = strings.imagePreviewFlipHorizontal,
+                                onClick = {
+                                    updateTransform(transform.copy(flipHorizontal = !transform.flipHorizontal))
+                                },
+                            )
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Flip,
+                                contentDescription = strings.imagePreviewFlipVertical,
+                                rotateIcon = 90f,
+                                onClick = {
+                                    updateTransform(transform.copy(flipVertical = !transform.flipVertical))
+                                },
+                            )
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Edit,
+                                contentDescription = strings.paintEditMessage,
+                                onClick = { openImageForEdit(path) },
+                            )
+                            PreviewRoundIconButton(
+                                icon = Icons.Default.Download,
+                                contentDescription = strings.paintSaveAs,
+                                onClick = { saveTransformedImageAs(path, transform, strings.paintSaveAs) },
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${(previewScale * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (paths.size > 1) {
+                                Text(
+                                    text = "${currentIndex + 1} / ${paths.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberPreviewAppIconPainter(): Painter {
+    return remember {
+        val stream = checkNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("icons/app.png")) {
+            "Missing desktop app icon resource"
+        }
+        stream.use {
+            BitmapPainter(ImageIO.read(it).toComposeImageBitmap())
+        }
+    }
+}
+
+@Composable
+private fun PreviewRoundIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    rotateIcon: Float = 0f,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = if (enabled) 0.20f else 0.08f))
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = rotateIcon },
+            tint = Color.White.copy(alpha = if (enabled) 0.96f else 0.36f),
+        )
     }
 }
 
@@ -2506,7 +2898,8 @@ private fun isSupportedImageName(name: String): Boolean {
 
 private fun loadImageBitmap(path: String, maxDimension: Int): ImageBitmap? {
     return runCatching {
-        val source = ImageIO.read(File(path.removePrefix("file://"))) ?: return@runCatching null
+        val sourceFile = localImageFile(path) ?: File(path.removePrefix("file://"))
+        val source = ImageIO.read(sourceFile) ?: return@runCatching null
         source.scaledToMaxDimension(maxDimension).toComposeImageBitmap()
     }.getOrNull()
 }
@@ -2525,6 +2918,39 @@ private fun BufferedImage.scaledToMaxDimension(maxDimension: Int): BufferedImage
         graphics.dispose()
     }
     return target
+}
+
+private fun Offset.clampedForScale(viewportSize: IntSize, scale: Float): Offset {
+    if (viewportSize.width <= 0 || viewportSize.height <= 0 || scale <= 1f) return Offset.Zero
+    val maxX = viewportSize.width * (scale - 1f) / 2f
+    val maxY = viewportSize.height * (scale - 1f) / 2f
+    return Offset(
+        x = x.coerceIn(-maxX, maxX),
+        y = y.coerceIn(-maxY, maxY),
+    )
+}
+
+private fun previewRotationCompensation(
+    bitmap: ImageBitmap,
+    viewportSize: IntSize,
+    rotation: Float,
+): Float {
+    if (bitmap.width <= 0 || bitmap.height <= 0 || viewportSize.width <= 0 || viewportSize.height <= 0) {
+        return 1f
+    }
+    val fitScale = minOf(
+        viewportSize.width.toFloat() / bitmap.width.toFloat(),
+        viewportSize.height.toFloat() / bitmap.height.toFloat(),
+    )
+    val displayWidth = bitmap.width * fitScale
+    val displayHeight = bitmap.height * fitScale
+    val rotatedFitScale = minOf(
+        viewportSize.width.toFloat() / displayHeight,
+        viewportSize.height.toFloat() / displayWidth,
+    )
+    val sinValue = sin(Math.toRadians(rotation.toDouble())).toFloat()
+    val rotationFactor = sinValue * sinValue
+    return 1f + (rotatedFitScale - 1f) * rotationFactor
 }
 
 private fun imageDimensions(path: String): Pair<Int, Int> {
@@ -2593,7 +3019,7 @@ private fun dragTransferDataForFile(path: String): DragAndDropTransferData? {
 }
 
 private fun saveImageAs(sourcePath: String, title: String) {
-    val source = File(sourcePath)
+    val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: File(sourcePath)
     if (!source.isFile) return
     val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
         file = source.name
@@ -2604,6 +3030,90 @@ private fun saveImageAs(sourcePath: String, title: String) {
     source.copyTo(File(directory, file), overwrite = true)
 }
 
+private fun saveTransformedImageAs(
+    sourcePath: String,
+    transform: DesktopImageTransformState,
+    title: String,
+) {
+    val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: return
+    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
+        file = source.name
+    }
+    dialog.isVisible = true
+    val directory = dialog.directory ?: return
+    val fileName = dialog.file ?: return
+    val target = File(directory, fileName)
+
+    if (transform.isIdentity()) {
+        source.copyTo(target, overwrite = true)
+        return
+    }
+
+    val sourceImage = ImageIO.read(source) ?: return
+    val transformed = sourceImage.transformed(transform)
+    val requestedFormat = imageWriteFormat(target)
+    val imageToWrite = if (requestedFormat == "jpeg") transformed.withWhiteBackground() else transformed
+    if (!ImageIO.write(imageToWrite, requestedFormat, target) && requestedFormat != "png") {
+        val pngTarget = File(target.parentFile, "${target.nameWithoutExtension}.png")
+        ImageIO.write(transformed, "png", pngTarget)
+    }
+}
+
+private fun DesktopImageTransformState.isIdentity(): Boolean {
+    return normalizedRotation() == 0 && !flipHorizontal && !flipVertical
+}
+
+private fun DesktopImageTransformState.normalizedRotation(): Int {
+    return ((rotation.roundToInt() % 360) + 360) % 360
+}
+
+private fun BufferedImage.transformed(transform: DesktopImageTransformState): BufferedImage {
+    val rotation = transform.normalizedRotation()
+    val swapsSides = rotation == 90 || rotation == 270
+    val targetWidth = if (swapsSides) height else width
+    val targetHeight = if (swapsSides) width else height
+    val target = BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_ARGB)
+    val graphics = target.createGraphics()
+    try {
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        val affineTransform = AffineTransform().apply {
+            translate(targetWidth / 2.0, targetHeight / 2.0)
+            rotate(Math.toRadians(rotation.toDouble()))
+            scale(
+                if (transform.flipHorizontal) -1.0 else 1.0,
+                if (transform.flipVertical) -1.0 else 1.0,
+            )
+            translate(-width / 2.0, -height / 2.0)
+        }
+        graphics.drawImage(this, affineTransform, null)
+    } finally {
+        graphics.dispose()
+    }
+    return target
+}
+
+private fun BufferedImage.withWhiteBackground(): BufferedImage {
+    val target = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val graphics = target.createGraphics()
+    try {
+        graphics.color = java.awt.Color.WHITE
+        graphics.fillRect(0, 0, width, height)
+        graphics.drawImage(this, 0, 0, null)
+    } finally {
+        graphics.dispose()
+    }
+    return target
+}
+
+private fun imageWriteFormat(file: File): String {
+    return when (file.extension.lowercase()) {
+        "jpg", "jpeg" -> "jpeg"
+        "bmp" -> "bmp"
+        else -> "png"
+    }
+}
+
 private fun openImageLocation(path: String) {
     val file = localImageFile(path)?.takeIf { it.exists() } ?: return
     runCatching {
@@ -2611,6 +3121,18 @@ private fun openImageLocation(path: String) {
             ProcessBuilder("explorer.exe", "/select,${file.absolutePath}").start()
         } else {
             Desktop.getDesktop().open(file.parentFile)
+        }
+    }
+}
+
+private fun openImageForEdit(path: String) {
+    val file = localImageFile(path)?.takeIf { it.isFile } ?: return
+    runCatching {
+        val desktop = Desktop.getDesktop()
+        if (desktop.isSupported(Desktop.Action.EDIT)) {
+            desktop.edit(file)
+        } else {
+            desktop.open(file)
         }
     }
 }

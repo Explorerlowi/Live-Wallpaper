@@ -1178,7 +1178,7 @@ class AndroidPaintViewModel(
                 .mapNotNull { img ->
                     val path = img.localPath ?: return@mapNotNull null
                     val bytes = try {
-                        if (path.startsWith("/") || path.startsWith("file://")) {
+                        val rawBytes = if (path.startsWith("/") || path.startsWith("file://")) {
                             // 本地文件路径
                             val filePath = if (path.startsWith("file://")) {
                                 path.removePrefix("file://")
@@ -1191,6 +1191,8 @@ class AndroidPaintViewModel(
                             val uri = Uri.parse(path)
                             appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         }
+                        // 与首次生成保持一致：原始数据超过 3MB 时压缩，避免重新生成时 OOM
+                        compressImageIfNeeded(rawBytes, img.mimeType)
                     } catch (_: Exception) {
                         null
                     } ?: return@mapNotNull null
