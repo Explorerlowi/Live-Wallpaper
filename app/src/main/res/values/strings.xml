@@ -136,6 +136,8 @@
     <string name="paint_stop_confirm_message">This will stop all ongoing image generation tasks. Continue?</string>
     <string name="paint_session_generating">Generating %1$d tasks</string>
     <string name="paint_send">Send</string>
+    <string name="paint_input_mode_enter_send">Enter sends</string>
+    <string name="paint_input_mode_ctrl_enter_send">Ctrl+Enter sends</string>
     <string name="paint_expand_input">Expand input</string>
     <string name="paint_image">Image</string>
     <string name="paint_sessions">Sessions</string>
@@ -156,7 +158,7 @@
     <string name="paint_delete">Delete</string>
     <string name="paint_auth_mode">Auth Mode</string>
     <string name="paint_auth_bearer_token">Bearer Token</string>
-    <string name="paint_auth_official">Official</string>
+    <string name="paint_auth_official">Gemini Official</string>
     <string name="paint_config_name">Configuration Name</string>
     <string name="paint_config_name_hint">e.g., My API</string>
     <string name="paint_api_base_url">API Base URL</string>

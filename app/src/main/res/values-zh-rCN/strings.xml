@@ -138,6 +138,8 @@
     <string name="paint_stop_confirm_message">将停止所有正在进行的图片生成任务，是否继续？</string>
     <string name="paint_session_generating">正在生成 %1$d 个任务</string>
     <string name="paint_send">发送</string>
+    <string name="paint_input_mode_enter_send">Enter 发送</string>
+    <string name="paint_input_mode_ctrl_enter_send">Ctrl+Enter 发送</string>
     <string name="paint_expand_input">展开输入</string>
     <string name="paint_image">图片</string>
     <string name="paint_sessions">会话列表</string>
@@ -158,7 +160,7 @@
     <string name="paint_delete">删除</string>
     <string name="paint_auth_mode">鉴权方式</string>
     <string name="paint_auth_bearer_token">Bearer Token</string>
-    <string name="paint_auth_official">官方</string>
+    <string name="paint_auth_official">Gemini官方</string>
     <string name="paint_config_name">配置名称</string>
     <string name="paint_config_name_hint">例如：我的API</string>
     <string name="paint_api_base_url">API Base URL</string>

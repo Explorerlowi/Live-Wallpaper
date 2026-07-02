@@ -32,7 +32,16 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Rotate90DegreesCcw
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +50,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -121,6 +131,7 @@ import java.awt.Desktop
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Font
 import java.awt.Frame
@@ -136,9 +147,18 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.net.URI
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
+import java.nio.file.StandardOpenOption
 import java.util.LinkedHashMap
 import javax.imageio.ImageIO
 import javax.swing.BoxLayout
@@ -160,7 +180,107 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.DragData
 import androidx.compose.ui.draganddrop.dragData
 
+private class DesktopSingleInstanceController(
+    private val lockFileChannel: FileChannel,
+    private val lock: FileLock,
+    private val portFile: File,
+) : AutoCloseable {
+    @Volatile
+    var onShowRequested: (() -> Unit)? = null
+
+    @Volatile
+    private var isRunning = true
+
+    private var serverSocket: ServerSocket? = null
+
+    init {
+        startRequestServer()
+    }
+
+    private fun startRequestServer() {
+        val server = ServerSocket(0, 4, InetAddress.getLoopbackAddress())
+        serverSocket = server
+        portFile.writeText(server.localPort.toString())
+        Thread(
+            {
+                while (isRunning) {
+                    runCatching {
+                        server.accept().use { socket ->
+                            socket.getInputStream().read(ByteArray(8))
+                        }
+                        EventQueue.invokeLater {
+                            onShowRequested?.invoke()
+                        }
+                    }.onFailure { error ->
+                        if (isRunning && error !is java.net.SocketException) {
+                            error.printStackTrace()
+                        }
+                    }
+                }
+            },
+            "LiveWallpaperSingleInstance",
+        ).apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    override fun close() {
+        isRunning = false
+        runCatching { serverSocket?.close() }
+        runCatching { portFile.delete() }
+        runCatching { lock.release() }
+        runCatching { lockFileChannel.close() }
+    }
+
+    companion object {
+        private const val DIRECTORY_NAME = "live-wallpaper-desktop-single-instance"
+        private const val LOCK_FILE_NAME = "app.lock"
+        private const val PORT_FILE_NAME = "request.port"
+
+        fun acquire(): DesktopSingleInstanceController? {
+            val directory = File(System.getProperty("java.io.tmpdir"), DIRECTORY_NAME).apply { mkdirs() }
+            val lockFile = File(directory, LOCK_FILE_NAME)
+            val portFile = File(directory, PORT_FILE_NAME)
+            val lockFileChannel = FileChannel.open(
+                lockFile.toPath(),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+            )
+            val lock = try {
+                lockFileChannel.tryLock()
+            } catch (_: OverlappingFileLockException) {
+                null
+            }
+            if (lock == null) {
+                runCatching { lockFileChannel.close() }
+                notifyRunningInstance(portFile)
+                return null
+            }
+            return runCatching {
+                DesktopSingleInstanceController(lockFileChannel, lock, portFile)
+            }.getOrElse {
+                runCatching { lock.release() }
+                runCatching { lockFileChannel.close() }
+                null
+            }
+        }
+
+        private fun notifyRunningInstance(portFile: File) {
+            val port = runCatching { portFile.readText().trim().toInt() }.getOrNull() ?: return
+            runCatching {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress(InetAddress.getLoopbackAddress(), port), 600)
+                    socket.getOutputStream().write(1)
+                }
+            }
+        }
+    }
+}
+
 fun main() {
+    val singleInstanceController = DesktopSingleInstanceController.acquire() ?: return
+
     startKoin {
         modules(appModule, platformModule)
     }
@@ -168,7 +288,8 @@ fun main() {
     val wallpaperController = WindowsWallpaperController()
     val runtimeSettings = DesktopRuntimeSettings()
 
-    application {
+    try {
+        application {
         var isWindowVisible by remember { mutableStateOf(true) }
         var latestConfig by remember { mutableStateOf(WallpaperConfig()) }
         val strings = desktopStringsFor(latestConfig.languageTag)
@@ -176,6 +297,21 @@ fun main() {
         val trayStrings = strings
         val canStartSlideshow = latestConfig.imageUris.any { File(it).isFile }
         val isSlideshowRunning = wallpaperStatus is DesktopWallpaperStatus.Running
+        val mainWindowState = rememberWindowState(width = 1240.dp, height = 820.dp)
+        var focusRequestSerial by remember { mutableStateOf(0) }
+
+        fun showMainWindow() {
+            isWindowVisible = true
+            mainWindowState.isMinimized = false
+            focusRequestSerial += 1
+        }
+
+        DisposableEffect(singleInstanceController) {
+            singleInstanceController.onShowRequested = ::showMainWindow
+            onDispose {
+                singleInstanceController.onShowRequested = null
+            }
+        }
 
         fun startSlideshow(config: WallpaperConfig) {
             runtimeSettings.setSlideshowRunning(config.imageUris.any { File(it).isFile })
@@ -189,7 +325,7 @@ fun main() {
 
         val trayController = rememberDesktopTrayController(
             tooltip = trayStrings.appTitle,
-            onOpenWindow = { isWindowVisible = true },
+            onOpenWindow = ::showMainWindow,
             onExit = {
                 wallpaperController.close()
                 exitApplication()
@@ -210,8 +346,16 @@ fun main() {
                 onCloseRequest = { isWindowVisible = false },
                 title = strings.appTitle,
                 icon = rememberAppIconPainter(),
-                state = rememberWindowState(width = 1240.dp, height = 820.dp)
+                state = mainWindowState,
             ) {
+                val mainWindow = window
+                LaunchedEffect(focusRequestSerial) {
+                    if (focusRequestSerial > 0) {
+                        mainWindowState.isMinimized = false
+                        mainWindow.toFront()
+                        mainWindow.requestFocus()
+                    }
+                }
                 DesktopApp(
                     wallpaperController = wallpaperController,
                     runtimeSettings = runtimeSettings,
@@ -227,6 +371,9 @@ fun main() {
                 )
             }
         }
+    }
+    } finally {
+        singleInstanceController.close()
     }
 }
 
@@ -613,25 +760,10 @@ private fun WallpaperWorkspace(
     }
 
     previewPath?.let { path ->
-        ImagePreviewDialog(
-            path = path,
+        WallpaperImagePreviewWindow(
+            initialPath = path,
             imageUris = displayedUris,
             onDismiss = { previewPath = null },
-            onPrevious = {
-                previewPath = displayedUris.neighborOf(path, step = -1)
-            },
-            onNext = {
-                previewPath = displayedUris.neighborOf(path, step = 1)
-            },
-            onSetWallpaper = {
-                onSetWallpaperPath(path)
-            },
-            onDelete = {
-                val nextPath = displayedUris.neighborOf(path, step = 1)
-                    ?: displayedUris.neighborOf(path, step = -1)
-                onEvent(SettingsEvent.RemoveImage(path))
-                previewPath = nextPath
-            },
         )
     }
 
@@ -1250,27 +1382,62 @@ private fun DeleteSelectedDialog(
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
-private fun ImagePreviewDialog(
-    path: String,
+private fun WallpaperImagePreviewWindow(
+    initialPath: String,
     imageUris: List<String>,
     onDismiss: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onSetWallpaper: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
+    val paths = remember(imageUris, initialPath) {
+        imageUris.ifEmpty { listOf(initialPath) }
+    }
+    if (paths.isEmpty()) {
+        onDismiss()
+        return
+    }
+    var currentIndex by remember(paths) {
+        mutableStateOf(paths.indexOf(initialPath).takeIf { it >= 0 } ?: 0)
+    }
+    LaunchedEffect(paths, initialPath) {
+        currentIndex = paths.indexOf(initialPath).takeIf { it >= 0 } ?: 0
+    }
+    val path = paths[currentIndex.coerceIn(0, paths.lastIndex)]
     val file = remember(path) { File(path) }
-    val image by produceState<ImageBitmap?>(initialValue = null, path) {
-        value = withContext(Dispatchers.IO) {
+    var displayedPath by remember { mutableStateOf<String?>(null) }
+    var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(path) {
+        if (image == null) {
+            displayedPath = null
+        }
+        val loadedImage = withContext(Dispatchers.IO) {
             loadImageBitmap(path, maxDimension = 2600)
         }
+        displayedPath = path
+        image = loadedImage
     }
-    val canNavigate = imageUris.size > 1
-    val dialogState = rememberDialogState(width = 1180.dp, height = 860.dp)
+    val canNavigate = paths.size > 1
+    val windowState = rememberWindowState(width = 1120.dp, height = 780.dp)
+    var transformStates by remember(paths) {
+        mutableStateOf(paths.associateWith { WallpaperImageTransformState() })
+    }
+    val transform = transformStates[path] ?: WallpaperImageTransformState()
+    var showControls by remember { mutableStateOf(true) }
     var previewScale by remember(path) { mutableStateOf(1f) }
     var previewOffset by remember(path) { mutableStateOf(Offset.Zero) }
     var previewViewportSize by remember(path) { mutableStateOf(IntSize.Zero) }
+
+    fun updateTransform(transform: WallpaperImageTransformState) {
+        transformStates = transformStates.toMutableMap().apply {
+            put(path, transform)
+        }
+    }
+
+    fun navigate(delta: Int) {
+        val nextIndex = (currentIndex + delta).coerceIn(0, paths.lastIndex)
+        if (nextIndex != currentIndex) {
+            currentIndex = nextIndex
+        }
+    }
 
     fun applyPreviewTransform(scale: Float, offset: Offset = previewOffset) {
         val boundedScale = scale.coerceIn(PREVIEW_MIN_SCALE, PREVIEW_MAX_SCALE)
@@ -1282,50 +1449,37 @@ private fun ImagePreviewDialog(
         }
     }
 
-    DialogWindow(
+    Window(
         onCloseRequest = onDismiss,
-        state = dialogState,
-        title = file.name.ifBlank { strings.appTitle },
+        title = strings.paintImagePreview,
         icon = rememberAppIconPainter(),
+        state = windowState,
         resizable = true,
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.surface,
-        ) {
+        Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .background(Color.Black.copy(alpha = 0.96f)),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showControls,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut(),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         Text(
-                            text = file.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            text = file.name.ifBlank { path },
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.78f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            text = if (file.isFile) file.parent.orEmpty() else strings.missingFile,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (file.isFile) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    OutlinedButton(onClick = onDismiss) {
-                        Text(strings.close)
                     }
                 }
 
@@ -1333,8 +1487,7 @@ private fun ImagePreviewDialog(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Black.copy(alpha = 0.88f))
+                        .padding(horizontal = 24.dp, vertical = if (showControls) 8.dp else 20.dp)
                         .onSizeChanged { previewViewportSize = it }
                         .onPointerEvent(PointerEventType.Scroll) { event ->
                             val scrollDelta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
@@ -1353,111 +1506,202 @@ private fun ImagePreviewDialog(
                         }
                         .pointerInput(path) {
                             detectTapGestures(
-                                onDoubleTap = {
-                                    applyPreviewTransform(1f, Offset.Zero)
-                                }
+                                onTap = { showControls = !showControls },
+                                onDoubleTap = { tapOffset ->
+                                    if (previewScale > 1f) {
+                                        applyPreviewTransform(1f, Offset.Zero)
+                                    } else {
+                                        val targetScale = 2.5f
+                                        val centerX = previewViewportSize.width / 2f
+                                        val centerY = previewViewportSize.height / 2f
+                                        val targetOffset = Offset(
+                                            x = (centerX - tapOffset.x) * (targetScale - 1f),
+                                            y = (centerY - tapOffset.y) * (targetScale - 1f),
+                                        )
+                                        applyPreviewTransform(targetScale, targetOffset)
+                                    }
+                                },
                             )
                         },
                     contentAlignment = Alignment.Center,
                 ) {
                     val previewImage = image
                     if (previewImage != null) {
+                        val visibleTransform = transformStates[displayedPath ?: path] ?: WallpaperImageTransformState()
+                        val rotationCompensation = wallpaperPreviewRotationCompensation(
+                            bitmap = previewImage,
+                            viewportSize = previewViewportSize,
+                            rotation = visibleTransform.rotation,
+                        )
                         Image(
                             bitmap = previewImage,
                             contentDescription = null,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    scaleX = previewScale
-                                    scaleY = previewScale
+                                    val horizontalDirection = if (visibleTransform.flipHorizontal) -1f else 1f
+                                    val verticalDirection = if (visibleTransform.flipVertical) -1f else 1f
+                                    scaleX = previewScale * rotationCompensation * horizontalDirection
+                                    scaleY = previewScale * rotationCompensation * verticalDirection
                                     translationX = previewOffset.x
                                     translationY = previewOffset.y
+                                    rotationZ = visibleTransform.rotation
                                 },
                             contentScale = ContentScale.Fit,
                         )
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp),
-                            shape = RoundedCornerShape(999.dp),
-                            color = Color.Black.copy(alpha = 0.46f),
-                        ) {
-                            Text(
-                                text = "${(previewScale * 100).roundToInt()}%",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
                     } else {
                         Text(
                             text = strings.missingFile,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
+                    if (displayedPath != path) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White.copy(alpha = 0.86f),
+                            )
+                        }
+                    }
+
+                    if (showControls && canNavigate) {
+                        WallpaperPreviewIconButton(
+                            icon = Icons.Default.ChevronLeft,
+                            contentDescription = strings.previous,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+                            enabled = currentIndex > 0,
+                            onClick = { navigate(-1) },
+                        )
+                    }
+
+                    if (showControls && canNavigate) {
+                        WallpaperPreviewIconButton(
+                            icon = Icons.Default.ChevronRight,
+                            contentDescription = strings.next,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+                            enabled = currentIndex < paths.lastIndex,
+                            onClick = { navigate(1) },
                         )
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showControls,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut(),
                 ) {
-                    OutlinedButton(
-                        onClick = onPrevious,
-                        enabled = canNavigate,
-                        modifier = Modifier.width(128.dp),
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(strings.previous)
-                    }
-                    OutlinedButton(
-                        onClick = onNext,
-                        enabled = canNavigate,
-                        modifier = Modifier.width(128.dp),
-                    ) {
-                        Text(strings.next)
-                    }
-                    OutlinedButton(
-                        onClick = { applyPreviewTransform(previewScale / 1.2f) },
-                        enabled = image != null,
-                        modifier = Modifier.width(104.dp),
-                    ) {
-                        Text(strings.zoomOut)
-                    }
-                    OutlinedButton(
-                        onClick = { applyPreviewTransform(previewScale * 1.2f) },
-                        enabled = image != null,
-                        modifier = Modifier.width(104.dp),
-                    ) {
-                        Text(strings.zoomIn)
-                    }
-                    OutlinedButton(
-                        onClick = { applyPreviewTransform(1f, Offset.Zero) },
-                        enabled = image != null,
-                        modifier = Modifier.width(112.dp),
-                    ) {
-                        Text(strings.fitWindow)
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = onSetWallpaper,
-                        enabled = file.isFile,
-                        modifier = Modifier.widthIn(min = 170.dp),
-                    ) {
-                        Text(strings.setCurrentWallpaper)
-                    }
-                    OutlinedButton(
-                        onClick = onDelete,
-                        modifier = Modifier.width(112.dp),
-                    ) {
-                        Text(strings.remove)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Rotate90DegreesCcw,
+                                contentDescription = strings.imagePreviewRotateLeft,
+                                onClick = { updateTransform(transform.copy(rotation = transform.rotation - 90f)) },
+                            )
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Rotate90DegreesCw,
+                                contentDescription = strings.imagePreviewRotateRight,
+                                onClick = { updateTransform(transform.copy(rotation = transform.rotation + 90f)) },
+                            )
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Flip,
+                                contentDescription = strings.imagePreviewFlipHorizontal,
+                                onClick = {
+                                    updateTransform(transform.copy(flipHorizontal = !transform.flipHorizontal))
+                                },
+                            )
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Flip,
+                                contentDescription = strings.imagePreviewFlipVertical,
+                                rotateIcon = 90f,
+                                onClick = {
+                                    updateTransform(transform.copy(flipVertical = !transform.flipVertical))
+                                },
+                            )
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Edit,
+                                contentDescription = strings.paintEditMessage,
+                                onClick = { openPreviewImageForEdit(path) },
+                            )
+                            WallpaperPreviewIconButton(
+                                icon = Icons.Default.Download,
+                                contentDescription = strings.paintSaveAs,
+                                onClick = { saveWallpaperPreviewImageAs(path, transform, strings.paintSaveAs) },
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${(previewScale * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (paths.size > 1) {
+                                Text(
+                                    text = "${currentIndex + 1} / ${paths.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun WallpaperPreviewIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    rotateIcon: Float = 0f,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = if (enabled) 0.20f else 0.08f))
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = rotateIcon },
+            tint = Color.White.copy(alpha = if (enabled) 0.96f else 0.36f),
+        )
+    }
+}
+
+private data class WallpaperImageTransformState(
+    val rotation: Float = 0f,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false,
+)
 
 @Composable
 private fun SettingsDialog(
@@ -2163,6 +2407,125 @@ private fun loadImageBitmap(path: String, maxDimension: Int): ImageBitmap? {
         val source = ImageIO.read(File(path)) ?: return@runCatching null
         source.scaledToMaxDimension(maxDimension).toComposeImageBitmap()
     }.getOrNull()
+}
+
+private fun wallpaperPreviewRotationCompensation(
+    bitmap: ImageBitmap,
+    viewportSize: IntSize,
+    rotation: Float,
+): Float {
+    if (bitmap.width <= 0 || bitmap.height <= 0 || viewportSize.width <= 0 || viewportSize.height <= 0) {
+        return 1f
+    }
+    val fitScale = minOf(
+        viewportSize.width.toFloat() / bitmap.width.toFloat(),
+        viewportSize.height.toFloat() / bitmap.height.toFloat(),
+    )
+    val normalizedRotation = ((rotation.roundToInt() % 180) + 180) % 180
+    if (normalizedRotation == 0) return 1f
+
+    val rotatedFitScale = minOf(
+        viewportSize.width.toFloat() / bitmap.height.toFloat(),
+        viewportSize.height.toFloat() / bitmap.width.toFloat(),
+    )
+    if (fitScale <= 0f || rotatedFitScale <= 0f) return 1f
+    return (rotatedFitScale / fitScale).coerceAtMost(1f)
+}
+
+private fun saveWallpaperPreviewImageAs(
+    sourcePath: String,
+    transform: WallpaperImageTransformState,
+    title: String,
+) {
+    val source = File(sourcePath).takeIf { it.isFile } ?: return
+    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
+        file = source.name
+    }
+    dialog.isVisible = true
+    val directory = dialog.directory ?: return
+    val fileName = dialog.file ?: return
+    val target = File(directory, fileName)
+
+    if (transform.isIdentity()) {
+        source.copyTo(target, overwrite = true)
+        return
+    }
+
+    val sourceImage = ImageIO.read(source) ?: return
+    val transformed = sourceImage.transformed(transform)
+    val requestedFormat = imageWriteFormat(target)
+    val imageToWrite = if (requestedFormat == "jpeg") transformed.withWhiteBackground() else transformed
+    if (!ImageIO.write(imageToWrite, requestedFormat, target) && requestedFormat != "png") {
+        val pngTarget = File(target.parentFile, "${target.nameWithoutExtension}.png")
+        ImageIO.write(transformed, "png", pngTarget)
+    }
+}
+
+private fun WallpaperImageTransformState.isIdentity(): Boolean {
+    return normalizedRotation() == 0 && !flipHorizontal && !flipVertical
+}
+
+private fun WallpaperImageTransformState.normalizedRotation(): Int {
+    return ((rotation.roundToInt() % 360) + 360) % 360
+}
+
+private fun BufferedImage.transformed(transform: WallpaperImageTransformState): BufferedImage {
+    val rotation = transform.normalizedRotation()
+    val swapsSides = rotation == 90 || rotation == 270
+    val targetWidth = if (swapsSides) height else width
+    val targetHeight = if (swapsSides) width else height
+    val target = BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_ARGB)
+    val graphics = target.createGraphics()
+    try {
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        val affineTransform = AffineTransform().apply {
+            translate(targetWidth / 2.0, targetHeight / 2.0)
+            rotate(Math.toRadians(rotation.toDouble()))
+            scale(
+                if (transform.flipHorizontal) -1.0 else 1.0,
+                if (transform.flipVertical) -1.0 else 1.0,
+            )
+            translate(-width / 2.0, -height / 2.0)
+        }
+        graphics.drawImage(this, affineTransform, null)
+    } finally {
+        graphics.dispose()
+    }
+    return target
+}
+
+private fun BufferedImage.withWhiteBackground(): BufferedImage {
+    val target = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val graphics = target.createGraphics()
+    try {
+        graphics.color = java.awt.Color.WHITE
+        graphics.fillRect(0, 0, width, height)
+        graphics.drawImage(this, 0, 0, null)
+    } finally {
+        graphics.dispose()
+    }
+    return target
+}
+
+private fun imageWriteFormat(file: File): String {
+    return when (file.extension.lowercase()) {
+        "jpg", "jpeg" -> "jpeg"
+        "bmp" -> "bmp"
+        else -> "png"
+    }
+}
+
+private fun openPreviewImageForEdit(path: String) {
+    val file = File(path).takeIf { it.isFile } ?: return
+    runCatching {
+        val desktop = Desktop.getDesktop()
+        if (desktop.isSupported(Desktop.Action.EDIT)) {
+            desktop.edit(file)
+        } else {
+            desktop.open(file)
+        }
+    }
 }
 
 private fun BufferedImage.scaledToMaxDimension(maxDimension: Int): BufferedImage {

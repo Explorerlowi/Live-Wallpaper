@@ -481,7 +481,8 @@ fun ApiSettingsDialog(
                 .fillMaxWidth(0.95f)
                 .fillMaxHeight(0.8f),
             shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 标题栏
@@ -523,8 +524,8 @@ fun ApiSettingsDialog(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(horizontal = 20.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         OutlinedTextField(
                             value = name,
@@ -532,8 +533,7 @@ fun ApiSettingsDialog(
                             label = { Text(stringResource(R.string.paint_config_name)) },
                             placeholder = { Text(stringResource(R.string.paint_config_name_hint)) },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                            maxLines = 4
+                            singleLine = true
                         )
                         
                         OutlinedTextField(
@@ -542,8 +542,7 @@ fun ApiSettingsDialog(
                             label = { Text(stringResource(R.string.paint_api_base_url)) },
                             placeholder = { Text(stringResource(R.string.paint_api_base_url_hint)) },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                            maxLines = 4
+                            singleLine = true
                         )
                         
                         OutlinedTextField(
@@ -551,8 +550,7 @@ fun ApiSettingsDialog(
                             onValueChange = { token = it },
                             label = { Text(stringResource(R.string.paint_access_token)) },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                            maxLines = 4,
+                            singleLine = true,
                             visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
                             trailingIcon = {
                                 IconButton(onClick = { showToken = !showToken }) {
@@ -568,16 +566,21 @@ fun ApiSettingsDialog(
                             text = stringResource(R.string.paint_auth_mode),
                             style = MaterialTheme.typography.labelLarge
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             FilterChip(
                                 selected = authMode == AuthMode.BEARER,
                                 onClick = { authMode = AuthMode.BEARER },
-                                label = { Text(stringResource(R.string.paint_auth_bearer_token)) }
+                                label = { Text(stringResource(R.string.paint_auth_bearer_token)) },
+                                modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = authMode == AuthMode.OFFICIAL,
                                 onClick = { authMode = AuthMode.OFFICIAL },
-                                label = { Text(stringResource(R.string.paint_auth_official)) }
+                                label = { Text(stringResource(R.string.paint_auth_official)) },
+                                modifier = Modifier.weight(1f)
                             )
                         }
                         
@@ -692,7 +695,10 @@ private fun ApiProfileItem(
                     Text(
                         text = profile.name,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (isActive) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -704,12 +710,6 @@ private fun ApiProfileItem(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = profile.baseUrl.removePrefix("https://"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
             }
             Row {
                 IconButton(onClick = onEdit) {

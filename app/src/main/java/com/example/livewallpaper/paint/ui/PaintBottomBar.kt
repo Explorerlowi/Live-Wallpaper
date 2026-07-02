@@ -27,6 +27,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -96,6 +102,7 @@ fun PaintBottomBar(
     
     // 输入框行数
     var lineCount by remember { mutableIntStateOf(1) }
+    var enterKeySends by remember { mutableStateOf(true) }
 
     var promptFieldValue by remember {
         mutableStateOf(
@@ -118,6 +125,33 @@ fun PaintBottomBar(
                 text = promptText,
                 selection = TextRange(promptText.length)
             )
+        }
+    }
+
+    fun updatePromptField(value: TextFieldValue) {
+        promptFieldValue = value
+        onPromptChange(value.text)
+    }
+
+    fun insertPromptNewline() {
+        val text = promptFieldValue.text
+        val start = minOf(promptFieldValue.selection.start, promptFieldValue.selection.end).coerceIn(0, text.length)
+        val end = maxOf(promptFieldValue.selection.start, promptFieldValue.selection.end).coerceIn(0, text.length)
+        val nextText = text.replaceRange(start, end, "\n")
+        updatePromptField(TextFieldValue(text = nextText, selection = TextRange(start + 1)))
+    }
+
+    fun submitPromptShortcut(): Boolean {
+        return when {
+            promptFieldValue.text.isNotBlank() || selectedImages.isNotEmpty() -> {
+                onSend()
+                true
+            }
+            isGenerating -> {
+                showStopConfirm = true
+                true
+            }
+            else -> false
         }
     }
     
@@ -297,6 +331,16 @@ fun PaintBottomBar(
                             onClick = onGptFormatClick
                         )
                     }
+
+                    QuickActionChip(
+                        icon = Icons.Default.Keyboard,
+                        label = if (enterKeySends) {
+                            stringResource(R.string.paint_input_mode_enter_send)
+                        } else {
+                            stringResource(R.string.paint_input_mode_ctrl_enter_send)
+                        },
+                        onClick = { enterKeySends = !enterKeySends }
+                    )
                     
                     // 添加描述
                     QuickActionChip(
@@ -327,14 +371,25 @@ fun PaintBottomBar(
                             ) {
                                 BasicTextField(
                                     value = promptFieldValue,
-                                    onValueChange = { newValue ->
-                                        promptFieldValue = newValue
-                                        onPromptChange(newValue.text)
-                                    },
+                                    onValueChange = ::updatePromptField,
                                     modifier = Modifier
                                         .weight(1f)
                                         .focusRequester(collapsedInputFocusRequester)
                                         .heightIn(min = 24.dp, max = 120.dp)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                                                val shouldSend = if (enterKeySends) !event.isCtrlPressed else event.isCtrlPressed
+                                                if (shouldSend) {
+                                                    submitPromptShortcut()
+                                                    true
+                                                } else {
+                                                    insertPromptNewline()
+                                                    true
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        }
                                         .padding(vertical = 8.dp),
                                     textStyle = TextStyle(
                                         fontSize = 16.sp,
@@ -704,6 +759,7 @@ fun FullScreenPromptOverlay(
             )
         )
     }
+    var enterKeySends by remember { mutableStateOf(true) }
     
     // 确认弹窗状态
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -713,6 +769,33 @@ fun FullScreenPromptOverlay(
         onReorderImages(selectedImages.toMutableList().apply {
             add(to.index, removeAt(from.index))
         })
+    }
+
+    fun updateOverlayPrompt(value: TextFieldValue) {
+        textFieldValue = value
+        onPromptChange(value.text)
+    }
+
+    fun insertOverlayNewline() {
+        val text = textFieldValue.text
+        val start = minOf(textFieldValue.selection.start, textFieldValue.selection.end).coerceIn(0, text.length)
+        val end = maxOf(textFieldValue.selection.start, textFieldValue.selection.end).coerceIn(0, text.length)
+        val nextText = text.replaceRange(start, end, "\n")
+        updateOverlayPrompt(TextFieldValue(text = nextText, selection = TextRange(start + 1)))
+    }
+
+    fun submitOverlayShortcut(): Boolean {
+        return when {
+            textFieldValue.text.isNotBlank() || selectedImages.isNotEmpty() -> {
+                onSend()
+                true
+            }
+            isGenerating -> {
+                showStopConfirm = true
+                true
+            }
+            else -> false
+        }
     }
     
     LaunchedEffect(Unit) {
@@ -823,13 +906,24 @@ fun FullScreenPromptOverlay(
             ) {
                 BasicTextField(
                     value = textFieldValue,
-                    onValueChange = {
-                        textFieldValue = it
-                        onPromptChange(it.text)
-                    },
+                    onValueChange = ::updateOverlayPrompt,
                     modifier = Modifier
                         .fillMaxSize()
                         .focusRequester(focusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                                val shouldSend = if (enterKeySends) !event.isCtrlPressed else event.isCtrlPressed
+                                if (shouldSend) {
+                                    submitOverlayShortcut()
+                                    true
+                                } else {
+                                    insertOverlayNewline()
+                                    true
+                                }
+                            } else {
+                                false
+                            }
+                        }
                         .verticalScroll(rememberScrollState()),
                     textStyle = TextStyle(
                         fontSize = 18.sp,
@@ -891,6 +985,22 @@ fun FullScreenPromptOverlay(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+                    Surface(
+                        onClick = { enterKeySends = !enterKeySends },
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = if (enterKeySends) {
+                                stringResource(R.string.paint_input_mode_enter_send)
+                            } else {
+                                stringResource(R.string.paint_input_mode_ctrl_enter_send)
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
                     }
                 }
 
