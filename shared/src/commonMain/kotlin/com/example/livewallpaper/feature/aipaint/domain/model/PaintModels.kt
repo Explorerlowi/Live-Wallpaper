@@ -194,6 +194,7 @@ enum class PaintModel(val displayName: String, val endpoint: String, val maxImag
     GEMINI_2_5_FLASH("nano banana", "gemini-2.5-flash-image", 3),
     GEMINI_3_PRO("nano banana pro", "gemini-3-pro-image-preview", 14),
     GEMINI_3_1_FLASH("nano banana 2", "gemini-3.1-flash-image-preview", 14),
+    GEMINI_3_1_FLASH_LITE("nano banana 2 lite", "gemini-3.1-flash-lite-image", 14),
     GPT_IMAGE_2("gpt image 2", "gpt-image-2", 16);
 
     /** 模型提供商 */
@@ -208,7 +209,7 @@ enum class PaintModel(val displayName: String, val endpoint: String, val maxImag
 
     /** 是否支持自定义分辨率（Gemini 专属） */
     val supportsResolution: Boolean
-        get() = this == GEMINI_3_PRO || this == GEMINI_3_1_FLASH
+        get() = this == GEMINI_3_PRO || this == GEMINI_3_1_FLASH || this == GEMINI_3_1_FLASH_LITE
 
     /** 是否支持 GPT 尺寸选择 */
     val supportsGptSize: Boolean get() = isGpt
@@ -235,6 +236,7 @@ enum class AspectRatio(
     RATIO_5_4("5:4", "5:4", "社交横版"),
     RATIO_16_9("16:9", "16:9", "宽屏"),
     RATIO_9_16("9:16", "9:16", "手机竖屏"),
+    RATIO_21_9("21:9", "21:9", "超宽屏"),
     RATIO_1_4("1:4", "1:4", "超长竖版"),
     RATIO_4_1("4:1", "4:1", "超长横版"),
     RATIO_1_8("1:8", "1:8", "极长竖版"),
@@ -243,6 +245,10 @@ enum class AspectRatio(
     /** 仅 Gemini 3.1 Flash 支持的极端宽高比 */
     val isExtreme: Boolean
         get() = this in listOf(RATIO_1_4, RATIO_4_1, RATIO_1_8, RATIO_8_1)
+
+    /** 仅 Gemini 3.1 Flash Lite 支持的新增宽高比 */
+    val isFlashLiteOnly: Boolean
+        get() = this == RATIO_21_9
     
     /**
      * 获取数值比例
@@ -258,12 +264,25 @@ enum class AspectRatio(
         /**
          * 获取指定模型可用的宽高比列表
          * - 极端比例（1:4、4:1、1:8、8:1）仅 Gemini 3.1 Flash 支持
+         * - Gemini 3.1 Flash Lite 支持固定的常用比例和 21:9，不支持极端长图比例
          * - GPT 模型使用 GptImageSize，此处返回可映射的比例子集
          */
         fun availableFor(model: PaintModel): List<AspectRatio> = when (model) {
-            PaintModel.GEMINI_3_1_FLASH -> entries.toList()
+            PaintModel.GEMINI_3_1_FLASH -> entries.filter { !it.isFlashLiteOnly }
+            PaintModel.GEMINI_3_1_FLASH_LITE -> listOf(
+                RATIO_1_1,
+                RATIO_3_2,
+                RATIO_2_3,
+                RATIO_3_4,
+                RATIO_4_3,
+                RATIO_4_5,
+                RATIO_5_4,
+                RATIO_9_16,
+                RATIO_16_9,
+                RATIO_21_9
+            )
             PaintModel.GPT_IMAGE_2 -> listOf(RATIO_1_1, RATIO_3_2, RATIO_2_3)
-            else -> entries.filter { !it.isExtreme }
+            else -> entries.filter { !it.isExtreme && !it.isFlashLiteOnly }
         }
 
         /**
@@ -298,6 +317,7 @@ enum class Resolution(val displayName: String, val value: String) {
         /** 获取指定模型可用的分辨率列表 */
         fun availableFor(model: PaintModel): List<Resolution> = when (model) {
             PaintModel.GEMINI_3_1_FLASH -> entries.toList()          // 0.5K ~ 4K
+            PaintModel.GEMINI_3_1_FLASH_LITE -> listOf(RES_1K)        // only 1K
             PaintModel.GEMINI_3_PRO -> listOf(RES_1K, RES_2K, RES_4K) // 1K ~ 4K
             else -> emptyList()
         }
