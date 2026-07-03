@@ -132,7 +132,6 @@ import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.EventQueue
-import java.awt.FileDialog
 import java.awt.Font
 import java.awt.Frame
 import java.awt.Graphics
@@ -2438,13 +2437,8 @@ private fun saveWallpaperPreviewImageAs(
     title: String,
 ) {
     val source = File(sourcePath).takeIf { it.isFile } ?: return
-    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
-        file = source.name
-    }
-    dialog.isVisible = true
-    val directory = dialog.directory ?: return
-    val fileName = dialog.file ?: return
-    val target = File(directory, fileName)
+    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    val target = File(targetPath)
 
     if (transform.isIdentity()) {
         source.copyTo(target, overwrite = true)

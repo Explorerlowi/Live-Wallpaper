@@ -165,9 +165,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.FileDialog
 import java.awt.Desktop
-import java.awt.Frame
 import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.Toolkit
@@ -2815,7 +2813,13 @@ private fun PaintImagePreviewDialog(
         }
     }
 
-    val previewWindowState = rememberWindowState(width = 1120.dp, height = 780.dp)
+    val initialWindowSize = remember(paths, initialIndex) {
+        previewWindowSizeForPath(paths.getOrNull(initialIndex.coerceIn(0, paths.lastIndex)))
+    }
+    val previewWindowState = rememberWindowState(
+        width = initialWindowSize.first.dp,
+        height = initialWindowSize.second.dp,
+    )
 
     Window(
         onCloseRequest = onDismiss,
@@ -3662,6 +3666,38 @@ private fun imageDimensions(path: String): Pair<Int, Int> {
     }.getOrDefault(0 to 0)
 }
 
+private fun previewWindowSizeForPath(path: String?): Pair<Int, Int> {
+    val (imageWidth, imageHeight) = path
+        ?.let(::imageDimensions)
+        ?.takeIf { (width, height) -> width > 0 && height > 0 }
+        ?: return 1120 to 780
+
+    val ratio = (imageWidth.toFloat() / imageHeight.toFloat()).coerceIn(0.35f, 2.85f)
+    val screenSize = Toolkit.getDefaultToolkit().screenSize
+    val maxWidth = (screenSize.width * 0.78f).roundToInt().coerceIn(720, 1320)
+    val maxHeight = (screenSize.height * 0.82f).roundToInt().coerceIn(560, 920)
+    val minWidth = 560
+    val minHeight = 480
+
+    var width: Int
+    var height: Int
+    if (ratio >= 1f) {
+        height = maxHeight
+        width = (height * ratio).roundToInt()
+        if (width > maxWidth) {
+            width = maxWidth
+            height = (width / ratio).roundToInt()
+        }
+    } else {
+        height = maxHeight
+        width = (height * ratio).roundToInt()
+    }
+
+    width = width.coerceIn(minWidth, maxWidth)
+    height = height.coerceIn(minHeight, maxHeight)
+    return width to height
+}
+
 private fun mimeTypeFromPath(path: String): String {
     return when {
         path.endsWith(".jpg", ignoreCase = true) || path.endsWith(".jpeg", ignoreCase = true) -> "image/jpeg"
@@ -3723,13 +3759,8 @@ private fun dragTransferDataForFile(path: String): DragAndDropTransferData? {
 private fun saveImageAs(sourcePath: String, title: String) {
     val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: File(sourcePath)
     if (!source.isFile) return
-    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
-        file = source.name
-    }
-    dialog.isVisible = true
-    val directory = dialog.directory ?: return
-    val file = dialog.file ?: return
-    source.copyTo(File(directory, file), overwrite = true)
+    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    source.copyTo(File(targetPath), overwrite = true)
 }
 
 private fun saveTransformedImageAs(
@@ -3738,13 +3769,8 @@ private fun saveTransformedImageAs(
     title: String,
 ) {
     val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: return
-    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE).apply {
-        file = source.name
-    }
-    dialog.isVisible = true
-    val directory = dialog.directory ?: return
-    val fileName = dialog.file ?: return
-    val target = File(directory, fileName)
+    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    val target = File(targetPath)
 
     if (transform.isIdentity()) {
         source.copyTo(target, overwrite = true)

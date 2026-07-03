@@ -46,6 +46,13 @@ internal object DesktopImageFilePicker {
         return pickDirectoryPathWithSwing(title, initialDirectory)
     }
 
+    fun pickSaveImagePath(title: String, defaultFileName: String): String? {
+        if (Platform.isWindows()) {
+            pickSaveImagePathWithWindowsDialog(title, defaultFileName)?.let { return it.getOrNull() }
+        }
+        return pickSaveImagePathWithSwing(title, defaultFileName)
+    }
+
     private fun pickImagePathsWithSwing(
         title: String,
         isSupportedImageName: (String) -> Boolean
@@ -114,6 +121,19 @@ internal object DesktopImageFilePicker {
         return result.get()
     }
 
+    private fun pickSaveImagePathWithWindowsDialog(title: String, defaultFileName: String): Result<String?>? {
+        val result = AtomicReference<Result<String?>?>()
+        val thread = Thread {
+            result.set(runCatching { WindowsFileOpenDialog.showSave(title, defaultFileName) })
+        }.apply {
+            name = "windows-file-save-dialog"
+            isDaemon = true
+        }
+        thread.start()
+        thread.join()
+        return result.get()
+    }
+
     private fun pickDirectoryPathWithSwing(title: String, initialDirectory: File): String? {
         return runCatching {
             val result = AtomicReference<String?>(null)
@@ -128,6 +148,37 @@ internal object DesktopImageFilePicker {
                     setAcceptAllFileFilterUsed(false)
                 }
                 if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    result.set(chooser.selectedFile?.absolutePath)
+                }
+            }
+            if (SwingUtilities.isEventDispatchThread()) {
+                task.run()
+            } else {
+                SwingUtilities.invokeAndWait(task)
+            }
+            result.get()
+        }.getOrNull()
+    }
+
+    private fun pickSaveImagePathWithSwing(title: String, defaultFileName: String): String? {
+        return runCatching {
+            val result = AtomicReference<String?>(null)
+            val task = Runnable {
+                runCatching {
+                    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+                }
+                val chooser = JFileChooser(defaultImageDirectory()).apply {
+                    dialogTitle = title
+                    fileSelectionMode = JFileChooser.FILES_ONLY
+                    isMultiSelectionEnabled = false
+                    selectedFile = File(defaultFileName)
+                    setAcceptAllFileFilterUsed(false)
+                    fileFilter = FileNameExtensionFilter(
+                        "Images (*.png, *.jpg, *.jpeg, *.webp, *.bmp)",
+                        "png", "jpg", "jpeg", "webp", "bmp"
+                    )
+                }
+                if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
                     result.set(chooser.selectedFile?.absolutePath)
                 }
             }
@@ -163,7 +214,9 @@ internal object DesktopImageFilePicker {
 
 private object WindowsFileOpenDialog {
     private val clsidFileOpenDialog = Guid.CLSID("{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}")
+    private val clsidFileSaveDialog = Guid.CLSID("{C0B4E2F3-BA21-4773-8DBA-335EC946EB8B}")
     private val iidFileOpenDialog = Guid.IID("{D57C7288-D4AD-4768-BE02-9D969532D960}")
+    private val iidFileSaveDialog = Guid.IID("{84BCCD23-5FDE-4CDB-AEA4-AF64B83D78AB}")
     private val iidShellItem = Guid.IID("{43826D1E-E718-42EE-BC55-A1E261C37BFE}")
     private const val SIGDN_FILESYSPATH = -2147123200
     private const val FOS_OVERWRITEPROMPT = 0x00000002
@@ -247,6 +300,43 @@ private object WindowsFileOpenDialog {
         }
     }
 
+    fun showSave(title: String, defaultFileName: String): String? {
+        val initHr = Ole32.INSTANCE.CoInitializeEx(Pointer.NULL, Ole32.COINIT_APARTMENTTHREADED)
+        if (COMUtils.FAILED(initHr)) return null
+        var dialog: FileOpenDialog? = null
+        try {
+            val dialogRef = PointerByReference()
+            val createHr = Ole32.INSTANCE.CoCreateInstance(
+                clsidFileSaveDialog,
+                null,
+                WTypes.CLSCTX_INPROC_SERVER,
+                iidFileSaveDialog,
+                dialogRef
+            )
+            if (COMUtils.FAILED(createHr)) return null
+            dialog = FileOpenDialog(dialogRef.value)
+            dialog.setTitle(title)
+            dialog.setOptions(FOS_OVERWRITEPROMPT or FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST)
+            dialog.setImageFileTypes()
+            dialog.setDefaultFolder(defaultImageDirectory())
+            dialog.setFileName(defaultFileName)
+            dialog.setDefaultExtension(defaultFileName.substringAfterLast('.', "png"))
+
+            val showHr = dialog.show()
+            if (COMUtils.FAILED(showHr)) return null
+            val itemPointer = dialog.getResult() ?: return null
+            val item = ShellItem(itemPointer)
+            return try {
+                item.fileSystemPath()
+            } finally {
+                item.Release()
+            }
+        } finally {
+            dialog?.Release()
+            Ole32.INSTANCE.CoUninitialize()
+        }
+    }
+
     private fun FileOpenDialog.setImageFileTypes() {
         runCatching {
             val spec = ComDlgFilterSpec().apply {
@@ -306,8 +396,14 @@ private object WindowsFileOpenDialog {
         fun setDefaultFolder(shellItemPointer: Pointer): WinNT.HRESULT =
             _invokeNativeObject(11, arrayOf(pointer, shellItemPointer), WinNT.HRESULT::class.java) as WinNT.HRESULT
 
+        fun setFileName(fileName: String): WinNT.HRESULT =
+            _invokeNativeObject(15, arrayOf(pointer, WString(fileName)), WinNT.HRESULT::class.java) as WinNT.HRESULT
+
         fun setTitle(title: String): WinNT.HRESULT =
             _invokeNativeObject(17, arrayOf(pointer, WString(title)), WinNT.HRESULT::class.java) as WinNT.HRESULT
+
+        fun setDefaultExtension(extension: String): WinNT.HRESULT =
+            _invokeNativeObject(22, arrayOf(pointer, WString(extension.trimStart('.'))), WinNT.HRESULT::class.java) as WinNT.HRESULT
 
         fun getResults(): Pointer? {
             val ref = PointerByReference()
