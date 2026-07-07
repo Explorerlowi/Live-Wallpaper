@@ -136,8 +136,6 @@
     <string name="paint_stop_confirm_message">This will stop all ongoing image generation tasks. Continue?</string>
     <string name="paint_session_generating">Generating %1$d tasks</string>
     <string name="paint_send">Send</string>
-    <string name="paint_input_mode_enter_send">Enter sends</string>
-    <string name="paint_input_mode_ctrl_enter_send">Ctrl+Enter sends</string>
     <string name="paint_expand_input">Expand input</string>
     <string name="paint_image">Image</string>
     <string name="paint_sessions">Sessions</string>

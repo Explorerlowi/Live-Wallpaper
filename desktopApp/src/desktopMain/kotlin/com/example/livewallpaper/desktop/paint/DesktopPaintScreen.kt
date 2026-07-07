@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -51,11 +52,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -67,7 +70,9 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -80,6 +85,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -99,6 +105,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
@@ -106,6 +114,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -182,6 +192,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.UUID
 import javax.imageio.ImageIO
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.roundToInt
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -198,7 +211,13 @@ private data class DesktopImagePreviewState(
     val paths: List<String>,
     val initialIndex: Int,
     val requestId: Int,
+    val source: DesktopImagePreviewSource,
 )
+
+private enum class DesktopImagePreviewSource {
+    Conversation,
+    Reference,
+}
 
 private data class DesktopImageTransformState(
     val rotation: Float = 0f,
@@ -228,6 +247,7 @@ fun AiPaintWorkspace(
     var optionDialog by remember { mutableStateOf<PaintOptionDialog?>(null) }
     var previewState by remember { mutableStateOf<DesktopImagePreviewState?>(null) }
     var previewRequestId by remember { mutableStateOf(0) }
+    var editImagePath by remember { mutableStateOf<String?>(null) }
     var compareSelectedPaths by remember { mutableStateOf<List<String>>(emptyList()) }
     var showComparePreview by remember { mutableStateOf(false) }
     var comparePreviewRequestId by remember { mutableStateOf(0) }
@@ -250,7 +270,7 @@ fun AiPaintWorkspace(
         }
     }
 
-    fun showImagePreview(paths: List<String>, initialIndex: Int) {
+    fun showImagePreview(paths: List<String>, initialIndex: Int, source: DesktopImagePreviewSource) {
         val selectedPath = paths.getOrNull(initialIndex)
         val existingPaths = paths.filter { localImageFile(it)?.isFile == true }
         if (existingPaths.isEmpty()) return
@@ -261,7 +281,16 @@ fun AiPaintWorkspace(
             paths = existingPaths,
             initialIndex = safeInitialIndex,
             requestId = previewRequestId,
+            source = source,
         )
+    }
+
+    fun showConversationImagePreview(paths: List<String>, initialIndex: Int) {
+        showImagePreview(paths, initialIndex, DesktopImagePreviewSource.Conversation)
+    }
+
+    fun showReferenceImagePreview(paths: List<String>, initialIndex: Int) {
+        showImagePreview(paths, initialIndex, DesktopImagePreviewSource.Reference)
     }
 
     fun toggleComparePath(path: String) {
@@ -317,6 +346,27 @@ fun AiPaintWorkspace(
             initialIndex = state.initialIndex,
             requestId = state.requestId,
             onDismiss = { previewState = null },
+            onEdit = { editImagePath = it },
+        )
+    }
+    editImagePath?.let { path ->
+        DesktopImageEditorWindow(
+            path = path,
+            onDismiss = { editImagePath = null },
+            onSaved = { oldPath, newPath ->
+                editImagePath = null
+                if (previewState?.source == DesktopImagePreviewSource.Reference) {
+                    viewModel.onEvent(PaintEvent.ReplaceImagePath(oldPath, newPath))
+                }
+                previewState = previewState?.let { state ->
+                    val normalizedOldPath = normalizeImagePath(oldPath)
+                    state.copy(
+                        paths = state.paths.map { previewPath ->
+                            if (normalizeImagePath(previewPath) == normalizedOldPath) newPath else previewPath
+                        },
+                    )
+                }
+            },
         )
     }
     if (showComparePreview && compareSelectedPaths.size == 2) {
@@ -458,7 +508,7 @@ fun AiPaintWorkspace(
                                 conversationPreviewPaths = conversationPreviewPaths,
                                 compareSelectedPaths = compareSelectedPaths,
                                 imageSelectionMode = compareSelectedPaths.isNotEmpty(),
-                                onPreviewImage = ::showImagePreview,
+                                onPreviewImage = ::showConversationImagePreview,
                                 onToggleCompare = ::toggleComparePath,
                                 onAddToWallpapers = { path -> onAddImagesToWallpapers(listOf(path)) },
                                 onAddImages = { images ->
@@ -500,7 +550,7 @@ fun AiPaintWorkspace(
                 onEvent = viewModel::onEvent,
                 onShowApiSettings = { showApiSettings = true },
                 onShowOptions = { optionDialog = it },
-                onPreviewImage = ::showImagePreview,
+                onPreviewImage = ::showReferenceImagePreview,
             )
             uiState.error?.let { error ->
                 Surface(
@@ -2753,6 +2803,7 @@ private fun PaintImagePreviewDialog(
     initialIndex: Int,
     requestId: Int,
     onDismiss: () -> Unit,
+    onEdit: (String) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
     if (paths.isEmpty()) {
@@ -3016,7 +3067,7 @@ private fun PaintImagePreviewDialog(
                             PreviewRoundIconButton(
                                 icon = Icons.Default.Edit,
                                 contentDescription = strings.paintEditMessage,
-                                onClick = { openImageForEdit(path) },
+                                onClick = { onEdit(path) },
                             )
                             PreviewRoundIconButton(
                                 icon = Icons.Default.Download,
@@ -3049,6 +3100,384 @@ private fun PaintImagePreviewDialog(
         }
     }
 }
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun DesktopImageEditorWindow(
+    path: String,
+    onDismiss: () -> Unit,
+    onSaved: (oldPath: String, newPath: String) -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    val file = remember(path) { localImageFile(path)?.takeIf { it.isFile } ?: File(path.removePrefix("file://")) }
+    val imageState by produceState<ImageLoadState>(initialValue = ImageLoadState.Loading, path) {
+        value = ImageLoadState.Loading
+        value = withContext(Dispatchers.IO) {
+            loadImageBitmap(path, 4096)?.let(ImageLoadState::Success) ?: ImageLoadState.Error
+        }
+    }
+    val (imageWidth, imageHeight) = remember(path) { imageDimensions(path) }
+    var editMode by remember(path) { mutableStateOf(DesktopImageEditMode.Draw) }
+    var brushWidth by remember(path) { mutableStateOf(8f) }
+    var brushColor by remember(path) { mutableStateOf(Color(0xFFFF4D6D)) }
+    var strokes by remember(path) { mutableStateOf<List<DesktopEditStroke>>(emptyList()) }
+    var activeStroke by remember(path) { mutableStateOf<DesktopEditStroke?>(null) }
+    var cropLeft by remember(path) { mutableStateOf(0f) }
+    var cropTop by remember(path) { mutableStateOf(0f) }
+    var cropRight by remember(path) { mutableStateOf(1f) }
+    var cropBottom by remember(path) { mutableStateOf(1f) }
+    var viewportSize by remember(path) { mutableStateOf(IntSize.Zero) }
+    var isSaving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun resetCrop() {
+        cropLeft = 0f
+        cropTop = 0f
+        cropRight = 1f
+        cropBottom = 1f
+    }
+
+    fun undo() {
+        activeStroke = null
+        if (strokes.isNotEmpty()) {
+            strokes = strokes.dropLast(1)
+        }
+    }
+
+    val windowSize = remember(path) { previewWindowSizeForPath(path) }
+    val editorWindowState = rememberWindowState(width = windowSize.first.dp, height = windowSize.second.dp)
+
+    Window(
+        onCloseRequest = onDismiss,
+        title = strings.paintEditMessage,
+        icon = rememberPreviewAppIconPainter(),
+        state = editorWindowState,
+        resizable = true,
+    ) {
+        Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.96f)),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = file.name.ifBlank { path },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.82f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    PreviewRoundIconButton(
+                        icon = Icons.Default.Undo,
+                        contentDescription = "撤销",
+                        enabled = strokes.isNotEmpty(),
+                        onClick = ::undo,
+                    )
+                    PreviewRoundIconButton(
+                        icon = Icons.Default.Save,
+                        contentDescription = strings.paintSave,
+                        enabled = !isSaving && imageWidth > 0 && imageHeight > 0,
+                        onClick = {
+                            scope.launch {
+                                isSaving = true
+                                val savedPath = withContext(Dispatchers.IO) {
+                                    saveDesktopEditedImage(
+                                        sourcePath = path,
+                                        strokes = strokes,
+                                        cropRect = Rect(cropLeft, cropTop, cropRight, cropBottom),
+                                    )
+                                }
+                                isSaving = false
+                                if (savedPath != null) {
+                                    onSaved(path, savedPath)
+                                }
+                            }
+                        },
+                    )
+                    PreviewRoundIconButton(
+                        icon = Icons.Default.Close,
+                        contentDescription = strings.close,
+                        onClick = onDismiss,
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp)
+                        .onSizeChanged { viewportSize = it },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val imageRect = remember(viewportSize, imageWidth, imageHeight) {
+                        displayedImageRect(viewportSize, imageWidth, imageHeight)
+                    }
+                    when (val state = imageState) {
+                        ImageLoadState.Loading -> CircularProgressIndicator(color = Color.White)
+                        ImageLoadState.Error -> Text(strings.missingFile, color = Color.White.copy(alpha = 0.72f))
+                        is ImageLoadState.Success -> {
+                            Image(
+                                bitmap = state.bitmap,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                            if (imageRect.width > 0f && imageRect.height > 0f) {
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(editMode, imageRect, strokes, brushColor, brushWidth) {
+                                            when (editMode) {
+                                                DesktopImageEditMode.Draw -> {
+                                                    detectDragGestures(
+                                                        onDragStart = { position ->
+                                                            imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
+                                                                activeStroke = DesktopEditStroke(
+                                                                    points = listOf(point),
+                                                                    color = brushColor,
+                                                                    strokeWidth = brushWidth,
+                                                                )
+                                                            }
+                                                        },
+                                                        onDrag = { change, _ ->
+                                                            val point = imagePointFromViewport(
+                                                                change.position,
+                                                                imageRect,
+                                                                imageWidth,
+                                                                imageHeight,
+                                                            ) ?: return@detectDragGestures
+                                                            activeStroke = activeStroke?.copy(points = activeStroke!!.points + point)
+                                                        },
+                                                        onDragEnd = {
+                                                            activeStroke?.takeIf { it.points.size > 1 }?.let { stroke ->
+                                                                strokes = strokes + stroke
+                                                            }
+                                                            activeStroke = null
+                                                        },
+                                                        onDragCancel = { activeStroke = null },
+                                                    )
+                                                }
+                                                DesktopImageEditMode.Crop -> {
+                                                    var handle: DesktopCropHandle? = null
+                                                    detectDragGestures(
+                                                        onDragStart = { position ->
+                                                            handle = cropHandleAt(
+                                                                position = position,
+                                                                imageRect = imageRect,
+                                                                cropRect = Rect(cropLeft, cropTop, cropRight, cropBottom),
+                                                            )
+                                                        },
+                                                        onDrag = { _, dragAmount ->
+                                                            val activeHandle = handle ?: return@detectDragGestures
+                                                            val dx = dragAmount.x / imageRect.width
+                                                            val dy = dragAmount.y / imageRect.height
+                                                            when (activeHandle) {
+                                                                DesktopCropHandle.Move -> {
+                                                                    val width = cropRight - cropLeft
+                                                                    val height = cropBottom - cropTop
+                                                                    cropLeft = (cropLeft + dx).coerceIn(0f, 1f - width)
+                                                                    cropTop = (cropTop + dy).coerceIn(0f, 1f - height)
+                                                                    cropRight = cropLeft + width
+                                                                    cropBottom = cropTop + height
+                                                                }
+                                                                DesktopCropHandle.TopLeft -> {
+                                                                    cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.05f)
+                                                                    cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.05f)
+                                                                }
+                                                                DesktopCropHandle.TopRight -> {
+                                                                    cropRight = (cropRight + dx).coerceIn(cropLeft + 0.05f, 1f)
+                                                                    cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.05f)
+                                                                }
+                                                                DesktopCropHandle.BottomLeft -> {
+                                                                    cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.05f)
+                                                                    cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.05f, 1f)
+                                                                }
+                                                                DesktopCropHandle.BottomRight -> {
+                                                                    cropRight = (cropRight + dx).coerceIn(cropLeft + 0.05f, 1f)
+                                                                    cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.05f, 1f)
+                                                                }
+                                                            }
+                                                        },
+                                                        onDragEnd = { handle = null },
+                                                        onDragCancel = { handle = null },
+                                                    )
+                                                }
+                                            }
+                                        },
+                                ) {
+                                    val visibleStrokes = strokes + listOfNotNull(activeStroke)
+                                    visibleStrokes.forEach { stroke ->
+                                        stroke.points.zipWithNext().forEach { (start, end) ->
+                                            drawLine(
+                                                color = stroke.color,
+                                                start = viewportPointFromImage(start, imageRect, imageWidth, imageHeight),
+                                                end = viewportPointFromImage(end, imageRect, imageWidth, imageHeight),
+                                                strokeWidth = stroke.strokeWidth,
+                                                cap = StrokeCap.Round,
+                                            )
+                                        }
+                                    }
+
+                                    if (editMode == DesktopImageEditMode.Crop) {
+                                        val crop = cropRectInViewport(
+                                            imageRect = imageRect,
+                                            cropRect = Rect(cropLeft, cropTop, cropRight, cropBottom),
+                                        )
+                                        val dim = Color.Black.copy(alpha = 0.46f)
+                                        drawRect(dim, topLeft = imageRect.topLeft, size = Size(imageRect.width, crop.top - imageRect.top))
+                                        drawRect(dim, topLeft = Offset(imageRect.left, crop.bottom), size = Size(imageRect.width, imageRect.bottom - crop.bottom))
+                                        drawRect(dim, topLeft = Offset(imageRect.left, crop.top), size = Size(crop.left - imageRect.left, crop.height))
+                                        drawRect(dim, topLeft = Offset(crop.right, crop.top), size = Size(imageRect.right - crop.right, crop.height))
+                                        drawRect(Color.White, topLeft = crop.topLeft, size = crop.size, style = Stroke(width = 2.5f))
+                                        listOf(crop.topLeft, crop.topRight, crop.bottomLeft, crop.bottomRight).forEach { point ->
+                                            drawCircle(Color.White, radius = 7f, center = point)
+                                            drawCircle(Color.Black.copy(alpha = 0.65f), radius = 4f, center = point)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (isSaving) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.42f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = Color.White)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    EditorModeButton(
+                        selected = editMode == DesktopImageEditMode.Draw,
+                        icon = Icons.Default.Brush,
+                        label = "画笔",
+                        onClick = { editMode = DesktopImageEditMode.Draw },
+                    )
+                    EditorModeButton(
+                        selected = editMode == DesktopImageEditMode.Crop,
+                        icon = Icons.Default.Crop,
+                        label = "裁剪",
+                        onClick = { editMode = DesktopImageEditMode.Crop },
+                    )
+                    if (editMode == DesktopImageEditMode.Draw) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            DesktopBrushColors(selected = brushColor, onSelect = { brushColor = it })
+                            Text(
+                                text = "${brushWidth.roundToInt()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.74f),
+                            )
+                            Slider(
+                                value = brushWidth,
+                                onValueChange = { brushWidth = it },
+                                valueRange = 2f..32f,
+                                modifier = Modifier.width(160.dp),
+                            )
+                        }
+                    } else {
+                        TextButton(onClick = ::resetCrop) {
+                            Text(strings.reset)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorModeButton(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (selected) 0.30f else 0.10f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = Color.White)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun DesktopBrushColors(
+    selected: Color,
+    onSelect: (Color) -> Unit,
+) {
+    val colors = listOf(
+        Color.White,
+        Color(0xFFFF4D6D),
+        Color(0xFFFFB020),
+        Color(0xFF47D16C),
+        Color(0xFF5AA7FF),
+        Color(0xFF9D7CFF),
+        Color.Black,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        colors.forEach { color ->
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .border(
+                        width = if (color == selected) 2.dp else 1.dp,
+                        color = if (color == selected) Color.White else Color.White.copy(alpha = 0.35f),
+                        shape = CircleShape,
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSelect(color) },
+                    ),
+            )
+        }
+    }
+}
+
+private enum class DesktopImageEditMode {
+    Draw,
+    Crop,
+}
+
+private enum class DesktopCropHandle {
+    Move,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+private data class DesktopEditStroke(
+    val points: List<Offset>,
+    val color: Color,
+    val strokeWidth: Float,
+)
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
@@ -3665,6 +4094,143 @@ private fun imageDimensions(path: String): Pair<Int, Int> {
         image.width to image.height
     }.getOrDefault(0 to 0)
 }
+
+private fun normalizeImagePath(path: String): String =
+    localImageFile(path)?.absolutePath ?: File(path.removePrefix("file://")).absolutePath
+
+private fun displayedImageRect(viewportSize: IntSize, imageWidth: Int, imageHeight: Int): Rect {
+    if (viewportSize.width <= 0 || viewportSize.height <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+        return Rect.Zero
+    }
+    val scale = min(
+        viewportSize.width.toFloat() / imageWidth.toFloat(),
+        viewportSize.height.toFloat() / imageHeight.toFloat(),
+    )
+    val width = imageWidth * scale
+    val height = imageHeight * scale
+    val left = (viewportSize.width - width) / 2f
+    val top = (viewportSize.height - height) / 2f
+    return Rect(left, top, left + width, top + height)
+}
+
+private fun imagePointFromViewport(
+    position: Offset,
+    imageRect: Rect,
+    imageWidth: Int,
+    imageHeight: Int,
+): Offset? {
+    if (!imageRect.contains(position) || imageRect.width <= 0f || imageRect.height <= 0f) return null
+    return Offset(
+        x = ((position.x - imageRect.left) / imageRect.width * imageWidth).coerceIn(0f, imageWidth.toFloat()),
+        y = ((position.y - imageRect.top) / imageRect.height * imageHeight).coerceIn(0f, imageHeight.toFloat()),
+    )
+}
+
+private fun viewportPointFromImage(
+    point: Offset,
+    imageRect: Rect,
+    imageWidth: Int,
+    imageHeight: Int,
+): Offset {
+    return Offset(
+        x = imageRect.left + point.x / imageWidth.toFloat() * imageRect.width,
+        y = imageRect.top + point.y / imageHeight.toFloat() * imageRect.height,
+    )
+}
+
+private fun cropRectInViewport(imageRect: Rect, cropRect: Rect): Rect =
+    Rect(
+        left = imageRect.left + cropRect.left * imageRect.width,
+        top = imageRect.top + cropRect.top * imageRect.height,
+        right = imageRect.left + cropRect.right * imageRect.width,
+        bottom = imageRect.top + cropRect.bottom * imageRect.height,
+    )
+
+private fun cropHandleAt(position: Offset, imageRect: Rect, cropRect: Rect): DesktopCropHandle? {
+    val crop = cropRectInViewport(imageRect, cropRect)
+    val tolerance = 22f
+    fun near(point: Offset): Boolean = (position - point).getDistance() <= tolerance
+    return when {
+        near(crop.topLeft) -> DesktopCropHandle.TopLeft
+        near(crop.topRight) -> DesktopCropHandle.TopRight
+        near(crop.bottomLeft) -> DesktopCropHandle.BottomLeft
+        near(crop.bottomRight) -> DesktopCropHandle.BottomRight
+        crop.contains(position) -> DesktopCropHandle.Move
+        else -> null
+    }
+}
+
+private fun saveDesktopEditedImage(
+    sourcePath: String,
+    strokes: List<DesktopEditStroke>,
+    cropRect: Rect,
+): String? {
+    return runCatching {
+        val sourceFile = localImageFile(sourcePath)?.takeIf { it.isFile } ?: File(sourcePath.removePrefix("file://"))
+        val source = ImageIO.read(sourceFile) ?: return@runCatching null
+        val working = BufferedImage(source.width, source.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = working.createGraphics()
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            graphics.drawImage(source, 0, 0, null)
+            strokes.forEach { stroke ->
+                if (stroke.points.size < 2) return@forEach
+                graphics.color = stroke.color.toAwtColor()
+                graphics.stroke = java.awt.BasicStroke(
+                    stroke.strokeWidth.coerceAtLeast(1f),
+                    java.awt.BasicStroke.CAP_ROUND,
+                    java.awt.BasicStroke.JOIN_ROUND,
+                )
+                stroke.points.zipWithNext().forEach { (start, end) ->
+                    graphics.drawLine(
+                        start.x.roundToInt(),
+                        start.y.roundToInt(),
+                        end.x.roundToInt(),
+                        end.y.roundToInt(),
+                    )
+                }
+            }
+        } finally {
+            graphics.dispose()
+        }
+
+        val left = (cropRect.left.coerceIn(0f, 1f) * working.width).roundToInt().coerceIn(0, working.width - 1)
+        val top = (cropRect.top.coerceIn(0f, 1f) * working.height).roundToInt().coerceIn(0, working.height - 1)
+        val right = (cropRect.right.coerceIn(0f, 1f) * working.width).roundToInt().coerceIn(left + 1, working.width)
+        val bottom = (cropRect.bottom.coerceIn(0f, 1f) * working.height).roundToInt().coerceIn(top + 1, working.height)
+        val output = BufferedImage(right - left, bottom - top, BufferedImage.TYPE_INT_ARGB)
+        val outputGraphics = output.createGraphics()
+        try {
+            outputGraphics.drawImage(
+                working,
+                0,
+                0,
+                output.width,
+                output.height,
+                left,
+                top,
+                right,
+                bottom,
+                null,
+            )
+        } finally {
+            outputGraphics.dispose()
+        }
+
+        val directory = DesktopAiPaintStoragePaths.generatedImagesDirectory().apply { mkdirs() }
+        val target = File(directory, "edited-${UUID.randomUUID()}.png")
+        if (ImageIO.write(output, "png", target)) target.absolutePath else null
+    }.getOrNull()
+}
+
+private fun Color.toAwtColor(): java.awt.Color =
+    java.awt.Color(
+        red.coerceIn(0f, 1f),
+        green.coerceIn(0f, 1f),
+        blue.coerceIn(0f, 1f),
+        alpha.coerceIn(0f, 1f),
+    )
 
 private fun previewWindowSizeForPath(path: String?): Pair<Int, Int> {
     val (imageWidth, imageHeight) = path

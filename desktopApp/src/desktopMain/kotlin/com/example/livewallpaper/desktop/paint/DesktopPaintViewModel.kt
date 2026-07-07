@@ -761,12 +761,12 @@ class DesktopPaintViewModel(
     }
 
     private fun replaceImagePath(oldPath: String, newPath: String) {
+        val (newWidth, newHeight) = imageDimensions(newPath)
         _uiState.update { state ->
             state.copy(
                 selectedImages = state.selectedImages.map { image ->
                     if (image.uri == oldPath) {
-                        val (width, height) = imageDimensions(newPath)
-                        image.copy(uri = newPath, width = width, height = height)
+                        image.copy(uri = newPath, width = newWidth, height = newHeight)
                     } else {
                         image
                     }
