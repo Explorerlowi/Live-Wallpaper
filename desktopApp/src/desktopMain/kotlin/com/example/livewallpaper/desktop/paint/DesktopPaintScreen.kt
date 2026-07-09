@@ -122,8 +122,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -3149,6 +3152,7 @@ private fun DesktopImageEditorWindow(
     var textFontSize by remember(path) { mutableStateOf(48f) }
     var operations by remember(path) { mutableStateOf<List<DesktopEditOperation>>(emptyList()) }
     var activeOperation by remember(path) { mutableStateOf<DesktopEditOperation?>(null) }
+    var selectedIndex by remember(path) { mutableStateOf<Int?>(null) }
     var textDialog by remember(path) { mutableStateOf<DesktopTextDialogState?>(null) }
     var cropLeft by remember(path) { mutableStateOf(0f) }
     var cropTop by remember(path) { mutableStateOf(0f) }
@@ -3174,9 +3178,16 @@ private fun DesktopImageEditorWindow(
 
     fun undo() {
         activeOperation = null
+        selectedIndex = null
         if (operations.isNotEmpty()) {
             operations = operations.dropLast(1)
         }
+    }
+
+    // 切换工具或形状时取消选中，避免跨模式误操作
+    LaunchedEffect(editMode, brushShape) {
+        selectedIndex = null
+        activeOperation = null
     }
 
     val windowSize = remember(path) { previewWindowSizeForPath(path) }
@@ -3262,27 +3273,49 @@ private fun DesktopImageEditorWindow(
                                 Canvas(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .pointerInput(editMode, imageRect) {
-                                            // 仅在文字模式下：单击文本可重新编辑内容
-                                            if (editMode == DesktopImageEditMode.Text) {
-                                                detectTapGestures(
-                                                    onTap = { position ->
-                                                        val index = textOverlayHitIndex(
-                                                            density = this,
-                                                            textMeasurer = textMeasurer,
-                                                            operations = operations,
-                                                            position = position,
-                                                            imageRect = imageRect,
-                                                            imageWidth = imageWidth,
-                                                            imageHeight = imageHeight,
-                                                        )
-                                                        if (index != null) {
-                                                            val overlay = operations[index] as DesktopEditOperation.TextOverlay
-                                                            textDialog = DesktopTextDialogState(editIndex = index, initialText = overlay.text)
+                                        .pointerInput(editMode, brushShape, imageRect) {
+                                            // 单击：形状/文字模式下选中或取消选中；再次点击选中的文字进入编辑
+                                            detectTapGestures(
+                                                onTap = { position ->
+                                                    val imagePoint = imagePointUnclamped(position, imageRect, viewScale)
+                                                    val tolerance = DESKTOP_HIT_TOLERANCE / viewScale
+                                                    when {
+                                                        editMode == DesktopImageEditMode.Draw &&
+                                                            brushShape != DesktopBrushShape.Pen -> {
+                                                            selectedIndex = hitTestDesktopOperation(
+                                                                position = imagePoint,
+                                                                operations = operations,
+                                                                textMode = false,
+                                                                tolerance = tolerance,
+                                                                density = this,
+                                                                textMeasurer = textMeasurer,
+                                                                viewScale = viewScale,
+                                                            )
                                                         }
-                                                    },
-                                                )
-                                            }
+                                                        editMode == DesktopImageEditMode.Text -> {
+                                                            val index = hitTestDesktopOperation(
+                                                                position = imagePoint,
+                                                                operations = operations,
+                                                                textMode = true,
+                                                                tolerance = tolerance,
+                                                                density = this,
+                                                                textMeasurer = textMeasurer,
+                                                                viewScale = viewScale,
+                                                            )
+                                                            if (index != null && index == selectedIndex) {
+                                                                val overlay = operations[index] as DesktopEditOperation.TextOverlay
+                                                                textDialog = DesktopTextDialogState(
+                                                                    editIndex = index,
+                                                                    initialText = overlay.text,
+                                                                )
+                                                            } else {
+                                                                selectedIndex = index
+                                                            }
+                                                        }
+                                                        else -> Unit
+                                                    }
+                                                },
+                                            )
                                         }
                                         .pointerInput(editMode, brushShape, imageRect) {
                                             when (editMode) {
@@ -3316,42 +3349,104 @@ private fun DesktopImageEditorWindow(
                                                         },
                                                         onDragCancel = { activeOperation = null },
                                                     )
-                                                    else -> detectDragGestures(
-                                                        onDragStart = { position ->
-                                                            imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
-                                                                val width = brushWidth / viewScale
-                                                                activeOperation = when (brushShape) {
-                                                                    DesktopBrushShape.Rect ->
-                                                                        DesktopEditOperation.RectStroke(point, point, brushColor, width)
-                                                                    DesktopBrushShape.Oval ->
-                                                                        DesktopEditOperation.OvalStroke(point, point, brushColor, width)
-                                                                    else ->
-                                                                        DesktopEditOperation.ArrowStroke(point, point, brushColor, width)
+                                                    else -> {
+                                                        // 形状模式：优先操作选中图形的手柄，其次选中命中的图形并移动，否则绘制新图形
+                                                        var dragAction = DesktopDragAction.None
+                                                        detectDragGestures(
+                                                            onDragStart = { position ->
+                                                                dragAction = DesktopDragAction.None
+                                                                val imagePoint = imagePointUnclamped(position, imageRect, viewScale)
+                                                                val tolerance = DESKTOP_HIT_TOLERANCE / viewScale
+                                                                val selected = selectedIndex?.let(operations::getOrNull)
+                                                                if (selected != null) {
+                                                                    dragAction = hitTestDesktopHandle(
+                                                                        position = imagePoint,
+                                                                        operation = selected,
+                                                                        handleHitRadius = DESKTOP_HANDLE_HIT_RADIUS / viewScale,
+                                                                        rotateHitRadius = DESKTOP_ROTATE_HIT_RADIUS / viewScale,
+                                                                        tolerance = tolerance,
+                                                                        density = this,
+                                                                        textMeasurer = textMeasurer,
+                                                                        viewScale = viewScale,
+                                                                    )
                                                                 }
-                                                            }
-                                                        },
-                                                        onDrag = { change, _ ->
-                                                            val point = clampedImagePointFromViewport(
-                                                                change.position,
-                                                                imageRect,
-                                                                imageWidth,
-                                                                imageHeight,
-                                                            ) ?: return@detectDragGestures
-                                                            activeOperation = when (val op = activeOperation) {
-                                                                is DesktopEditOperation.RectStroke -> op.copy(end = point)
-                                                                is DesktopEditOperation.OvalStroke -> op.copy(end = point)
-                                                                is DesktopEditOperation.ArrowStroke -> op.copy(end = point)
-                                                                else -> op
-                                                            }
-                                                        },
-                                                        onDragEnd = {
-                                                            activeOperation
-                                                                ?.takeIf { desktopShapeSpan(it) > 3f }
-                                                                ?.let { shape -> operations = operations + shape }
-                                                            activeOperation = null
-                                                        },
-                                                        onDragCancel = { activeOperation = null },
-                                                    )
+                                                                if (dragAction == DesktopDragAction.None) {
+                                                                    val hitIndex = hitTestDesktopOperation(
+                                                                        position = imagePoint,
+                                                                        operations = operations,
+                                                                        textMode = false,
+                                                                        tolerance = tolerance,
+                                                                        density = this,
+                                                                        textMeasurer = textMeasurer,
+                                                                        viewScale = viewScale,
+                                                                    )
+                                                                    if (hitIndex != null) {
+                                                                        selectedIndex = hitIndex
+                                                                        dragAction = DesktopDragAction.Move
+                                                                    }
+                                                                }
+                                                                if (dragAction == DesktopDragAction.None) {
+                                                                    selectedIndex = null
+                                                                    imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
+                                                                        val width = brushWidth / viewScale
+                                                                        dragAction = DesktopDragAction.DrawNew
+                                                                        activeOperation = when (brushShape) {
+                                                                            DesktopBrushShape.Rect ->
+                                                                                DesktopEditOperation.RectStroke(point, point, brushColor, width)
+                                                                            DesktopBrushShape.Oval ->
+                                                                                DesktopEditOperation.OvalStroke(point, point, brushColor, width)
+                                                                            else ->
+                                                                                DesktopEditOperation.ArrowStroke(point, point, brushColor, width)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                            onDrag = { change, dragAmount ->
+                                                                when (dragAction) {
+                                                                    DesktopDragAction.DrawNew -> {
+                                                                        val point = clampedImagePointFromViewport(
+                                                                            change.position,
+                                                                            imageRect,
+                                                                            imageWidth,
+                                                                            imageHeight,
+                                                                        ) ?: return@detectDragGestures
+                                                                        activeOperation = when (val op = activeOperation) {
+                                                                            is DesktopEditOperation.RectStroke -> op.copy(end = point)
+                                                                            is DesktopEditOperation.OvalStroke -> op.copy(end = point)
+                                                                            is DesktopEditOperation.ArrowStroke -> op.copy(end = point)
+                                                                            else -> op
+                                                                        }
+                                                                    }
+                                                                    DesktopDragAction.None -> Unit
+                                                                    else -> {
+                                                                        val index = selectedIndex ?: return@detectDragGestures
+                                                                        val operation = operations.getOrNull(index) ?: return@detectDragGestures
+                                                                        operations = operations.toMutableList().also { list ->
+                                                                            list[index] = applyDesktopDragAction(
+                                                                                operation = operation,
+                                                                                action = dragAction,
+                                                                                delta = dragAmount / viewScale,
+                                                                                currentPos = imagePointUnclamped(change.position, imageRect, viewScale),
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                            onDragEnd = {
+                                                                if (dragAction == DesktopDragAction.DrawNew) {
+                                                                    activeOperation
+                                                                        ?.takeIf { desktopShapeSpan(it) > 3f }
+                                                                        ?.let { shape -> operations = operations + shape }
+                                                                    activeOperation = null
+                                                                }
+                                                                dragAction = DesktopDragAction.None
+                                                            },
+                                                            onDragCancel = {
+                                                                activeOperation = null
+                                                                dragAction = DesktopDragAction.None
+                                                            },
+                                                        )
+                                                    }
                                                 }
                                                 DesktopImageEditMode.Mosaic -> detectDragGestures(
                                                     onDragStart = { position ->
@@ -3384,37 +3479,59 @@ private fun DesktopImageEditorWindow(
                                                     onDragCancel = { activeOperation = null },
                                                 )
                                                 DesktopImageEditMode.Text -> {
-                                                    // 拖动移动文本；命中判定基于文本包围盒
-                                                    var draggedIndex: Int? = null
+                                                    // 文字模式：拖动选中文字可移动，选中后支持缩放/旋转手柄
+                                                    var dragAction = DesktopDragAction.None
                                                     detectDragGestures(
                                                         onDragStart = { position ->
-                                                            draggedIndex = textOverlayHitIndex(
-                                                                density = this,
-                                                                textMeasurer = textMeasurer,
-                                                                operations = operations,
-                                                                position = position,
-                                                                imageRect = imageRect,
-                                                                imageWidth = imageWidth,
-                                                                imageHeight = imageHeight,
-                                                            )
+                                                            dragAction = DesktopDragAction.None
+                                                            val imagePoint = imagePointUnclamped(position, imageRect, viewScale)
+                                                            val tolerance = DESKTOP_HIT_TOLERANCE / viewScale
+                                                            val selected = selectedIndex?.let(operations::getOrNull)
+                                                            if (selected is DesktopEditOperation.TextOverlay) {
+                                                                dragAction = hitTestDesktopHandle(
+                                                                    position = imagePoint,
+                                                                    operation = selected,
+                                                                    handleHitRadius = DESKTOP_HANDLE_HIT_RADIUS / viewScale,
+                                                                    rotateHitRadius = DESKTOP_ROTATE_HIT_RADIUS / viewScale,
+                                                                    tolerance = tolerance,
+                                                                    density = this,
+                                                                    textMeasurer = textMeasurer,
+                                                                    viewScale = viewScale,
+                                                                )
+                                                            }
+                                                            if (dragAction == DesktopDragAction.None) {
+                                                                val hitIndex = hitTestDesktopOperation(
+                                                                    position = imagePoint,
+                                                                    operations = operations,
+                                                                    textMode = true,
+                                                                    tolerance = tolerance,
+                                                                    density = this,
+                                                                    textMeasurer = textMeasurer,
+                                                                    viewScale = viewScale,
+                                                                )
+                                                                if (hitIndex != null) {
+                                                                    selectedIndex = hitIndex
+                                                                    dragAction = DesktopDragAction.Move
+                                                                } else {
+                                                                    selectedIndex = null
+                                                                }
+                                                            }
                                                         },
-                                                        onDrag = { _, dragAmount ->
-                                                            val index = draggedIndex ?: return@detectDragGestures
-                                                            val overlay = operations.getOrNull(index) as? DesktopEditOperation.TextOverlay
-                                                                ?: return@detectDragGestures
+                                                        onDrag = { change, dragAmount ->
+                                                            if (dragAction == DesktopDragAction.None) return@detectDragGestures
+                                                            val index = selectedIndex ?: return@detectDragGestures
+                                                            val operation = operations.getOrNull(index) ?: return@detectDragGestures
                                                             operations = operations.toMutableList().also { list ->
-                                                                list[index] = overlay.copy(
-                                                                    position = Offset(
-                                                                        x = (overlay.position.x + dragAmount.x / viewScale)
-                                                                            .coerceIn(0f, imageWidth.toFloat()),
-                                                                        y = (overlay.position.y + dragAmount.y / viewScale)
-                                                                            .coerceIn(0f, imageHeight.toFloat()),
-                                                                    ),
+                                                                list[index] = applyDesktopDragAction(
+                                                                    operation = operation,
+                                                                    action = dragAction,
+                                                                    delta = dragAmount / viewScale,
+                                                                    currentPos = imagePointUnclamped(change.position, imageRect, viewScale),
                                                                 )
                                                             }
                                                         },
-                                                        onDragEnd = { draggedIndex = null },
-                                                        onDragCancel = { draggedIndex = null },
+                                                        onDragEnd = { dragAction = DesktopDragAction.None },
+                                                        onDragCancel = { dragAction = DesktopDragAction.None },
                                                     )
                                                 }
                                                 DesktopImageEditMode.Crop -> {
@@ -3482,22 +3599,32 @@ private fun DesktopImageEditorWindow(
                                             is DesktopEditOperation.RectStroke -> {
                                                 val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
                                                 val end = viewportPointFromImage(operation.end, imageRect, imageWidth, imageHeight)
-                                                drawRect(
-                                                    color = operation.color,
-                                                    topLeft = Offset(min(start.x, end.x), min(start.y, end.y)),
-                                                    size = Size(abs(end.x - start.x), abs(end.y - start.y)),
-                                                    style = Stroke(width = operation.strokeWidth * viewScale),
-                                                )
+                                                val center = Offset((start.x + end.x) / 2f, (start.y + end.y) / 2f)
+                                                val halfWidth = abs(end.x - start.x) / 2f * operation.scale
+                                                val halfHeight = abs(end.y - start.y) / 2f * operation.scale
+                                                rotate(degrees = operation.rotation, pivot = center) {
+                                                    drawRect(
+                                                        color = operation.color,
+                                                        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
+                                                        size = Size(halfWidth * 2f, halfHeight * 2f),
+                                                        style = Stroke(width = operation.strokeWidth * viewScale),
+                                                    )
+                                                }
                                             }
                                             is DesktopEditOperation.OvalStroke -> {
                                                 val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
                                                 val end = viewportPointFromImage(operation.end, imageRect, imageWidth, imageHeight)
-                                                drawOval(
-                                                    color = operation.color,
-                                                    topLeft = Offset(min(start.x, end.x), min(start.y, end.y)),
-                                                    size = Size(abs(end.x - start.x), abs(end.y - start.y)),
-                                                    style = Stroke(width = operation.strokeWidth * viewScale),
-                                                )
+                                                val center = Offset((start.x + end.x) / 2f, (start.y + end.y) / 2f)
+                                                val halfWidth = abs(end.x - start.x) / 2f * operation.scale
+                                                val halfHeight = abs(end.y - start.y) / 2f * operation.scale
+                                                rotate(degrees = operation.rotation, pivot = center) {
+                                                    drawOval(
+                                                        color = operation.color,
+                                                        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
+                                                        size = Size(halfWidth * 2f, halfHeight * 2f),
+                                                        style = Stroke(width = operation.strokeWidth * viewScale),
+                                                    )
+                                                }
                                             }
                                             is DesktopEditOperation.ArrowStroke -> {
                                                 val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
@@ -3551,14 +3678,60 @@ private fun DesktopImageEditorWindow(
                                                     ),
                                                 )
                                                 val center = viewportPointFromImage(operation.position, imageRect, imageWidth, imageHeight)
-                                                drawText(
-                                                    textLayoutResult = layout,
-                                                    topLeft = Offset(
-                                                        center.x - layout.size.width / 2f,
-                                                        center.y - layout.size.height / 2f,
-                                                    ),
-                                                )
+                                                rotate(degrees = operation.rotation, pivot = center) {
+                                                    scale(scale = operation.scale, pivot = center) {
+                                                        drawText(
+                                                            textLayoutResult = layout,
+                                                            topLeft = Offset(
+                                                                center.x - layout.size.width / 2f,
+                                                                center.y - layout.size.height / 2f,
+                                                            ),
+                                                        )
+                                                    }
+                                                }
                                             }
+                                        }
+                                    }
+
+                                    // 选中图形的边框与控制手柄
+                                    val selectedOperation = selectedIndex?.let(operations::getOrNull)
+                                    val selectionVisible = when (editMode) {
+                                        DesktopImageEditMode.Draw ->
+                                            brushShape != DesktopBrushShape.Pen &&
+                                                selectedOperation != null &&
+                                                selectedOperation !is DesktopEditOperation.TextOverlay
+                                        DesktopImageEditMode.Text -> selectedOperation is DesktopEditOperation.TextOverlay
+                                        else -> false
+                                    }
+                                    if (selectionVisible && selectedOperation != null) {
+                                        fun toViewport(point: Offset) =
+                                            viewportPointFromImage(point, imageRect, imageWidth, imageHeight)
+                                        when (selectedOperation) {
+                                            is DesktopEditOperation.RectStroke -> drawDesktopSelectionHandles(
+                                                transformedCorners(
+                                                    selectedOperation.start,
+                                                    selectedOperation.end,
+                                                    selectedOperation.scale,
+                                                    selectedOperation.rotation,
+                                                ).map(::toViewport),
+                                            )
+                                            is DesktopEditOperation.OvalStroke -> drawDesktopSelectionHandles(
+                                                transformedCorners(
+                                                    selectedOperation.start,
+                                                    selectedOperation.end,
+                                                    selectedOperation.scale,
+                                                    selectedOperation.rotation,
+                                                ).map(::toViewport),
+                                            )
+                                            is DesktopEditOperation.ArrowStroke -> drawDesktopArrowHandles(
+                                                toViewport(selectedOperation.start),
+                                                toViewport(selectedOperation.end),
+                                            )
+                                            is DesktopEditOperation.TextOverlay -> drawDesktopSelectionHandles(
+                                                textOverlayCorners(this, textMeasurer, selectedOperation, viewScale)
+                                                    .map(::toViewport),
+                                            )
+                                            else -> Unit
                                         }
                                     }
 
@@ -3900,9 +4073,29 @@ private data class DesktopTextDialogState(
     val initialText: String,
 )
 
+/** 选中图形后的拖拽交互类型。 */
+private enum class DesktopDragAction {
+    /** 无操作 */
+    None,
+    /** 正在绘制新图形 */
+    DrawNew,
+    /** 移动整个图形 */
+    Move,
+    /** 右下角缩放手柄 */
+    Scale,
+    /** 左上角旋转手柄 */
+    Rotate,
+    /** 拖动箭头起点 */
+    ArrowStart,
+    /** 拖动箭头终点 */
+    ArrowEnd,
+}
+
 /**
  * 图片编辑操作模型，所有坐标与尺寸均处于原图像素坐标系，
  * 展示时按视口缩放系数换算，保存时直接映射到原图。
+ *
+ * 矩形/椭圆/文字支持选中后的缩放与旋转（围绕中心点），箭头支持两端独立拖动。
  */
 private sealed class DesktopEditOperation {
     data class PenStroke(
@@ -3916,6 +4109,8 @@ private sealed class DesktopEditOperation {
         val end: Offset,
         val color: Color,
         val strokeWidth: Float,
+        val scale: Float = 1f,
+        val rotation: Float = 0f,
     ) : DesktopEditOperation()
 
     data class OvalStroke(
@@ -3923,6 +4118,8 @@ private sealed class DesktopEditOperation {
         val end: Offset,
         val color: Color,
         val strokeWidth: Float,
+        val scale: Float = 1f,
+        val rotation: Float = 0f,
     ) : DesktopEditOperation()
 
     data class ArrowStroke(
@@ -3942,6 +4139,8 @@ private sealed class DesktopEditOperation {
         val position: Offset,
         val color: Color,
         val fontSize: Float,
+        val scale: Float = 1f,
+        val rotation: Float = 0f,
     ) : DesktopEditOperation()
 }
 
@@ -4714,14 +4913,16 @@ private fun drawOperationOnGraphics(
                 java.awt.BasicStroke.CAP_ROUND,
                 java.awt.BasicStroke.JOIN_ROUND,
             )
+            val cx = (operation.start.x + operation.end.x) / 2f
+            val cy = (operation.start.y + operation.end.y) / 2f
+            val halfWidth = abs(operation.end.x - operation.start.x) / 2f * operation.scale
+            val halfHeight = abs(operation.end.y - operation.start.y) / 2f * operation.scale
+            val previousTransform = graphics.transform
+            graphics.rotate(Math.toRadians(operation.rotation.toDouble()), cx.toDouble(), cy.toDouble())
             graphics.draw(
-                java.awt.geom.Rectangle2D.Float(
-                    min(operation.start.x, operation.end.x),
-                    min(operation.start.y, operation.end.y),
-                    abs(operation.end.x - operation.start.x),
-                    abs(operation.end.y - operation.start.y),
-                ),
+                java.awt.geom.Rectangle2D.Float(cx - halfWidth, cy - halfHeight, halfWidth * 2f, halfHeight * 2f),
             )
+            graphics.transform = previousTransform
         }
         is DesktopEditOperation.OvalStroke -> {
             graphics.color = operation.color.toAwtColor()
@@ -4730,14 +4931,16 @@ private fun drawOperationOnGraphics(
                 java.awt.BasicStroke.CAP_ROUND,
                 java.awt.BasicStroke.JOIN_ROUND,
             )
+            val cx = (operation.start.x + operation.end.x) / 2f
+            val cy = (operation.start.y + operation.end.y) / 2f
+            val halfWidth = abs(operation.end.x - operation.start.x) / 2f * operation.scale
+            val halfHeight = abs(operation.end.y - operation.start.y) / 2f * operation.scale
+            val previousTransform = graphics.transform
+            graphics.rotate(Math.toRadians(operation.rotation.toDouble()), cx.toDouble(), cy.toDouble())
             graphics.draw(
-                java.awt.geom.Ellipse2D.Float(
-                    min(operation.start.x, operation.end.x),
-                    min(operation.start.y, operation.end.y),
-                    abs(operation.end.x - operation.start.x),
-                    abs(operation.end.y - operation.start.y),
-                ),
+                java.awt.geom.Ellipse2D.Float(cx - halfWidth, cy - halfHeight, halfWidth * 2f, halfHeight * 2f),
             )
+            graphics.transform = previousTransform
         }
         is DesktopEditOperation.ArrowStroke -> {
             graphics.color = operation.color.toAwtColor()
@@ -4784,7 +4987,13 @@ private fun drawOperationOnGraphics(
             graphics.font = java.awt.Font(
                 java.awt.Font.SANS_SERIF,
                 java.awt.Font.BOLD,
-                operation.fontSize.roundToInt().coerceAtLeast(1),
+                (operation.fontSize * operation.scale).roundToInt().coerceAtLeast(1),
+            )
+            val previousTransform = graphics.transform
+            graphics.rotate(
+                Math.toRadians(operation.rotation.toDouble()),
+                operation.position.x.toDouble(),
+                operation.position.y.toDouble(),
             )
             val metrics = graphics.fontMetrics
             val lines = operation.text.lines()
@@ -4795,6 +5004,7 @@ private fun drawOperationOnGraphics(
                 graphics.drawString(line, operation.position.x - lineWidth / 2f, baseline)
                 baseline += metrics.height
             }
+            graphics.transform = previousTransform
         }
     }
 }
@@ -4860,36 +5070,378 @@ private fun appendMosaicPoint(points: List<Offset>, point: Offset, radius: Float
     return result
 }
 
-/** 命中检测：返回视口坐标 position 下最上层文本操作的下标。 */
-private fun textOverlayHitIndex(
+// ==================== 选中 / 变换辅助（坐标均为原图像素，容差由调用方按视口换算） ====================
+
+/** 缩放手柄绘制半径（视口像素）。 */
+private const val DESKTOP_HANDLE_RADIUS = 7f
+
+/** 旋转手柄绘制半径（视口像素）。 */
+private const val DESKTOP_ROTATE_HANDLE_RADIUS = 16f
+
+/** 缩放手柄命中半径（视口像素）。 */
+private const val DESKTOP_HANDLE_HIT_RADIUS = 14f
+
+/** 旋转手柄命中半径（视口像素）。 */
+private const val DESKTOP_ROTATE_HIT_RADIUS = 22f
+
+/** 图形边缘命中容差（视口像素）。 */
+private const val DESKTOP_HIT_TOLERANCE = 14f
+
+/** 文字选择框内边距（视口像素）。 */
+private const val DESKTOP_TEXT_SELECTION_PADDING = 10f
+
+private fun distanceBetween(a: Offset, b: Offset): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return kotlin.math.sqrt(dx * dx + dy * dy)
+}
+
+/** 点到线段的最短距离。 */
+private fun pointToSegmentDistance(p: Offset, a: Offset, b: Offset): Float {
+    val ab = b - a
+    val ap = p - a
+    val lengthSquared = ab.x * ab.x + ab.y * ab.y
+    if (lengthSquared < 1e-6f) return distanceBetween(p, a)
+    val t = ((ap.x * ab.x + ap.y * ab.y) / lengthSquared).coerceIn(0f, 1f)
+    val projection = Offset(a.x + t * ab.x, a.y + t * ab.y)
+    return distanceBetween(p, projection)
+}
+
+/**
+ * 计算矩形/椭圆经缩放与旋转后的四个角点。
+ * 返回顺序：左上、右上、右下、左下。
+ */
+private fun transformedCorners(
+    start: Offset,
+    end: Offset,
+    scale: Float,
+    rotationDeg: Float,
+): List<Offset> {
+    val cx = (start.x + end.x) / 2f
+    val cy = (start.y + end.y) / 2f
+    val halfWidth = abs(end.x - start.x) / 2f * scale
+    val halfHeight = abs(end.y - start.y) / 2f * scale
+    val rad = Math.toRadians(rotationDeg.toDouble())
+    val cosR = cos(rad).toFloat()
+    val sinR = sin(rad).toFloat()
+
+    fun corner(lx: Float, ly: Float) = Offset(
+        x = cx + lx * cosR - ly * sinR,
+        y = cy + lx * sinR + ly * cosR,
+    )
+
+    return listOf(
+        corner(-halfWidth, -halfHeight),
+        corner(halfWidth, -halfHeight),
+        corner(halfWidth, halfHeight),
+        corner(-halfWidth, halfHeight),
+    )
+}
+
+/** 判断点是否在凸四边形内（叉积同号法）。 */
+private fun isPointInQuad(p: Offset, corners: List<Offset>): Boolean {
+    var sign = 0
+    for (i in corners.indices) {
+        val a = corners[i]
+        val b = corners[(i + 1) % corners.size]
+        val cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+        if (cross > 0) {
+            if (sign < 0) return false
+            sign = 1
+        } else if (cross < 0) {
+            if (sign > 0) return false
+            sign = -1
+        }
+    }
+    return true
+}
+
+/** 判断点是否位于（含容差的）旋转椭圆内。 */
+private fun isPointNearEllipse(
+    p: Offset,
+    start: Offset,
+    end: Offset,
+    scale: Float,
+    rotationDeg: Float,
+    tolerance: Float,
+): Boolean {
+    val cx = (start.x + end.x) / 2f
+    val cy = (start.y + end.y) / 2f
+    val a = abs(end.x - start.x) / 2f * scale + tolerance
+    val b = abs(end.y - start.y) / 2f * scale + tolerance
+    if (a < 1f || b < 1f) return false
+    val rad = Math.toRadians(-rotationDeg.toDouble())
+    val cosR = cos(rad).toFloat()
+    val sinR = sin(rad).toFloat()
+    val dx = p.x - cx
+    val dy = p.y - cy
+    val lx = dx * cosR - dy * sinR
+    val ly = dx * sinR + dy * cosR
+    return (lx * lx) / (a * a) + (ly * ly) / (b * b) <= 1f
+}
+
+/** 用基准字号测量文本尺寸（原图像素，未含 scale）。 */
+private fun measureTextOverlaySize(
     density: Density,
     textMeasurer: TextMeasurer,
-    operations: List<DesktopEditOperation>,
+    overlay: DesktopEditOperation.TextOverlay,
+    viewScale: Float,
+): Size {
+    val layout = textMeasurer.measure(
+        AnnotatedString(overlay.text),
+        with(density) {
+            TextStyle(
+                fontSize = (overlay.fontSize * viewScale).toSp(),
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        },
+    )
+    return Size(layout.size.width / viewScale, layout.size.height / viewScale)
+}
+
+/** 文字选择框四角（原图像素，含内边距、缩放与旋转）。 */
+private fun textOverlayCorners(
+    density: Density,
+    textMeasurer: TextMeasurer,
+    overlay: DesktopEditOperation.TextOverlay,
+    viewScale: Float,
+): List<Offset> {
+    val size = measureTextOverlaySize(density, textMeasurer, overlay, viewScale)
+    val padding = DESKTOP_TEXT_SELECTION_PADDING / viewScale
+    val half = Offset(size.width / 2f + padding, size.height / 2f + padding)
+    return transformedCorners(
+        start = overlay.position - half,
+        end = overlay.position + half,
+        scale = overlay.scale,
+        rotationDeg = overlay.rotation,
+    )
+}
+
+/**
+ * 命中检测：返回原图坐标 position 下最上层可选中操作的下标，未命中返回 null。
+ * 画笔与马赛克不可选中；textMode 决定检测文字还是矢量图形。
+ */
+private fun hitTestDesktopOperation(
     position: Offset,
-    imageRect: Rect,
-    imageWidth: Int,
-    imageHeight: Int,
+    operations: List<DesktopEditOperation>,
+    textMode: Boolean,
+    tolerance: Float,
+    density: Density,
+    textMeasurer: TextMeasurer,
+    viewScale: Float,
 ): Int? {
-    if (imageRect.width <= 0f || imageWidth <= 0) return null
-    val scale = imageRect.width / imageWidth
     for (index in operations.indices.reversed()) {
-        val overlay = operations[index] as? DesktopEditOperation.TextOverlay ?: continue
-        val layout = textMeasurer.measure(
-            AnnotatedString(overlay.text),
-            with(density) {
-                TextStyle(
-                    fontSize = (overlay.fontSize * scale).toSp(),
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
-            },
-        )
-        val center = viewportPointFromImage(overlay.position, imageRect, imageWidth, imageHeight)
-        val half = Offset(layout.size.width / 2f, layout.size.height / 2f)
-        val bounds = Rect(center - half, center + half).inflate(12f)
-        if (bounds.contains(position)) return index
+        val operation = operations[index]
+        val hit = when (operation) {
+            is DesktopEditOperation.RectStroke -> !textMode && isPointInQuad(
+                position,
+                transformedCorners(operation.start, operation.end, operation.scale, operation.rotation),
+            )
+            is DesktopEditOperation.OvalStroke -> !textMode && isPointNearEllipse(
+                position,
+                operation.start,
+                operation.end,
+                operation.scale,
+                operation.rotation,
+                tolerance,
+            )
+            is DesktopEditOperation.ArrowStroke -> !textMode &&
+                pointToSegmentDistance(position, operation.start, operation.end) < tolerance
+            is DesktopEditOperation.TextOverlay -> textMode && isPointInQuad(
+                position,
+                textOverlayCorners(density, textMeasurer, operation, viewScale),
+            )
+            else -> false
+        }
+        if (hit) return index
     }
     return null
+}
+
+/** 命中检测：判断原图坐标 position 命中了选中操作的哪个控制手柄。 */
+private fun hitTestDesktopHandle(
+    position: Offset,
+    operation: DesktopEditOperation,
+    handleHitRadius: Float,
+    rotateHitRadius: Float,
+    tolerance: Float,
+    density: Density,
+    textMeasurer: TextMeasurer,
+    viewScale: Float,
+): DesktopDragAction {
+    fun quadHandleAction(corners: List<Offset>, insideCheck: () -> Boolean): DesktopDragAction {
+        return when {
+            distanceBetween(position, corners[2]) < handleHitRadius -> DesktopDragAction.Scale
+            distanceBetween(position, corners[0]) < rotateHitRadius -> DesktopDragAction.Rotate
+            insideCheck() -> DesktopDragAction.Move
+            else -> DesktopDragAction.None
+        }
+    }
+
+    return when (operation) {
+        is DesktopEditOperation.RectStroke -> {
+            val corners = transformedCorners(operation.start, operation.end, operation.scale, operation.rotation)
+            quadHandleAction(corners) { isPointInQuad(position, corners) }
+        }
+        is DesktopEditOperation.OvalStroke -> {
+            val corners = transformedCorners(operation.start, operation.end, operation.scale, operation.rotation)
+            quadHandleAction(corners) {
+                isPointNearEllipse(position, operation.start, operation.end, operation.scale, operation.rotation, tolerance)
+            }
+        }
+        is DesktopEditOperation.ArrowStroke -> when {
+            distanceBetween(position, operation.start) < handleHitRadius -> DesktopDragAction.ArrowStart
+            distanceBetween(position, operation.end) < handleHitRadius -> DesktopDragAction.ArrowEnd
+            pointToSegmentDistance(position, operation.start, operation.end) < tolerance -> DesktopDragAction.Move
+            else -> DesktopDragAction.None
+        }
+        is DesktopEditOperation.TextOverlay -> {
+            val corners = textOverlayCorners(density, textMeasurer, operation, viewScale)
+            quadHandleAction(corners) { isPointInQuad(position, corners) }
+        }
+        else -> DesktopDragAction.None
+    }
+}
+
+/** 根据拖拽类型更新操作的变换属性（delta 与 currentPos 均为原图像素）。 */
+private fun applyDesktopDragAction(
+    operation: DesktopEditOperation,
+    action: DesktopDragAction,
+    delta: Offset,
+    currentPos: Offset,
+): DesktopEditOperation {
+    fun scaledBy(center: Offset, scale: Float): Float? {
+        val previousDistance = distanceBetween(currentPos - delta, center)
+        val currentDistance = distanceBetween(currentPos, center)
+        if (previousDistance <= 1f) return null
+        return (scale * currentDistance / previousDistance).coerceIn(0.3f, 5f)
+    }
+
+    fun rotatedBy(center: Offset, rotation: Float): Float {
+        val previousAngle = atan2((currentPos.y - delta.y) - center.y, (currentPos.x - delta.x) - center.x)
+        val currentAngle = atan2(currentPos.y - center.y, currentPos.x - center.x)
+        return rotation + Math.toDegrees((currentAngle - previousAngle).toDouble()).toFloat()
+    }
+
+    return when (operation) {
+        is DesktopEditOperation.RectStroke -> {
+            val center = Offset((operation.start.x + operation.end.x) / 2f, (operation.start.y + operation.end.y) / 2f)
+            when (action) {
+                DesktopDragAction.Move -> operation.copy(start = operation.start + delta, end = operation.end + delta)
+                DesktopDragAction.Scale -> scaledBy(center, operation.scale)?.let { operation.copy(scale = it) } ?: operation
+                DesktopDragAction.Rotate -> operation.copy(rotation = rotatedBy(center, operation.rotation))
+                else -> operation
+            }
+        }
+        is DesktopEditOperation.OvalStroke -> {
+            val center = Offset((operation.start.x + operation.end.x) / 2f, (operation.start.y + operation.end.y) / 2f)
+            when (action) {
+                DesktopDragAction.Move -> operation.copy(start = operation.start + delta, end = operation.end + delta)
+                DesktopDragAction.Scale -> scaledBy(center, operation.scale)?.let { operation.copy(scale = it) } ?: operation
+                DesktopDragAction.Rotate -> operation.copy(rotation = rotatedBy(center, operation.rotation))
+                else -> operation
+            }
+        }
+        is DesktopEditOperation.ArrowStroke -> when (action) {
+            DesktopDragAction.Move -> operation.copy(start = operation.start + delta, end = operation.end + delta)
+            DesktopDragAction.ArrowStart -> operation.copy(start = operation.start + delta)
+            DesktopDragAction.ArrowEnd -> operation.copy(end = operation.end + delta)
+            else -> operation
+        }
+        is DesktopEditOperation.TextOverlay -> when (action) {
+            DesktopDragAction.Move -> operation.copy(position = operation.position + delta)
+            DesktopDragAction.Scale -> scaledBy(operation.position, operation.scale)?.let { operation.copy(scale = it) } ?: operation
+            DesktopDragAction.Rotate -> operation.copy(rotation = rotatedBy(operation.position, operation.rotation))
+            else -> operation
+        }
+        else -> operation
+    }
+}
+
+/** 视口坐标 → 原图坐标（不做边界钳制，供变换手势使用）。 */
+private fun imagePointUnclamped(position: Offset, imageRect: Rect, viewScale: Float): Offset {
+    return Offset(
+        x = (position.x - imageRect.left) / viewScale,
+        y = (position.y - imageRect.top) / viewScale,
+    )
+}
+
+/** 绘制矩形/椭圆/文字选中时的边框、右下角缩放手柄与左上角旋转手柄（视口坐标）。 */
+private fun DrawScope.drawDesktopSelectionHandles(corners: List<Offset>) {
+    for (i in corners.indices) {
+        drawLine(
+            color = Color.White.copy(alpha = 0.6f),
+            start = corners[i],
+            end = corners[(i + 1) % corners.size],
+            strokeWidth = 1.5f,
+            cap = StrokeCap.Round,
+        )
+    }
+
+    drawCircle(color = Color.White, radius = DESKTOP_HANDLE_RADIUS, center = corners[2])
+    drawCircle(
+        color = Color.Gray,
+        radius = DESKTOP_HANDLE_RADIUS,
+        center = corners[2],
+        style = Stroke(width = 1.5f),
+    )
+
+    drawCircle(color = Color.White, radius = DESKTOP_ROTATE_HANDLE_RADIUS, center = corners[0])
+    drawCircle(
+        color = Color.Gray.copy(alpha = 0.4f),
+        radius = DESKTOP_ROTATE_HANDLE_RADIUS,
+        center = corners[0],
+        style = Stroke(width = 1.5f),
+    )
+    drawDesktopRotateIcon(corners[0], DESKTOP_ROTATE_HANDLE_RADIUS)
+}
+
+/** 绘制箭头选中时的端点手柄（视口坐标）。 */
+private fun DrawScope.drawDesktopArrowHandles(start: Offset, end: Offset) {
+    drawLine(
+        color = Color.White.copy(alpha = 0.6f),
+        start = start,
+        end = end,
+        strokeWidth = 1.5f,
+        cap = StrokeCap.Round,
+    )
+    listOf(start, end).forEach { point ->
+        drawCircle(color = Color.White, radius = DESKTOP_HANDLE_RADIUS, center = point)
+        drawCircle(
+            color = Color.Gray,
+            radius = DESKTOP_HANDLE_RADIUS,
+            center = point,
+            style = Stroke(width = 1.5f),
+        )
+    }
+}
+
+/** 在旋转手柄内绘制 Material Refresh 图标。 */
+private fun DrawScope.drawDesktopRotateIcon(center: Offset, radius: Float) {
+    val iconColor = Color(0xFF444444)
+    val s = radius / 12f
+
+    fun px(x: Float) = center.x + (x - 12f) * s
+    fun py(y: Float) = center.y + (y - 12f) * s
+
+    val refreshPath = Path().apply {
+        moveTo(px(17.65f), py(6.35f))
+        cubicTo(px(16.2f), py(4.9f), px(14.21f), py(4f), px(12f), py(4f))
+        cubicTo(px(7.58f), py(4f), px(4.01f), py(7.58f), px(4.01f), py(12f))
+        cubicTo(px(4.01f), py(16.42f), px(7.58f), py(20f), px(12f), py(20f))
+        cubicTo(px(15.73f), py(20f), px(18.84f), py(17.45f), px(19.73f), py(14f))
+        lineTo(px(17.65f), py(14f))
+        cubicTo(px(16.83f), py(16.33f), px(14.61f), py(18f), px(12f), py(18f))
+        cubicTo(px(8.69f), py(18f), px(6f), py(15.31f), px(6f), py(12f))
+        cubicTo(px(6f), py(8.69f), px(8.69f), py(6f), px(12f), py(6f))
+        cubicTo(px(13.66f), py(6f), px(15.14f), py(6.69f), px(16.22f), py(7.78f))
+        lineTo(px(13f), py(11f))
+        lineTo(px(20f), py(11f))
+        lineTo(px(20f), py(4f))
+        close()
+    }
+    drawPath(refreshPath, iconColor)
 }
 
 /** 加载与展示位图同尺寸的马赛克化位图，用于涂抹时的实时预览。 */
