@@ -52,26 +52,32 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.CallMade
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -111,11 +117,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -131,12 +139,19 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -193,6 +208,9 @@ import java.util.Locale
 import java.util.UUID
 import javax.imageio.ImageIO
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -3116,12 +3134,22 @@ private fun DesktopImageEditorWindow(
             loadImageBitmap(path, 4096)?.let(ImageLoadState::Success) ?: ImageLoadState.Error
         }
     }
+    // 马赛克预览位图：与展示位图同尺寸的像素化版本，绘制时按涂抹路径裁剪显示
+    val mosaicBitmap by produceState<ImageBitmap?>(initialValue = null, path) {
+        value = withContext(Dispatchers.IO) {
+            loadMosaicImageBitmap(path, 4096)
+        }
+    }
     val (imageWidth, imageHeight) = remember(path) { imageDimensions(path) }
     var editMode by remember(path) { mutableStateOf(DesktopImageEditMode.Draw) }
+    var brushShape by remember(path) { mutableStateOf(DesktopBrushShape.Pen) }
     var brushWidth by remember(path) { mutableStateOf(8f) }
     var brushColor by remember(path) { mutableStateOf(Color(0xFFFF4D6D)) }
-    var strokes by remember(path) { mutableStateOf<List<DesktopEditStroke>>(emptyList()) }
-    var activeStroke by remember(path) { mutableStateOf<DesktopEditStroke?>(null) }
+    var mosaicRadius by remember(path) { mutableStateOf(30f) }
+    var textFontSize by remember(path) { mutableStateOf(48f) }
+    var operations by remember(path) { mutableStateOf<List<DesktopEditOperation>>(emptyList()) }
+    var activeOperation by remember(path) { mutableStateOf<DesktopEditOperation?>(null) }
+    var textDialog by remember(path) { mutableStateOf<DesktopTextDialogState?>(null) }
     var cropLeft by remember(path) { mutableStateOf(0f) }
     var cropTop by remember(path) { mutableStateOf(0f) }
     var cropRight by remember(path) { mutableStateOf(1f) }
@@ -3129,6 +3157,13 @@ private fun DesktopImageEditorWindow(
     var viewportSize by remember(path) { mutableStateOf(IntSize.Zero) }
     var isSaving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val textMeasurer = rememberTextMeasurer()
+
+    val imageRect = remember(viewportSize, imageWidth, imageHeight) {
+        displayedImageRect(viewportSize, imageWidth, imageHeight)
+    }
+    // 视口 → 图片坐标的缩放系数（图片始终按 Fit 展示）
+    val viewScale = if (imageRect.width > 0f && imageWidth > 0) imageRect.width / imageWidth else 1f
 
     fun resetCrop() {
         cropLeft = 0f
@@ -3138,9 +3173,9 @@ private fun DesktopImageEditorWindow(
     }
 
     fun undo() {
-        activeStroke = null
-        if (strokes.isNotEmpty()) {
-            strokes = strokes.dropLast(1)
+        activeOperation = null
+        if (operations.isNotEmpty()) {
+            operations = operations.dropLast(1)
         }
     }
 
@@ -3173,8 +3208,8 @@ private fun DesktopImageEditorWindow(
                     )
                     PreviewRoundIconButton(
                         icon = Icons.Default.Undo,
-                        contentDescription = "撤销",
-                        enabled = strokes.isNotEmpty(),
+                        contentDescription = strings.paintEditUndo,
+                        enabled = operations.isNotEmpty(),
                         onClick = ::undo,
                     )
                     PreviewRoundIconButton(
@@ -3187,7 +3222,7 @@ private fun DesktopImageEditorWindow(
                                 val savedPath = withContext(Dispatchers.IO) {
                                     saveDesktopEditedImage(
                                         sourcePath = path,
-                                        strokes = strokes,
+                                        operations = operations,
                                         cropRect = Rect(cropLeft, cropTop, cropRight, cropBottom),
                                     )
                                 }
@@ -3213,9 +3248,6 @@ private fun DesktopImageEditorWindow(
                         .onSizeChanged { viewportSize = it },
                     contentAlignment = Alignment.Center,
                 ) {
-                    val imageRect = remember(viewportSize, imageWidth, imageHeight) {
-                        displayedImageRect(viewportSize, imageWidth, imageHeight)
-                    }
                     when (val state = imageState) {
                         ImageLoadState.Loading -> CircularProgressIndicator(color = Color.White)
                         ImageLoadState.Error -> Text(strings.missingFile, color = Color.White.copy(alpha = 0.72f))
@@ -3230,35 +3262,159 @@ private fun DesktopImageEditorWindow(
                                 Canvas(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .pointerInput(editMode, imageRect, strokes, brushColor, brushWidth) {
+                                        .pointerInput(editMode, imageRect) {
+                                            // 仅在文字模式下：单击文本可重新编辑内容
+                                            if (editMode == DesktopImageEditMode.Text) {
+                                                detectTapGestures(
+                                                    onTap = { position ->
+                                                        val index = textOverlayHitIndex(
+                                                            density = this,
+                                                            textMeasurer = textMeasurer,
+                                                            operations = operations,
+                                                            position = position,
+                                                            imageRect = imageRect,
+                                                            imageWidth = imageWidth,
+                                                            imageHeight = imageHeight,
+                                                        )
+                                                        if (index != null) {
+                                                            val overlay = operations[index] as DesktopEditOperation.TextOverlay
+                                                            textDialog = DesktopTextDialogState(editIndex = index, initialText = overlay.text)
+                                                        }
+                                                    },
+                                                )
+                                            }
+                                        }
+                                        .pointerInput(editMode, brushShape, imageRect) {
                                             when (editMode) {
-                                                DesktopImageEditMode.Draw -> {
-                                                    detectDragGestures(
+                                                DesktopImageEditMode.Draw -> when (brushShape) {
+                                                    DesktopBrushShape.Pen -> detectDragGestures(
                                                         onDragStart = { position ->
                                                             imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
-                                                                activeStroke = DesktopEditStroke(
+                                                                activeOperation = DesktopEditOperation.PenStroke(
                                                                     points = listOf(point),
                                                                     color = brushColor,
-                                                                    strokeWidth = brushWidth,
+                                                                    strokeWidth = brushWidth / viewScale,
                                                                 )
                                                             }
                                                         },
                                                         onDrag = { change, _ ->
-                                                            val point = imagePointFromViewport(
+                                                            val stroke = activeOperation as? DesktopEditOperation.PenStroke
+                                                                ?: return@detectDragGestures
+                                                            val point = clampedImagePointFromViewport(
                                                                 change.position,
                                                                 imageRect,
                                                                 imageWidth,
                                                                 imageHeight,
                                                             ) ?: return@detectDragGestures
-                                                            activeStroke = activeStroke?.copy(points = activeStroke!!.points + point)
+                                                            activeOperation = stroke.copy(points = stroke.points + point)
                                                         },
                                                         onDragEnd = {
-                                                            activeStroke?.takeIf { it.points.size > 1 }?.let { stroke ->
-                                                                strokes = strokes + stroke
-                                                            }
-                                                            activeStroke = null
+                                                            (activeOperation as? DesktopEditOperation.PenStroke)
+                                                                ?.takeIf { it.points.size > 1 }
+                                                                ?.let { stroke -> operations = operations + stroke }
+                                                            activeOperation = null
                                                         },
-                                                        onDragCancel = { activeStroke = null },
+                                                        onDragCancel = { activeOperation = null },
+                                                    )
+                                                    else -> detectDragGestures(
+                                                        onDragStart = { position ->
+                                                            imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
+                                                                val width = brushWidth / viewScale
+                                                                activeOperation = when (brushShape) {
+                                                                    DesktopBrushShape.Rect ->
+                                                                        DesktopEditOperation.RectStroke(point, point, brushColor, width)
+                                                                    DesktopBrushShape.Oval ->
+                                                                        DesktopEditOperation.OvalStroke(point, point, brushColor, width)
+                                                                    else ->
+                                                                        DesktopEditOperation.ArrowStroke(point, point, brushColor, width)
+                                                                }
+                                                            }
+                                                        },
+                                                        onDrag = { change, _ ->
+                                                            val point = clampedImagePointFromViewport(
+                                                                change.position,
+                                                                imageRect,
+                                                                imageWidth,
+                                                                imageHeight,
+                                                            ) ?: return@detectDragGestures
+                                                            activeOperation = when (val op = activeOperation) {
+                                                                is DesktopEditOperation.RectStroke -> op.copy(end = point)
+                                                                is DesktopEditOperation.OvalStroke -> op.copy(end = point)
+                                                                is DesktopEditOperation.ArrowStroke -> op.copy(end = point)
+                                                                else -> op
+                                                            }
+                                                        },
+                                                        onDragEnd = {
+                                                            activeOperation
+                                                                ?.takeIf { desktopShapeSpan(it) > 3f }
+                                                                ?.let { shape -> operations = operations + shape }
+                                                            activeOperation = null
+                                                        },
+                                                        onDragCancel = { activeOperation = null },
+                                                    )
+                                                }
+                                                DesktopImageEditMode.Mosaic -> detectDragGestures(
+                                                    onDragStart = { position ->
+                                                        imagePointFromViewport(position, imageRect, imageWidth, imageHeight)?.let { point ->
+                                                            activeOperation = DesktopEditOperation.MosaicStroke(
+                                                                points = listOf(point),
+                                                                radius = mosaicRadius / viewScale,
+                                                            )
+                                                        }
+                                                    },
+                                                    onDrag = { change, _ ->
+                                                        val stroke = activeOperation as? DesktopEditOperation.MosaicStroke
+                                                            ?: return@detectDragGestures
+                                                        val point = clampedImagePointFromViewport(
+                                                            change.position,
+                                                            imageRect,
+                                                            imageWidth,
+                                                            imageHeight,
+                                                        ) ?: return@detectDragGestures
+                                                        activeOperation = stroke.copy(
+                                                            points = appendMosaicPoint(stroke.points, point, stroke.radius),
+                                                        )
+                                                    },
+                                                    onDragEnd = {
+                                                        (activeOperation as? DesktopEditOperation.MosaicStroke)
+                                                            ?.takeIf { it.points.isNotEmpty() }
+                                                            ?.let { stroke -> operations = operations + stroke }
+                                                        activeOperation = null
+                                                    },
+                                                    onDragCancel = { activeOperation = null },
+                                                )
+                                                DesktopImageEditMode.Text -> {
+                                                    // 拖动移动文本；命中判定基于文本包围盒
+                                                    var draggedIndex: Int? = null
+                                                    detectDragGestures(
+                                                        onDragStart = { position ->
+                                                            draggedIndex = textOverlayHitIndex(
+                                                                density = this,
+                                                                textMeasurer = textMeasurer,
+                                                                operations = operations,
+                                                                position = position,
+                                                                imageRect = imageRect,
+                                                                imageWidth = imageWidth,
+                                                                imageHeight = imageHeight,
+                                                            )
+                                                        },
+                                                        onDrag = { _, dragAmount ->
+                                                            val index = draggedIndex ?: return@detectDragGestures
+                                                            val overlay = operations.getOrNull(index) as? DesktopEditOperation.TextOverlay
+                                                                ?: return@detectDragGestures
+                                                            operations = operations.toMutableList().also { list ->
+                                                                list[index] = overlay.copy(
+                                                                    position = Offset(
+                                                                        x = (overlay.position.x + dragAmount.x / viewScale)
+                                                                            .coerceIn(0f, imageWidth.toFloat()),
+                                                                        y = (overlay.position.y + dragAmount.y / viewScale)
+                                                                            .coerceIn(0f, imageHeight.toFloat()),
+                                                                    ),
+                                                                )
+                                                            }
+                                                        },
+                                                        onDragEnd = { draggedIndex = null },
+                                                        onDragCancel = { draggedIndex = null },
                                                     )
                                                 }
                                                 DesktopImageEditMode.Crop -> {
@@ -3309,16 +3465,100 @@ private fun DesktopImageEditorWindow(
                                             }
                                         },
                                 ) {
-                                    val visibleStrokes = strokes + listOfNotNull(activeStroke)
-                                    visibleStrokes.forEach { stroke ->
-                                        stroke.points.zipWithNext().forEach { (start, end) ->
-                                            drawLine(
-                                                color = stroke.color,
-                                                start = viewportPointFromImage(start, imageRect, imageWidth, imageHeight),
-                                                end = viewportPointFromImage(end, imageRect, imageWidth, imageHeight),
-                                                strokeWidth = stroke.strokeWidth,
-                                                cap = StrokeCap.Round,
-                                            )
+                                    val visibleOperations = operations + listOfNotNull(activeOperation)
+                                    visibleOperations.forEach { operation ->
+                                        when (operation) {
+                                            is DesktopEditOperation.PenStroke -> {
+                                                operation.points.zipWithNext().forEach { (start, end) ->
+                                                    drawLine(
+                                                        color = operation.color,
+                                                        start = viewportPointFromImage(start, imageRect, imageWidth, imageHeight),
+                                                        end = viewportPointFromImage(end, imageRect, imageWidth, imageHeight),
+                                                        strokeWidth = operation.strokeWidth * viewScale,
+                                                        cap = StrokeCap.Round,
+                                                    )
+                                                }
+                                            }
+                                            is DesktopEditOperation.RectStroke -> {
+                                                val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
+                                                val end = viewportPointFromImage(operation.end, imageRect, imageWidth, imageHeight)
+                                                drawRect(
+                                                    color = operation.color,
+                                                    topLeft = Offset(min(start.x, end.x), min(start.y, end.y)),
+                                                    size = Size(abs(end.x - start.x), abs(end.y - start.y)),
+                                                    style = Stroke(width = operation.strokeWidth * viewScale),
+                                                )
+                                            }
+                                            is DesktopEditOperation.OvalStroke -> {
+                                                val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
+                                                val end = viewportPointFromImage(operation.end, imageRect, imageWidth, imageHeight)
+                                                drawOval(
+                                                    color = operation.color,
+                                                    topLeft = Offset(min(start.x, end.x), min(start.y, end.y)),
+                                                    size = Size(abs(end.x - start.x), abs(end.y - start.y)),
+                                                    style = Stroke(width = operation.strokeWidth * viewScale),
+                                                )
+                                            }
+                                            is DesktopEditOperation.ArrowStroke -> {
+                                                val start = viewportPointFromImage(operation.start, imageRect, imageWidth, imageHeight)
+                                                val end = viewportPointFromImage(operation.end, imageRect, imageWidth, imageHeight)
+                                                val width = operation.strokeWidth * viewScale
+                                                drawLine(operation.color, start, end, width, StrokeCap.Round)
+                                                arrowHeadPoints(start, end, width)?.let { (left, right) ->
+                                                    drawLine(operation.color, end, left, width, StrokeCap.Round)
+                                                    drawLine(operation.color, end, right, width, StrokeCap.Round)
+                                                }
+                                            }
+                                            is DesktopEditOperation.MosaicStroke -> {
+                                                val mosaic = mosaicBitmap
+                                                if (mosaic != null && operation.points.isNotEmpty()) {
+                                                    val radius = operation.radius * viewScale
+                                                    val clip = Path()
+                                                    operation.points.forEach { point ->
+                                                        val center = viewportPointFromImage(point, imageRect, imageWidth, imageHeight)
+                                                        clip.addOval(
+                                                            Rect(
+                                                                center.x - radius,
+                                                                center.y - radius,
+                                                                center.x + radius,
+                                                                center.y + radius,
+                                                            ),
+                                                        )
+                                                    }
+                                                    clipPath(clip) {
+                                                        drawImage(
+                                                            image = mosaic,
+                                                            dstOffset = IntOffset(
+                                                                imageRect.left.roundToInt(),
+                                                                imageRect.top.roundToInt(),
+                                                            ),
+                                                            dstSize = IntSize(
+                                                                imageRect.width.roundToInt(),
+                                                                imageRect.height.roundToInt(),
+                                                            ),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            is DesktopEditOperation.TextOverlay -> {
+                                                val layout = textMeasurer.measure(
+                                                    AnnotatedString(operation.text),
+                                                    TextStyle(
+                                                        color = operation.color,
+                                                        fontSize = (operation.fontSize * viewScale).toSp(),
+                                                        fontWeight = FontWeight.Bold,
+                                                        textAlign = TextAlign.Center,
+                                                    ),
+                                                )
+                                                val center = viewportPointFromImage(operation.position, imageRect, imageWidth, imageHeight)
+                                                drawText(
+                                                    textLayoutResult = layout,
+                                                    topLeft = Offset(
+                                                        center.x - layout.size.width / 2f,
+                                                        center.y - layout.size.height / 2f,
+                                                    ),
+                                                )
+                                            }
                                         }
                                     }
 
@@ -3352,29 +3592,69 @@ private fun DesktopImageEditorWindow(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    EditorModeButton(
-                        selected = editMode == DesktopImageEditMode.Draw,
-                        icon = Icons.Default.Brush,
-                        label = "画笔",
-                        onClick = { editMode = DesktopImageEditMode.Draw },
-                    )
-                    EditorModeButton(
-                        selected = editMode == DesktopImageEditMode.Crop,
-                        icon = Icons.Default.Crop,
-                        label = "裁剪",
-                        onClick = { editMode = DesktopImageEditMode.Crop },
-                    )
-                    if (editMode == DesktopImageEditMode.Draw) {
-                        Row(
-                            modifier = Modifier.weight(1f),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        EditorModeButton(
+                            selected = editMode == DesktopImageEditMode.Draw,
+                            icon = Icons.Default.Brush,
+                            label = strings.paintEditBrush,
+                            onClick = { editMode = DesktopImageEditMode.Draw },
+                        )
+                        EditorModeButton(
+                            selected = editMode == DesktopImageEditMode.Mosaic,
+                            icon = Icons.Default.BlurOn,
+                            label = strings.paintEditMosaic,
+                            onClick = { editMode = DesktopImageEditMode.Mosaic },
+                        )
+                        EditorModeButton(
+                            selected = editMode == DesktopImageEditMode.Text,
+                            icon = Icons.Default.TextFields,
+                            label = strings.paintEditText,
+                            onClick = { editMode = DesktopImageEditMode.Text },
+                        )
+                        EditorModeButton(
+                            selected = editMode == DesktopImageEditMode.Crop,
+                            icon = Icons.Default.Crop,
+                            label = strings.paintEditCrop,
+                            onClick = { editMode = DesktopImageEditMode.Crop },
+                        )
+                    }
+                    when (editMode) {
+                        DesktopImageEditMode.Draw -> Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            EditorShapeButton(
+                                selected = brushShape == DesktopBrushShape.Pen,
+                                icon = Icons.Default.Gesture,
+                                contentDescription = strings.paintEditShapePen,
+                                onClick = { brushShape = DesktopBrushShape.Pen },
+                            )
+                            EditorShapeButton(
+                                selected = brushShape == DesktopBrushShape.Rect,
+                                icon = Icons.Default.CropSquare,
+                                contentDescription = strings.paintEditShapeRect,
+                                onClick = { brushShape = DesktopBrushShape.Rect },
+                            )
+                            EditorShapeButton(
+                                selected = brushShape == DesktopBrushShape.Oval,
+                                icon = Icons.Default.RadioButtonUnchecked,
+                                contentDescription = strings.paintEditShapeOval,
+                                onClick = { brushShape = DesktopBrushShape.Oval },
+                            )
+                            EditorShapeButton(
+                                selected = brushShape == DesktopBrushShape.Arrow,
+                                icon = Icons.Default.CallMade,
+                                contentDescription = strings.paintEditShapeArrow,
+                                onClick = { brushShape = DesktopBrushShape.Arrow },
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             DesktopBrushColors(selected = brushColor, onSelect = { brushColor = it })
                             Text(
                                 text = "${brushWidth.roundToInt()}",
@@ -3385,18 +3665,151 @@ private fun DesktopImageEditorWindow(
                                 value = brushWidth,
                                 onValueChange = { brushWidth = it },
                                 valueRange = 2f..32f,
+                                modifier = Modifier.width(140.dp),
+                            )
+                        }
+                        DesktopImageEditMode.Mosaic -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "${mosaicRadius.roundToInt()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.74f),
+                            )
+                            Slider(
+                                value = mosaicRadius,
+                                onValueChange = { mosaicRadius = it },
+                                valueRange = 15f..80f,
+                                modifier = Modifier.width(200.dp),
+                            )
+                        }
+                        DesktopImageEditMode.Text -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            EditorModeButton(
+                                selected = false,
+                                icon = Icons.Default.Add,
+                                label = strings.paintEditAddText,
+                                onClick = { textDialog = DesktopTextDialogState(editIndex = null, initialText = "") },
+                            )
+                            DesktopBrushColors(selected = brushColor, onSelect = { brushColor = it })
+                            Text(
+                                text = "${textFontSize.roundToInt()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.74f),
+                            )
+                            Slider(
+                                value = textFontSize,
+                                onValueChange = { textFontSize = it },
+                                valueRange = 20f..120f,
                                 modifier = Modifier.width(160.dp),
                             )
                         }
-                    } else {
-                        TextButton(onClick = ::resetCrop) {
-                            Text(strings.reset)
+                        DesktopImageEditMode.Crop -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(onClick = ::resetCrop) {
+                                Text(strings.reset)
+                            }
                         }
-                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
+
+            textDialog?.let { dialog ->
+                DesktopEditTextDialog(
+                    initialText = dialog.initialText,
+                    title = strings.paintEditTextTitle,
+                    hint = strings.paintEditTextHint,
+                    confirmLabel = strings.confirm,
+                    cancelLabel = strings.cancel,
+                    onDismiss = { textDialog = null },
+                    onConfirm = { text ->
+                        val trimmed = text.trim().take(100)
+                        if (trimmed.isNotEmpty()) {
+                            val editIndex = dialog.editIndex
+                            if (editIndex != null) {
+                                val existing = operations.getOrNull(editIndex) as? DesktopEditOperation.TextOverlay
+                                if (existing != null) {
+                                    operations = operations.toMutableList().also { list ->
+                                        list[editIndex] = existing.copy(text = trimmed)
+                                    }
+                                }
+                            } else {
+                                operations = operations + DesktopEditOperation.TextOverlay(
+                                    text = trimmed,
+                                    position = Offset(imageWidth / 2f, imageHeight / 2f),
+                                    color = brushColor,
+                                    fontSize = textFontSize / viewScale,
+                                )
+                            }
+                        }
+                        textDialog = null
+                    },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun DesktopEditTextDialog(
+    initialText: String,
+    title: String,
+    hint: String,
+    confirmLabel: String,
+    cancelLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember(initialText) { mutableStateOf(initialText) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.take(100) },
+                placeholder = { Text(hint) },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value) }, enabled = value.isNotBlank()) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(cancelLabel)
+            }
+        },
+    )
+}
+
+@Composable
+private fun EditorShapeButton(
+    selected: Boolean,
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (selected) 0.32f else 0.10f)),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.padding(7.dp).size(18.dp),
+            tint = Color.White,
+        )
     }
 }
 
@@ -3462,7 +3875,16 @@ private fun DesktopBrushColors(
 
 private enum class DesktopImageEditMode {
     Draw,
+    Mosaic,
+    Text,
     Crop,
+}
+
+private enum class DesktopBrushShape {
+    Pen,
+    Rect,
+    Oval,
+    Arrow,
 }
 
 private enum class DesktopCropHandle {
@@ -3473,11 +3895,55 @@ private enum class DesktopCropHandle {
     BottomRight,
 }
 
-private data class DesktopEditStroke(
-    val points: List<Offset>,
-    val color: Color,
-    val strokeWidth: Float,
+private data class DesktopTextDialogState(
+    val editIndex: Int?,
+    val initialText: String,
 )
+
+/**
+ * 图片编辑操作模型，所有坐标与尺寸均处于原图像素坐标系，
+ * 展示时按视口缩放系数换算，保存时直接映射到原图。
+ */
+private sealed class DesktopEditOperation {
+    data class PenStroke(
+        val points: List<Offset>,
+        val color: Color,
+        val strokeWidth: Float,
+    ) : DesktopEditOperation()
+
+    data class RectStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float,
+    ) : DesktopEditOperation()
+
+    data class OvalStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float,
+    ) : DesktopEditOperation()
+
+    data class ArrowStroke(
+        val start: Offset,
+        val end: Offset,
+        val color: Color,
+        val strokeWidth: Float,
+    ) : DesktopEditOperation()
+
+    data class MosaicStroke(
+        val points: List<Offset>,
+        val radius: Float,
+    ) : DesktopEditOperation()
+
+    data class TextOverlay(
+        val text: String,
+        val position: Offset,
+        val color: Color,
+        val fontSize: Float,
+    ) : DesktopEditOperation()
+}
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
@@ -4160,36 +4626,32 @@ private fun cropHandleAt(position: Offset, imageRect: Rect, cropRect: Rect): Des
     }
 }
 
+/** 马赛克块大小（原图像素）。 */
+private const val DESKTOP_MOSAIC_BLOCK_SIZE = 20
+
 private fun saveDesktopEditedImage(
     sourcePath: String,
-    strokes: List<DesktopEditStroke>,
+    operations: List<DesktopEditOperation>,
     cropRect: Rect,
 ): String? {
     return runCatching {
         val sourceFile = localImageFile(sourcePath)?.takeIf { it.isFile } ?: File(sourcePath.removePrefix("file://"))
         val source = ImageIO.read(sourceFile) ?: return@runCatching null
+        val mosaicSource = if (operations.any { it is DesktopEditOperation.MosaicStroke }) {
+            source.mosaicized(DESKTOP_MOSAIC_BLOCK_SIZE)
+        } else {
+            null
+        }
         val working = BufferedImage(source.width, source.height, BufferedImage.TYPE_INT_ARGB)
         val graphics = working.createGraphics()
         try {
             graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
             graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
             graphics.drawImage(source, 0, 0, null)
-            strokes.forEach { stroke ->
-                if (stroke.points.size < 2) return@forEach
-                graphics.color = stroke.color.toAwtColor()
-                graphics.stroke = java.awt.BasicStroke(
-                    stroke.strokeWidth.coerceAtLeast(1f),
-                    java.awt.BasicStroke.CAP_ROUND,
-                    java.awt.BasicStroke.JOIN_ROUND,
-                )
-                stroke.points.zipWithNext().forEach { (start, end) ->
-                    graphics.drawLine(
-                        start.x.roundToInt(),
-                        start.y.roundToInt(),
-                        end.x.roundToInt(),
-                        end.y.roundToInt(),
-                    )
-                }
+            operations.forEach { operation ->
+                drawOperationOnGraphics(graphics, operation, mosaicSource)
             }
         } finally {
             graphics.dispose()
@@ -4222,6 +4684,249 @@ private fun saveDesktopEditedImage(
         val target = File(directory, "edited-${UUID.randomUUID()}.png")
         if (ImageIO.write(output, "png", target)) target.absolutePath else null
     }.getOrNull()
+}
+
+/** 把单个编辑操作绘制到原图 Graphics2D 上（坐标已是原图像素）。 */
+private fun drawOperationOnGraphics(
+    graphics: Graphics2D,
+    operation: DesktopEditOperation,
+    mosaicSource: BufferedImage?,
+) {
+    when (operation) {
+        is DesktopEditOperation.PenStroke -> {
+            if (operation.points.size < 2) return
+            graphics.color = operation.color.toAwtColor()
+            graphics.stroke = java.awt.BasicStroke(
+                operation.strokeWidth.coerceAtLeast(1f),
+                java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND,
+            )
+            val pen = java.awt.geom.GeneralPath()
+            operation.points.forEachIndexed { index, point ->
+                if (index == 0) pen.moveTo(point.x, point.y) else pen.lineTo(point.x, point.y)
+            }
+            graphics.draw(pen)
+        }
+        is DesktopEditOperation.RectStroke -> {
+            graphics.color = operation.color.toAwtColor()
+            graphics.stroke = java.awt.BasicStroke(
+                operation.strokeWidth.coerceAtLeast(1f),
+                java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND,
+            )
+            graphics.draw(
+                java.awt.geom.Rectangle2D.Float(
+                    min(operation.start.x, operation.end.x),
+                    min(operation.start.y, operation.end.y),
+                    abs(operation.end.x - operation.start.x),
+                    abs(operation.end.y - operation.start.y),
+                ),
+            )
+        }
+        is DesktopEditOperation.OvalStroke -> {
+            graphics.color = operation.color.toAwtColor()
+            graphics.stroke = java.awt.BasicStroke(
+                operation.strokeWidth.coerceAtLeast(1f),
+                java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND,
+            )
+            graphics.draw(
+                java.awt.geom.Ellipse2D.Float(
+                    min(operation.start.x, operation.end.x),
+                    min(operation.start.y, operation.end.y),
+                    abs(operation.end.x - operation.start.x),
+                    abs(operation.end.y - operation.start.y),
+                ),
+            )
+        }
+        is DesktopEditOperation.ArrowStroke -> {
+            graphics.color = operation.color.toAwtColor()
+            graphics.stroke = java.awt.BasicStroke(
+                operation.strokeWidth.coerceAtLeast(1f),
+                java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND,
+            )
+            graphics.draw(
+                java.awt.geom.Line2D.Float(
+                    operation.start.x,
+                    operation.start.y,
+                    operation.end.x,
+                    operation.end.y,
+                ),
+            )
+            arrowHeadPoints(operation.start, operation.end, operation.strokeWidth)?.let { (left, right) ->
+                graphics.draw(java.awt.geom.Line2D.Float(operation.end.x, operation.end.y, left.x, left.y))
+                graphics.draw(java.awt.geom.Line2D.Float(operation.end.x, operation.end.y, right.x, right.y))
+            }
+        }
+        is DesktopEditOperation.MosaicStroke -> {
+            if (mosaicSource == null || operation.points.isEmpty()) return
+            val area = java.awt.geom.Area()
+            operation.points.forEach { point ->
+                area.add(
+                    java.awt.geom.Area(
+                        java.awt.geom.Ellipse2D.Float(
+                            point.x - operation.radius,
+                            point.y - operation.radius,
+                            operation.radius * 2f,
+                            operation.radius * 2f,
+                        ),
+                    ),
+                )
+            }
+            val previousClip = graphics.clip
+            graphics.clip = area
+            graphics.drawImage(mosaicSource, 0, 0, null)
+            graphics.clip = previousClip
+        }
+        is DesktopEditOperation.TextOverlay -> {
+            graphics.color = operation.color.toAwtColor()
+            graphics.font = java.awt.Font(
+                java.awt.Font.SANS_SERIF,
+                java.awt.Font.BOLD,
+                operation.fontSize.roundToInt().coerceAtLeast(1),
+            )
+            val metrics = graphics.fontMetrics
+            val lines = operation.text.lines()
+            val totalHeight = metrics.height * lines.size
+            var baseline = operation.position.y - totalHeight / 2f + metrics.ascent
+            lines.forEach { line ->
+                val lineWidth = metrics.stringWidth(line)
+                graphics.drawString(line, operation.position.x - lineWidth / 2f, baseline)
+                baseline += metrics.height
+            }
+        }
+    }
+}
+
+/** 形状操作的对角线跨度，用于过滤误触产生的过小图形。 */
+private fun desktopShapeSpan(operation: DesktopEditOperation): Float {
+    return when (operation) {
+        is DesktopEditOperation.RectStroke -> (operation.end - operation.start).getDistance()
+        is DesktopEditOperation.OvalStroke -> (operation.end - operation.start).getDistance()
+        is DesktopEditOperation.ArrowStroke -> (operation.end - operation.start).getDistance()
+        else -> Float.MAX_VALUE
+    }
+}
+
+/** 箭头两条尾翼端点；线段过短时返回 null。 */
+private fun arrowHeadPoints(start: Offset, end: Offset, strokeWidth: Float): Pair<Offset, Offset>? {
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val length = hypot(dx, dy)
+    if (length < 1f) return null
+    val angle = atan2(dy, dx)
+    val headLength = min(length * 0.3f, max(strokeWidth * 6f, 12f))
+    val spread = Math.toRadians(25.0).toFloat()
+
+    fun wing(delta: Float) = Offset(
+        x = end.x - headLength * cos(angle + delta),
+        y = end.y - headLength * sin(angle + delta),
+    )
+
+    return wing(spread) to wing(-spread)
+}
+
+/** 与 imagePointFromViewport 类似，但允许拖动越界时把点钳制到图片边缘。 */
+private fun clampedImagePointFromViewport(
+    position: Offset,
+    imageRect: Rect,
+    imageWidth: Int,
+    imageHeight: Int,
+): Offset? {
+    if (imageRect.width <= 0f || imageRect.height <= 0f) return null
+    return Offset(
+        x = ((position.x - imageRect.left) / imageRect.width * imageWidth).coerceIn(0f, imageWidth.toFloat()),
+        y = ((position.y - imageRect.top) / imageRect.height * imageHeight).coerceIn(0f, imageHeight.toFloat()),
+    )
+}
+
+/** 追加马赛克涂抹点；两点间距过大时插入中间点，避免快速拖动产生空隙。 */
+private fun appendMosaicPoint(points: List<Offset>, point: Offset, radius: Float): List<Offset> {
+    val last = points.lastOrNull() ?: return listOf(point)
+    val distance = (point - last).getDistance()
+    val step = (radius * 0.5f).coerceAtLeast(1f)
+    if (distance <= step) return points + point
+    val result = points.toMutableList()
+    val segments = (distance / step).toInt()
+    for (index in 1..segments) {
+        val fraction = index / (segments + 1f)
+        result += Offset(
+            x = last.x + (point.x - last.x) * fraction,
+            y = last.y + (point.y - last.y) * fraction,
+        )
+    }
+    result += point
+    return result
+}
+
+/** 命中检测：返回视口坐标 position 下最上层文本操作的下标。 */
+private fun textOverlayHitIndex(
+    density: Density,
+    textMeasurer: TextMeasurer,
+    operations: List<DesktopEditOperation>,
+    position: Offset,
+    imageRect: Rect,
+    imageWidth: Int,
+    imageHeight: Int,
+): Int? {
+    if (imageRect.width <= 0f || imageWidth <= 0) return null
+    val scale = imageRect.width / imageWidth
+    for (index in operations.indices.reversed()) {
+        val overlay = operations[index] as? DesktopEditOperation.TextOverlay ?: continue
+        val layout = textMeasurer.measure(
+            AnnotatedString(overlay.text),
+            with(density) {
+                TextStyle(
+                    fontSize = (overlay.fontSize * scale).toSp(),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            },
+        )
+        val center = viewportPointFromImage(overlay.position, imageRect, imageWidth, imageHeight)
+        val half = Offset(layout.size.width / 2f, layout.size.height / 2f)
+        val bounds = Rect(center - half, center + half).inflate(12f)
+        if (bounds.contains(position)) return index
+    }
+    return null
+}
+
+/** 加载与展示位图同尺寸的马赛克化位图，用于涂抹时的实时预览。 */
+private fun loadMosaicImageBitmap(path: String, maxDimension: Int): ImageBitmap? {
+    return runCatching {
+        val sourceFile = localImageFile(path) ?: File(path.removePrefix("file://"))
+        val source = ImageIO.read(sourceFile) ?: return@runCatching null
+        val scaled = source.scaledToMaxDimension(maxDimension)
+        // 预览位图可能被缩小过，按比例换算块大小以保持与保存结果一致的观感
+        val previewBlock = max(
+            1,
+            (DESKTOP_MOSAIC_BLOCK_SIZE.toFloat() * scaled.width / source.width).roundToInt(),
+        )
+        scaled.mosaicized(previewBlock).toComposeImageBitmap()
+    }.getOrNull()
+}
+
+/** 生成像素化（马赛克）版本：先缩小再用最近邻放大。 */
+private fun BufferedImage.mosaicized(blockSize: Int): BufferedImage {
+    val block = blockSize.coerceAtLeast(1)
+    val smallWidth = max(1, width / block)
+    val smallHeight = max(1, height / block)
+    val small = BufferedImage(smallWidth, smallHeight, BufferedImage.TYPE_INT_ARGB)
+    small.createGraphics().apply {
+        drawImage(this@mosaicized, 0, 0, smallWidth, smallHeight, null)
+        dispose()
+    }
+    val output = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+    output.createGraphics().apply {
+        setRenderingHint(
+            RenderingHints.KEY_INTERPOLATION,
+            RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR,
+        )
+        drawImage(small, 0, 0, width, height, null)
+        dispose()
+    }
+    return output
 }
 
 private fun Color.toAwtColor(): java.awt.Color =
