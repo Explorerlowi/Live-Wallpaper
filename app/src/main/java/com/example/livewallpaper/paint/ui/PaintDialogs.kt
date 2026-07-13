@@ -440,6 +440,8 @@ fun ApiSettingsDialog(
     onSaveProfile: (ApiProfile) -> Unit,
     onDeleteProfile: (String) -> Unit,
     onSetActive: (String) -> Unit,
+    onImport: () -> Unit,
+    onExport: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var editingProfile by remember { mutableStateOf<ApiProfile?>(null) }
@@ -454,6 +456,7 @@ fun ApiSettingsDialog(
     var token by remember { mutableStateOf("") }
     var authMode by remember { mutableStateOf(AuthMode.BEARER) }
     var showToken by remember { mutableStateOf(false) }
+    var showTransferActions by remember { mutableStateOf(false) }
 
     fun resetForm() {
         editingProfile = null
@@ -499,6 +502,13 @@ fun ApiSettingsDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Row {
+                        IconButton(onClick = { showTransferActions = true }) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.paint_config_import_export),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         if (showForm) {
                             TextButton(onClick = { resetForm() }) {
                                 Text(stringResource(R.string.cancel))
@@ -522,7 +532,8 @@ fun ApiSettingsDialog(
                     // 编辑表单
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .weight(1f)
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 20.dp, vertical = 18.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -611,7 +622,8 @@ fun ApiSettingsDialog(
                     if (profiles.isEmpty()) {
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .weight(1f)
                                 .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -635,7 +647,9 @@ fun ApiSettingsDialog(
                         }
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -653,6 +667,50 @@ fun ApiSettingsDialog(
                 }
             }
         }
+    }
+
+    if (showTransferActions) {
+        AlertDialog(
+            onDismissRequest = { showTransferActions = false },
+            title = { Text(stringResource(R.string.paint_config_import_export)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.paint_export_config_warning),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            showTransferActions = false
+                            onImport()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.FileUpload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.paint_import_config))
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showTransferActions = false
+                            onExport()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = profiles.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.paint_export_config))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTransferActions = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
     
     // 删除确认对话框

@@ -65,6 +65,8 @@ import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Image
@@ -76,6 +78,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Undo
@@ -91,6 +94,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -166,11 +170,13 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
-import com.example.livewallpaper.desktop.DesktopImageFilePicker
+import com.example.livewallpaper.desktop.DesktopFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
 import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfile
+import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfileImportError
+import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfileImportResult
 import com.example.livewallpaper.feature.aipaint.domain.model.AspectRatio
 import com.example.livewallpaper.feature.aipaint.domain.model.AuthMode
 import com.example.livewallpaper.feature.aipaint.domain.model.GptImageQuality
@@ -353,6 +359,8 @@ fun AiPaintWorkspace(
             uiState = uiState,
             onDismiss = { showApiSettings = false },
             onEvent = viewModel::onEvent,
+            onExportJson = viewModel::exportApiProfilesJson,
+            onImportJson = viewModel::importApiProfilesJson,
         )
     }
     optionDialog?.let { dialog ->
@@ -2383,14 +2391,20 @@ private fun ApiSettingsDialog(
     uiState: PaintUiState,
     onDismiss: () -> Unit,
     onEvent: (PaintEvent) -> Unit,
+    onExportJson: () -> String,
+    onImportJson: suspend (String) -> ApiProfileImportResult,
 ) {
     val strings = LocalDesktopStrings.current
+    val scope = rememberCoroutineScope()
     var editingProfileId by remember { mutableStateOf<String?>(null) }
     var name by remember { mutableStateOf("") }
     var baseUrl by remember { mutableStateOf("https://yunwu.ai") }
     var token by remember { mutableStateOf("") }
     var authMode by remember { mutableStateOf(AuthMode.BEARER) }
     var showToken by remember { mutableStateOf(false) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    var backupMessageIsError by remember { mutableStateOf(false) }
+    var showTransferActions by remember { mutableStateOf(false) }
 
     fun edit(profile: ApiProfile) {
         editingProfileId = profile.id
@@ -2406,6 +2420,44 @@ private fun ApiSettingsDialog(
         baseUrl = "https://yunwu.ai"
         token = ""
         authMode = AuthMode.BEARER
+    }
+
+    fun importBackup() {
+        scope.launch {
+            val path = withContext(Dispatchers.IO) {
+                DesktopFilePicker.pickJsonPath(
+                    title = strings.paintImportConfig,
+                    filterDescription = strings.paintJsonFiles,
+                )
+            }
+            if (path != null) {
+                val content = withContext(Dispatchers.IO) {
+                    runCatching { File(path).readText(Charsets.UTF_8) }.getOrNull()
+                }
+                val result = content?.let { onImportJson(it) }
+                backupMessageIsError = result !is ApiProfileImportResult.Success
+                backupMessage = importResultMessage(result, strings)
+            }
+        }
+    }
+
+    fun exportBackup() {
+        scope.launch {
+            val path = withContext(Dispatchers.IO) {
+                DesktopFilePicker.pickSaveJsonPath(
+                    title = strings.paintExportConfig,
+                    defaultFileName = "live-wallpaper-paint-api-config.json",
+                    filterDescription = strings.paintJsonFiles,
+                )
+            }
+            if (path != null) {
+                val exported = withContext(Dispatchers.IO) {
+                    runCatching { File(path).writeText(onExportJson(), Charsets.UTF_8) }.isSuccess
+                }
+                backupMessageIsError = !exported
+                backupMessage = if (exported) strings.paintExportConfigSuccess else strings.paintConfigFileError
+            }
+        }
     }
 
     LaunchedEffect(uiState.activeProfile?.id) {
@@ -2435,9 +2487,28 @@ private fun ApiSettingsDialog(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    IconButton(onClick = { showTransferActions = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = strings.paintConfigImportExport,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     TextButton(onClick = onDismiss) {
                         Text(strings.close)
                     }
+                }
+
+                backupMessage?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (backupMessageIsError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                    )
                 }
 
                 Row(
@@ -2659,6 +2730,63 @@ private fun ApiSettingsDialog(
             }
         }
     }
+
+    if (showTransferActions) {
+        AlertDialog(
+            onDismissRequest = { showTransferActions = false },
+            title = { Text(strings.paintConfigImportExport) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = strings.paintExportConfigWarning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            showTransferActions = false
+                            importBackup()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(imageVector = Icons.Default.FileUpload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.paintImportConfig)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showTransferActions = false
+                            exportBackup()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = uiState.apiProfiles.isNotEmpty(),
+                    ) {
+                        Icon(imageVector = Icons.Default.FileDownload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.paintExportConfig)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTransferActions = false }) {
+                    Text(strings.cancel)
+                }
+            },
+        )
+    }
+}
+
+private fun importResultMessage(result: ApiProfileImportResult?, strings: DesktopStrings): String = when (result) {
+    is ApiProfileImportResult.Success -> strings.paintImportConfigSuccess(result.importedCount)
+    is ApiProfileImportResult.Failure -> when (result.error) {
+        ApiProfileImportError.FILE_TOO_LARGE -> strings.paintImportFileTooLarge
+        ApiProfileImportError.INVALID_JSON -> strings.paintImportInvalidJson
+        ApiProfileImportError.UNSUPPORTED_VERSION -> strings.paintImportUnsupportedVersion
+        ApiProfileImportError.INVALID_PROFILE -> strings.paintImportInvalidProfile
+        ApiProfileImportError.DUPLICATE_PROFILE_ID -> strings.paintImportDuplicateProfile
+        ApiProfileImportError.INVALID_ACTIVE_PROFILE -> strings.paintImportInvalidActiveProfile
+    }
+    null -> strings.paintConfigFileError
 }
 
 private data class PaintOptionDialog(
@@ -4664,7 +4792,7 @@ private fun localImageFile(path: String): File? {
 }
 
 private fun pickImagePaths(title: String): List<String> {
-    return DesktopImageFilePicker.pickImagePaths(title, ::isSupportedImageName)
+    return DesktopFilePicker.pickImagePaths(title, ::isSupportedImageName)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -5582,7 +5710,7 @@ private fun dragTransferDataForFile(path: String): DragAndDropTransferData? {
 private fun saveImageAs(sourcePath: String, title: String) {
     val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: File(sourcePath)
     if (!source.isFile) return
-    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    val targetPath = DesktopFilePicker.pickSaveImagePath(title, source.name) ?: return
     source.copyTo(File(targetPath), overwrite = true)
 }
 
@@ -5592,7 +5720,7 @@ private fun saveTransformedImageAs(
     title: String,
 ) {
     val source = localImageFile(sourcePath)?.takeIf { it.isFile } ?: return
-    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    val targetPath = DesktopFilePicker.pickSaveImagePath(title, source.name) ?: return
     val target = File(targetPath)
 
     if (transform.isIdentity()) {

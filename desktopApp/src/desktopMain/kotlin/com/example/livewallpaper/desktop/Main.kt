@@ -1834,7 +1834,7 @@ private fun SettingsContent(
                 path = generatedImagesPath,
                 sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.generatedImagesDirectory()) },
                 onChoose = {
-                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, generatedImagesPath)?.let { path ->
+                    DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, generatedImagesPath)?.let { path ->
                         DesktopAiPaintStoragePaths.setGeneratedImagesPath(path)
                         generatedImagesPath = DesktopAiPaintStoragePaths.generatedImagesPath()
                     }
@@ -1851,7 +1851,7 @@ private fun SettingsContent(
                 path = responseCachePath,
                 sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.responseCacheDirectory()) },
                 onChoose = {
-                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, responseCachePath)?.let { path ->
+                    DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, responseCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setResponseCachePath(path)
                         responseCachePath = DesktopAiPaintStoragePaths.responseCachePath()
                     }
@@ -1869,7 +1869,7 @@ private fun SettingsContent(
                 path = clipboardCachePath,
                 sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.clipboardCacheDirectory()) },
                 onChoose = {
-                    DesktopImageFilePicker.pickDirectoryPath(strings.chooseFolder, clipboardCachePath)?.let { path ->
+                    DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, clipboardCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setClipboardCachePath(path)
                         clipboardCachePath = DesktopAiPaintStoragePaths.clipboardCachePath()
                     }
@@ -2437,7 +2437,7 @@ private fun saveWallpaperPreviewImageAs(
     title: String,
 ) {
     val source = File(sourcePath).takeIf { it.isFile } ?: return
-    val targetPath = DesktopImageFilePicker.pickSaveImagePath(title, source.name) ?: return
+    val targetPath = DesktopFilePicker.pickSaveImagePath(title, source.name) ?: return
     val target = File(targetPath)
 
     if (transform.isIdentity()) {
@@ -2542,7 +2542,7 @@ private fun BufferedImage.scaledToMaxDimension(maxDimension: Int): BufferedImage
 }
 
 private fun pickImagePaths(title: String): List<String> {
-    return DesktopImageFilePicker.pickImagePaths(title, ::isSupportedImageName)
+    return DesktopFilePicker.pickImagePaths(title, ::isSupportedImageName)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)

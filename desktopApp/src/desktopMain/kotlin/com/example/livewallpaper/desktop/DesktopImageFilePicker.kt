@@ -25,16 +25,37 @@ import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
 
-internal object DesktopImageFilePicker {
+private data class DesktopFileDialogFilter(
+    val description: String,
+    val pattern: String,
+    val extensions: List<String>,
+)
+
+/** 桌面端统一文件选择入口；Windows 使用系统原生 IFileDialog，其他平台使用 Swing 回退。 */
+internal object DesktopFilePicker {
     private val imageExtensions = arrayOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
 
+    /**
+     * 选择一个或多个图片文件。
+     *
+     * @param title 文件选择窗口标题。
+     * @param isSupportedImageName 用于最终校验文件名的规则。
+     * @return 用户选择且通过校验的绝对路径。
+     */
     fun pickImagePaths(title: String, isSupportedImageName: (String) -> Boolean): List<String> {
         if (Platform.isWindows()) {
-            pickImagePathsWithWindowsDialog(title, isSupportedImageName)?.let { return it }
+            return pickImagePathsWithWindowsDialog(title, isSupportedImageName).orEmpty()
         }
         return pickImagePathsWithSwing(title, isSupportedImageName)
     }
 
+    /**
+     * 选择一个目录。
+     *
+     * @param title 目录选择窗口标题。
+     * @param initialPath 初始目录，不可用时回退到图片目录。
+     * @return 用户选择的绝对路径，取消时返回空。
+     */
     fun pickDirectoryPath(title: String, initialPath: String? = null): String? {
         val initialDirectory = initialPath
             ?.let(::File)
@@ -46,11 +67,49 @@ internal object DesktopImageFilePicker {
         return pickDirectoryPathWithSwing(title, initialDirectory)
     }
 
+    /**
+     * 选择图片保存位置。
+     *
+     * @param title 文件选择窗口标题。
+     * @param defaultFileName 默认文件名。
+     * @return 用户选择的绝对路径，取消时返回空。
+     */
     fun pickSaveImagePath(title: String, defaultFileName: String): String? {
         if (Platform.isWindows()) {
             pickSaveImagePathWithWindowsDialog(title, defaultFileName)?.let { return it.getOrNull() }
         }
         return pickSaveImagePathWithSwing(title, defaultFileName)
+    }
+
+    /**
+     * 使用与图片选择一致的系统文件选择器打开 JSON 文件。
+     *
+     * @param title 文件选择窗口标题。
+     * @param filterDescription JSON 文件类型的本地化描述。
+     * @return 用户选择的绝对路径，取消时返回空。
+     */
+    fun pickJsonPath(title: String, filterDescription: String): String? {
+        val filter = jsonFilter(filterDescription)
+        if (Platform.isWindows()) {
+            pickFilePathWithWindowsDialog(title, filter)?.let { return it.getOrNull() }
+        }
+        return pickFilePathWithSwing(title, filter)
+    }
+
+    /**
+     * 使用与图片另存为一致的系统文件选择器保存 JSON 文件。
+     *
+     * @param title 文件选择窗口标题。
+     * @param defaultFileName 默认文件名。
+     * @param filterDescription JSON 文件类型的本地化描述。
+     * @return 用户选择的绝对路径，取消时返回空。
+     */
+    fun pickSaveJsonPath(title: String, defaultFileName: String, filterDescription: String): String? {
+        val filter = jsonFilter(filterDescription)
+        if (Platform.isWindows()) {
+            pickSaveFilePathWithWindowsDialog(title, defaultFileName, filter)?.let { return it.getOrNull() }
+        }
+        return pickSaveFilePathWithSwing(title, defaultFileName, filter)
     }
 
     private fun pickImagePathsWithSwing(
@@ -134,6 +193,43 @@ internal object DesktopImageFilePicker {
         return result.get()
     }
 
+    private fun pickFilePathWithWindowsDialog(
+        title: String,
+        filter: DesktopFileDialogFilter,
+    ): Result<String?>? {
+        val result = AtomicReference<Result<String?>?>()
+        val thread = Thread {
+            result.set(runCatching { WindowsFileOpenDialog.showFile(title, defaultFileDirectory(), filter) })
+        }.apply {
+            name = "windows-file-open-dialog"
+            isDaemon = true
+        }
+        thread.start()
+        thread.join()
+        return result.get()
+    }
+
+    private fun pickSaveFilePathWithWindowsDialog(
+        title: String,
+        defaultFileName: String,
+        filter: DesktopFileDialogFilter,
+    ): Result<String?>? {
+        val result = AtomicReference<Result<String?>?>()
+        val thread = Thread {
+            result.set(
+                runCatching {
+                    WindowsFileOpenDialog.showSave(title, defaultFileName, defaultFileDirectory(), filter)
+                },
+            )
+        }.apply {
+            name = "windows-file-save-dialog"
+            isDaemon = true
+        }
+        thread.start()
+        thread.join()
+        return result.get()
+    }
+
     private fun pickDirectoryPathWithSwing(title: String, initialDirectory: File): String? {
         return runCatching {
             val result = AtomicReference<String?>(null)
@@ -191,6 +287,54 @@ internal object DesktopImageFilePicker {
         }.getOrNull()
     }
 
+    private fun pickFilePathWithSwing(title: String, filter: DesktopFileDialogFilter): String? = runCatching {
+        val result = AtomicReference<String?>(null)
+        val task = Runnable {
+            runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+            val chooser = JFileChooser(defaultFileDirectory()).apply {
+                dialogTitle = title
+                fileSelectionMode = JFileChooser.FILES_ONLY
+                isMultiSelectionEnabled = false
+                setAcceptAllFileFilterUsed(false)
+                fileFilter = FileNameExtensionFilter(filter.description, *filter.extensions.toTypedArray())
+            }
+            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                result.set(chooser.selectedFile?.takeIf { it.isFile }?.absolutePath)
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) task.run() else SwingUtilities.invokeAndWait(task)
+        result.get()
+    }.getOrNull()
+
+    private fun pickSaveFilePathWithSwing(
+        title: String,
+        defaultFileName: String,
+        filter: DesktopFileDialogFilter,
+    ): String? = runCatching {
+        val result = AtomicReference<String?>(null)
+        val task = Runnable {
+            runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+            val chooser = JFileChooser(defaultFileDirectory()).apply {
+                dialogTitle = title
+                fileSelectionMode = JFileChooser.FILES_ONLY
+                isMultiSelectionEnabled = false
+                selectedFile = File(defaultFileName)
+                setAcceptAllFileFilterUsed(false)
+                fileFilter = FileNameExtensionFilter(filter.description, *filter.extensions.toTypedArray())
+            }
+            if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                result.set(
+                    chooser.selectedFile?.let { file ->
+                        val extension = filter.extensions.first()
+                        if (file.extension.equals(extension, ignoreCase = true)) file else File(file.path + ".$extension")
+                    }?.absolutePath,
+                )
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) task.run() else SwingUtilities.invokeAndWait(task)
+        result.get()
+    }.getOrNull()
+
     private fun defaultImageDirectory(): File {
         val pictures = File(System.getProperty("user.home"), "Pictures")
         return when {
@@ -198,6 +342,14 @@ internal object DesktopImageFilePicker {
             else -> FileSystemView.getFileSystemView().defaultDirectory
         }
     }
+
+    private fun defaultFileDirectory(): File = FileSystemView.getFileSystemView().defaultDirectory
+
+    private fun jsonFilter(description: String): DesktopFileDialogFilter = DesktopFileDialogFilter(
+        description = description,
+        pattern = "*.json",
+        extensions = listOf("json"),
+    )
 
     private fun pickImagePathsWithAwtFallback(
         title: String,
@@ -213,6 +365,11 @@ internal object DesktopImageFilePicker {
 }
 
 private object WindowsFileOpenDialog {
+    private val imageFilter = DesktopFileDialogFilter(
+        description = "图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)",
+        pattern = "*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp",
+        extensions = listOf("png", "jpg", "jpeg", "webp", "gif", "bmp"),
+    )
     private val clsidFileOpenDialog = Guid.CLSID("{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}")
     private val clsidFileSaveDialog = Guid.CLSID("{C0B4E2F3-BA21-4773-8DBA-335EC946EB8B}")
     private val iidFileOpenDialog = Guid.IID("{D57C7288-D4AD-4768-BE02-9D969532D960}")
@@ -247,7 +404,7 @@ private object WindowsFileOpenDialog {
             dialog = FileOpenDialog(dialogRef.value)
             dialog.setTitle(title)
             dialog.setOptions(FOS_FORCEFILESYSTEM or FOS_FILEMUSTEXIST or FOS_PATHMUSTEXIST or FOS_ALLOWMULTISELECT)
-            dialog.setImageFileTypes()
+            dialog.setFileType(imageFilter)
             dialog.setDefaultFolder(defaultImageDirectory())
 
             val showHr = dialog.show()
@@ -300,27 +457,29 @@ private object WindowsFileOpenDialog {
         }
     }
 
-    fun showSave(title: String, defaultFileName: String): String? {
+    fun showFile(
+        title: String,
+        initialDirectory: File,
+        filter: DesktopFileDialogFilter,
+    ): String? {
         val initHr = Ole32.INSTANCE.CoInitializeEx(Pointer.NULL, Ole32.COINIT_APARTMENTTHREADED)
         if (COMUtils.FAILED(initHr)) return null
         var dialog: FileOpenDialog? = null
         try {
             val dialogRef = PointerByReference()
             val createHr = Ole32.INSTANCE.CoCreateInstance(
-                clsidFileSaveDialog,
+                clsidFileOpenDialog,
                 null,
                 WTypes.CLSCTX_INPROC_SERVER,
-                iidFileSaveDialog,
-                dialogRef
+                iidFileOpenDialog,
+                dialogRef,
             )
             if (COMUtils.FAILED(createHr)) return null
             dialog = FileOpenDialog(dialogRef.value)
             dialog.setTitle(title)
-            dialog.setOptions(FOS_OVERWRITEPROMPT or FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST)
-            dialog.setImageFileTypes()
-            dialog.setDefaultFolder(defaultImageDirectory())
-            dialog.setFileName(defaultFileName)
-            dialog.setDefaultExtension(defaultFileName.substringAfterLast('.', "png"))
+            dialog.setOptions(FOS_FORCEFILESYSTEM or FOS_FILEMUSTEXIST or FOS_PATHMUSTEXIST)
+            dialog.setFileType(filter)
+            dialog.setDefaultFolder(initialDirectory)
 
             val showHr = dialog.show()
             if (COMUtils.FAILED(showHr)) return null
@@ -337,11 +496,57 @@ private object WindowsFileOpenDialog {
         }
     }
 
-    private fun FileOpenDialog.setImageFileTypes() {
+    fun showSave(title: String, defaultFileName: String): String? {
+        return showSave(title, defaultFileName, defaultImageDirectory(), imageFilter)
+    }
+
+    fun showSave(
+        title: String,
+        defaultFileName: String,
+        initialDirectory: File,
+        filter: DesktopFileDialogFilter,
+    ): String? {
+        val initHr = Ole32.INSTANCE.CoInitializeEx(Pointer.NULL, Ole32.COINIT_APARTMENTTHREADED)
+        if (COMUtils.FAILED(initHr)) return null
+        var dialog: FileOpenDialog? = null
+        try {
+            val dialogRef = PointerByReference()
+            val createHr = Ole32.INSTANCE.CoCreateInstance(
+                clsidFileSaveDialog,
+                null,
+                WTypes.CLSCTX_INPROC_SERVER,
+                iidFileSaveDialog,
+                dialogRef
+            )
+            if (COMUtils.FAILED(createHr)) return null
+            dialog = FileOpenDialog(dialogRef.value)
+            dialog.setTitle(title)
+            dialog.setOptions(FOS_OVERWRITEPROMPT or FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST)
+            dialog.setFileType(filter)
+            dialog.setDefaultFolder(initialDirectory)
+            dialog.setFileName(defaultFileName)
+            dialog.setDefaultExtension(defaultFileName.substringAfterLast('.', filter.extensions.first()))
+
+            val showHr = dialog.show()
+            if (COMUtils.FAILED(showHr)) return null
+            val itemPointer = dialog.getResult() ?: return null
+            val item = ShellItem(itemPointer)
+            return try {
+                item.fileSystemPath()
+            } finally {
+                item.Release()
+            }
+        } finally {
+            dialog?.Release()
+            Ole32.INSTANCE.CoUninitialize()
+        }
+    }
+
+    private fun FileOpenDialog.setFileType(filter: DesktopFileDialogFilter) {
         runCatching {
             val spec = ComDlgFilterSpec().apply {
-                pszName = WString("图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)")
-                pszSpec = WString("*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp")
+                pszName = WString(filter.description)
+                pszSpec = WString(filter.pattern)
             }
             val array = spec.toArray(1) as Array<ComDlgFilterSpec>
             array[0].pszName = spec.pszName

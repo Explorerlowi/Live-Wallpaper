@@ -5,6 +5,8 @@ import com.example.livewallpaper.core.error.AppResult
 import com.example.livewallpaper.core.platform.ImageResponseProcessor
 import com.example.livewallpaper.core.platform.GptImageResponseProcessor
 import com.example.livewallpaper.core.util.TimeProvider
+import com.example.livewallpaper.feature.aipaint.data.local.ApiProfileBackupDecodeResult
+import com.example.livewallpaper.feature.aipaint.data.local.ApiProfileBackupJson
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
 import com.example.livewallpaper.feature.aipaint.data.remote.GptApiService
 import com.example.livewallpaper.feature.aipaint.domain.model.*
@@ -287,6 +289,38 @@ class PaintRepositoryImpl(
     override suspend fun setActiveProfile(profileId: String) {
         settings[KEY_ACTIVE_PROFILE] = profileId
     }
+
+    override fun exportApiProfilesJson(): String = ApiProfileBackupJson.encode(
+        ApiProfileBackup(
+            activeProfileId = settings.getStringOrNull(KEY_ACTIVE_PROFILE),
+            profiles = getCurrentProfiles(),
+        ),
+    )
+
+    override suspend fun importApiProfilesJson(content: String): ApiProfileImportResult =
+        withContext(Dispatchers.Default) {
+            when (val decoded = ApiProfileBackupJson.decode(content)) {
+                is ApiProfileBackupDecodeResult.Failure -> ApiProfileImportResult.Failure(decoded.error)
+                is ApiProfileBackupDecodeResult.Success -> {
+                    val importedProfiles = decoded.backup.profiles
+                    val importedById = importedProfiles.associateBy { it.id }
+                    val existingProfiles = getCurrentProfiles()
+                    val existingIds = existingProfiles.mapTo(mutableSetOf()) { it.id }
+                    val mergedProfiles = existingProfiles.map { profile ->
+                        importedById[profile.id] ?: profile
+                    } + importedProfiles.filterNot { it.id in existingIds }
+
+                    saveProfiles(mergedProfiles)
+                    decoded.backup.activeProfileId?.let { activeProfileId ->
+                        settings[KEY_ACTIVE_PROFILE] = activeProfileId
+                    }
+                    ApiProfileImportResult.Success(
+                        importedCount = importedProfiles.size,
+                        totalCount = mergedProfiles.size,
+                    )
+                }
+            }
+        }
 
     // ========== AI 绘画功能 ==========
     

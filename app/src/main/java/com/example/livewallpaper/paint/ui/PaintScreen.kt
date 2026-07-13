@@ -217,6 +217,62 @@ fun PaintScreen(
     var showGallery by remember { mutableStateOf(false) }
     var showFullScreenInput by remember { mutableStateOf(false) }
     val collapsedInputFocusRequester = remember { FocusRequester() }
+
+    val exportApiConfigLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val exported = runCatching {
+                    val content = viewModel.exportApiProfilesJson()
+                    withContext(Dispatchers.IO) {
+                        checkNotNull(context.contentResolver.openOutputStream(uri)).bufferedWriter().use { writer ->
+                            writer.write(content)
+                        }
+                    }
+                }.isSuccess
+                Toast.makeText(
+                    context,
+                    if (exported) R.string.paint_export_config_success else R.string.paint_config_file_error,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+    val importApiConfigLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    val content = withContext(Dispatchers.IO) {
+                        checkNotNull(context.contentResolver.openInputStream(uri))
+                            .bufferedReader()
+                            .use { it.readText() }
+                    }
+                    viewModel.importApiProfilesJson(content)
+                }.getOrNull()
+                val message = when (result) {
+                    is ApiProfileImportResult.Success -> resources.getString(
+                        R.string.paint_import_config_success,
+                        result.importedCount
+                    )
+                    is ApiProfileImportResult.Failure -> resources.getString(
+                        when (result.error) {
+                            ApiProfileImportError.FILE_TOO_LARGE -> R.string.paint_import_file_too_large
+                            ApiProfileImportError.INVALID_JSON -> R.string.paint_import_invalid_json
+                            ApiProfileImportError.UNSUPPORTED_VERSION -> R.string.paint_import_unsupported_version
+                            ApiProfileImportError.INVALID_PROFILE -> R.string.paint_import_invalid_profile
+                            ApiProfileImportError.DUPLICATE_PROFILE_ID -> R.string.paint_import_duplicate_profile
+                            ApiProfileImportError.INVALID_ACTIVE_PROFILE -> R.string.paint_import_invalid_active_profile
+                        }
+                    )
+                    null -> resources.getString(R.string.paint_config_file_error)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     
     // 图片预览状态（支持多图预览）
     var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
@@ -780,6 +836,8 @@ fun PaintScreen(
             onSaveProfile = { viewModel.onEvent(PaintEvent.SaveApiProfile(it)) },
             onDeleteProfile = { viewModel.onEvent(PaintEvent.DeleteApiProfile(it)) },
             onSetActive = { viewModel.onEvent(PaintEvent.SetActiveProfile(it)) },
+            onImport = { importApiConfigLauncher.launch(arrayOf("application/json", "text/json")) },
+            onExport = { exportApiConfigLauncher.launch("live-wallpaper-paint-api-config.json") },
             onDismiss = { showApiSettings = false }
         )
     }

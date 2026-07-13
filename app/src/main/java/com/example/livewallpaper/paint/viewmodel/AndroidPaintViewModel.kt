@@ -1051,6 +1051,22 @@ class AndroidPaintViewModel(
         }
     }
 
+    /**
+     * 生成包含全部绘画 API 配置及当前启用项的 JSON 备份。
+     *
+     * @return 包含访问令牌的 JSON 内容，由 Android 文件选择器写入用户指定位置。
+     */
+    fun exportApiProfilesJson(): String = repository.exportApiProfilesJson()
+
+    /**
+     * 从 JSON 内容合并绘画 API 配置。
+     *
+     * @param content 从用户选择文件读取的 JSON 内容。
+     * @return 导入结果；校验失败时不会修改任何已有配置。
+     */
+    suspend fun importApiProfilesJson(content: String): ApiProfileImportResult =
+        repository.importApiProfilesJson(content)
+
     private fun deleteApiProfile(profileId: String) {
         viewModelScope.launch {
             repository.deleteApiProfile(profileId)
