@@ -184,6 +184,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.GptImageSize
 import com.example.livewallpaper.feature.aipaint.domain.model.GptOutputFormat
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintModel
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
@@ -879,6 +880,7 @@ private fun PaintSessionListItem(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        PaintOriginBadge(session.originPlatform)
         if (generatingCount > 0) {
             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
         }
@@ -2772,6 +2774,29 @@ private fun ApiSettingsDialog(
                     Text(strings.cancel)
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun PaintOriginBadge(platform: PaintClientPlatform) {
+    val strings = LocalDesktopStrings.current
+    val label = when (platform) {
+        PaintClientPlatform.DESKTOP -> strings.paintOriginDesktop
+        PaintClientPlatform.ANDROID -> strings.paintOriginAndroid
+        PaintClientPlatform.IOS -> strings.paintOriginIos
+        PaintClientPlatform.UNKNOWN -> strings.paintOriginUnknown
+    }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }

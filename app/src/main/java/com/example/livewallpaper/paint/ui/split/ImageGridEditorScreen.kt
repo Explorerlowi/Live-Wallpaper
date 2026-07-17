@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +74,7 @@ fun ImageGridEditorScreen(
     onSplitComplete: (List<SplitTile>, Bitmap, GridConfig) -> Unit
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
 
     // 当前正在编辑的图片路径（支持“替换图片”）
@@ -393,7 +395,7 @@ fun ImageGridEditorScreen(
                     if (newPath.isNullOrBlank()) {
                         Toast.makeText(
                             context,
-                            context.getString(R.string.paint_image_load_failed),
+                            resources.getString(R.string.paint_image_load_failed),
                             Toast.LENGTH_SHORT
                         ).show()
                         showGallery = false

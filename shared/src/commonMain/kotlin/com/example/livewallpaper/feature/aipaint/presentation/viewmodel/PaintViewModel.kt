@@ -14,7 +14,8 @@ import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 class PaintViewModel(
-    private val repository: PaintRepository
+    private val repository: PaintRepository,
+    private val clientPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PaintUiState())
@@ -142,6 +143,7 @@ class PaintViewModel(
         viewModelScope.launch {
             val session = PaintSession(
                 id = generateId(),
+                originPlatform = clientPlatform,
                 model = model,
                 aspectRatio = _uiState.value.selectedAspectRatio,
                 resolution = _uiState.value.selectedResolution
@@ -232,6 +234,7 @@ class PaintViewModel(
             val session = state.currentSession ?: run {
                 val newSession = PaintSession(
                     id = generateId(),
+                    originPlatform = clientPlatform,
                     model = state.selectedModel,
                     aspectRatio = state.selectedAspectRatio,
                     resolution = state.selectedResolution
@@ -255,6 +258,7 @@ class PaintViewModel(
             val userMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = clientPlatform,
                 senderIdentity = SenderIdentity.USER,
                 messageContent = prompt,
                 messageType = if (userImages.isNotEmpty()) MessageType.IMAGE else MessageType.TEXT,
@@ -267,6 +271,7 @@ class PaintViewModel(
             val assistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = clientPlatform,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,

@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -36,7 +37,7 @@ class PaintActivity : ComponentActivity() {
             val settingsViewModel: SettingsViewModel = koinViewModel()
             val settingsState by settingsViewModel.uiState.collectAsState()
             
-            var themeMode by mutableStateOf(initialThemeMode)
+            var themeMode by remember(initialThemeMode) { mutableStateOf(initialThemeMode) }
             
             LaunchedEffect(settingsState.config.themeMode) {
                 themeMode = settingsState.config.themeMode

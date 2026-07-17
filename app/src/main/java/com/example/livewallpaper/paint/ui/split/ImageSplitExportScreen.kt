@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -128,6 +129,7 @@ fun ImageSplitExportScreen(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     
     // 状态
@@ -252,7 +254,7 @@ fun ImageSplitExportScreen(
         if (selectedTileIndices.isEmpty()) {
             Toast.makeText(
                 context,
-                context.getString(R.string.split_no_selection_hint),
+                resources.getString(R.string.split_no_selection_hint),
                 Toast.LENGTH_SHORT
             ).show()
             return
@@ -277,7 +279,7 @@ fun ImageSplitExportScreen(
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.split_export_success, tilesToExport.size),
+                        resources.getString(R.string.split_export_success, tilesToExport.size),
                         Toast.LENGTH_SHORT
                     ).show()
                     // 导出成功后保持在当前界面，不自动关闭
@@ -286,7 +288,7 @@ fun ImageSplitExportScreen(
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.split_export_failed),
+                        resources.getString(R.string.split_export_failed),
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -432,7 +434,7 @@ fun ImageSplitExportScreen(
                                 if (undoNaming()) {
                                     Toast.makeText(
                                         context,
-                                        context.getString(R.string.split_naming_undone),
+                                        resources.getString(R.string.split_naming_undone),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }

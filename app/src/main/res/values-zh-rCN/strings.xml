@@ -137,6 +137,10 @@
     <string name="paint_stop_confirm_title">停止所有生成</string>
     <string name="paint_stop_confirm_message">将停止所有正在进行的图片生成任务，是否继续？</string>
     <string name="paint_session_generating">正在生成 %1$d 个任务</string>
+    <string name="paint_origin_desktop">PC</string>
+    <string name="paint_origin_android">安卓</string>
+    <string name="paint_origin_ios">iOS</string>
+    <string name="paint_origin_unknown">未知</string>
     <string name="paint_send">发送</string>
     <string name="paint_expand_input">展开输入</string>
     <string name="paint_image">图片</string>
@@ -399,6 +403,50 @@
     
     <!-- 缓存管理 -->
     <string name="cache_management">缓存管理</string>
+    <string name="paint_data_export">导出绘画数据</string>
+    <string name="paint_data_export_description">会话及对应图片</string>
+    <string name="paint_data_import">导入绘画数据</string>
+    <string name="paint_data_import_description">合并 ZIP 备份</string>
+    <string name="paint_data_backup_file_name">live_wallpaper_paint_backup_%1$s.zip</string>
+    <string name="paint_data_import_confirm_title">导入绘画数据？</string>
+    <string name="paint_data_import_confirm_message">压缩包中的会话、消息、草稿和图片将合并到本机。同 ID 数据会被覆盖，其他本地会话会保留。API 配置不会包含在内。</string>
+    <string name="paint_data_import_select_file">选择 ZIP 备份</string>
+    <string name="paint_data_import_select_file_hint">点击此区域选择文件</string>
+    <string name="paint_data_import_select_another_file">点击重新选择文件</string>
+    <string name="paint_data_import_preview_validating">正在校验备份格式和内容…</string>
+    <string name="paint_data_import_preview_valid">备份校验通过</string>
+    <string name="paint_data_import_preview_counts">%1$s、%2$s、%3$s和%4$s</string>
+    <string name="paint_data_import_preview_source">创建端：%1$s</string>
+    <string name="paint_data_import_confirm_action">确认导入</string>
+    <string name="paint_data_import_unknown_file_name">绘画数据备份.zip</string>
+    <string name="paint_data_platform_android">Android App</string>
+    <string name="paint_data_platform_pc">PC</string>
+    <string name="paint_data_platform_ios">iOS App</string>
+    <string name="paint_data_platform_unknown">旧版本或未知</string>
+    <string name="paint_data_exporting">正在导出绘画数据…</string>
+    <string name="paint_data_importing">正在校验并导入绘画数据…</string>
+    <string name="paint_data_export_success">已导出 %1$s、%2$s和%3$s</string>
+    <string name="paint_data_import_success">已导入 %1$s、%2$s和%3$s</string>
+    <plurals name="paint_data_session_count">
+        <item quantity="other">%1$d 个会话</item>
+    </plurals>
+    <plurals name="paint_data_message_count">
+        <item quantity="other">%1$d 条消息</item>
+    </plurals>
+    <plurals name="paint_data_draft_count">
+        <item quantity="other">%1$d 个草稿</item>
+    </plurals>
+    <plurals name="paint_data_image_count">
+        <item quantity="other">%1$d 张图片</item>
+    </plurals>
+    <string name="paint_data_error_file_access">无法读取或写入所选文件</string>
+    <string name="paint_data_error_invalid_archive">所选文件不是有效的绘画数据备份</string>
+    <string name="paint_data_error_unsupported_version">暂不支持此版本的绘画数据备份</string>
+    <string name="paint_data_error_archive_too_large">备份过大，无法安全导入</string>
+    <string name="paint_data_error_unsafe_archive">备份中包含不安全的文件路径</string>
+    <string name="paint_data_error_missing_image">备份引用的图片缺失或无法读取</string>
+    <string name="paint_data_error_corrupted_data">备份中的绘画数据不完整或已损坏</string>
+    <string name="paint_data_error_unknown">绘画数据传输失败</string>
     <string name="cache_total_size">缓存总大小：%1$s</string>
     <string name="cache_image_count">已加载 %1$d 张图片</string>
     <string name="cache_loading">正在加载缓存...</string>

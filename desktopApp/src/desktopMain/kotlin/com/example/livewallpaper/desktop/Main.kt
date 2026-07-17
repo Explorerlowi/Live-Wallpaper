@@ -39,13 +39,16 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedButton
@@ -114,7 +117,13 @@ import com.example.livewallpaper.di.platformModule
 import com.example.livewallpaper.desktop.paint.AiPaintWorkspace
 import com.example.livewallpaper.desktop.paint.DesktopPaintSidebarSection
 import com.example.livewallpaper.desktop.paint.DesktopPaintViewModel
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
+import com.example.livewallpaper.feature.aipaint.domain.usecase.ExportPaintDataUseCase
+import com.example.livewallpaper.feature.aipaint.domain.usecase.ImportPaintDataUseCase
+import com.example.livewallpaper.feature.aipaint.domain.usecase.PreviewPaintDataImportUseCase
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -159,6 +168,9 @@ import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.StandardOpenOption
 import java.util.LinkedHashMap
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.imageio.ImageIO
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -485,7 +497,20 @@ private fun DesktopShell(
     onSetCurrentWallpaper: (String) -> Unit,
     onPaintGenerationSuccess: (Int) -> Unit,
 ) {
-    val paintViewModel = remember { DesktopPaintViewModel(GlobalContext.get().get<PaintRepository>()) }
+    val koin = GlobalContext.get()
+    val paintViewModel = remember {
+        DesktopPaintViewModel(
+            repository = koin.get<PaintRepository>(),
+            draftRepository = koin.get<PaintDraftRepository>(),
+        )
+    }
+    val paintDataTransferViewModel = remember {
+        DesktopPaintDataTransferViewModel(
+            exportPaintData = koin.get<ExportPaintDataUseCase>(),
+            importPaintData = koin.get<ImportPaintDataUseCase>(),
+            previewPaintDataImport = koin.get<PreviewPaintDataImportUseCase>(),
+        )
+    }
     val paintUiState by paintViewModel.uiState.collectAsState()
     var selectedSection by remember { mutableStateOf(DesktopSection.WALLPAPERS) }
     var sidebarCollapsed by remember { mutableStateOf(runtimeSettings.isAiPaintSidebarCollapsed()) }
@@ -504,6 +529,7 @@ private fun DesktopShell(
     if (showSettings) {
         SettingsDialog(
             config = config,
+            paintDataTransferViewModel = paintDataTransferViewModel,
             onEvent = onEvent,
             onDismiss = { showSettings = false },
         )
@@ -867,7 +893,9 @@ private fun WallpaperWorkspace(
                                 } else {
                                     activeWallpaperPath == null && path == selectedPath
                                 },
-                                current = !isMultiSelectMode && activeWallpaperPath != null && path == activeWallpaperPath,
+                                current = !isMultiSelectMode &&
+                                    activeWallpaperPath != null &&
+                                    path == activeWallpaperPath,
                                 isMultiSelectMode = isMultiSelectMode,
                                 isDragging = isDragging,
                                 onClick = {
@@ -1705,13 +1733,26 @@ private data class WallpaperImageTransformState(
 @Composable
 private fun SettingsDialog(
     config: WallpaperConfig,
+    paintDataTransferViewModel: DesktopPaintDataTransferViewModel,
     onEvent: (SettingsEvent) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
+    val transferState by paintDataTransferViewModel.state.collectAsState()
+    val importPreviewState by paintDataTransferViewModel.importPreviewState.collectAsState()
+    val isTransferBusy = transferState is DesktopPaintDataTransferState.Exporting ||
+        transferState is DesktopPaintDataTransferState.Importing
+    var showImportDialog by remember { mutableStateOf(false) }
+
+    fun dismissSettings() {
+        if (!isTransferBusy) {
+            paintDataTransferViewModel.clearResult()
+            onDismiss()
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismissSettings,
         containerColor = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
         title = {
@@ -1725,23 +1766,256 @@ private fun SettingsDialog(
             SettingsContent(
                 config = config,
                 onEvent = onEvent,
+                transferState = transferState,
+                onExportPaintData = {
+                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    val defaultName = "live_wallpaper_paint_backup_$timestamp.zip"
+                    DesktopFilePicker.pickSaveZipPath(
+                        title = strings.paintDataExport,
+                        defaultFileName = defaultName,
+                        filterDescription = strings.paintDataZipFiles,
+                    )?.let(paintDataTransferViewModel::exportData)
+                },
+                onSelectImportPaintData = {
+                    paintDataTransferViewModel.clearImportPreview()
+                    showImportDialog = true
+                },
                 modifier = Modifier
                     .width(700.dp)
                     .heightIn(max = 560.dp),
             )
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = ::dismissSettings,
+                enabled = !isTransferBusy,
+            ) {
                 Text(strings.close)
             }
         },
     )
+
+    if (showImportDialog) {
+        DesktopPaintDataImportDialog(
+            previewState = importPreviewState,
+            onChooseFile = {
+                DesktopFilePicker.pickZipPath(
+                    title = strings.paintDataImport,
+                    filterDescription = strings.paintDataZipFiles,
+                )?.let(paintDataTransferViewModel::previewImport)
+            },
+            onFileSelected = paintDataTransferViewModel::previewImport,
+            onConfirm = {
+                showImportDialog = false
+                paintDataTransferViewModel.confirmPreviewedImport()
+            },
+            onDismiss = {
+                showImportDialog = false
+                paintDataTransferViewModel.clearImportPreview()
+            },
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun DesktopPaintDataImportDialog(
+    previewState: DesktopPaintDataImportPreviewState,
+    onChooseFile: () -> Unit,
+    onFileSelected: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    var isDragOver by remember { mutableStateOf(false) }
+    val selectedName = when (previewState) {
+        DesktopPaintDataImportPreviewState.Empty -> null
+        is DesktopPaintDataImportPreviewState.Validating -> previewState.displayName
+        is DesktopPaintDataImportPreviewState.Ready -> previewState.displayName
+        is DesktopPaintDataImportPreviewState.Invalid -> previewState.displayName
+    }
+    val borderColor = when {
+        isDragOver -> MaterialTheme.colorScheme.primary
+        previewState is DesktopPaintDataImportPreviewState.Ready -> MaterialTheme.colorScheme.primary
+        previewState is DesktopPaintDataImportPreviewState.Invalid -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val dropTarget = remember(onFileSelected) {
+        object : DragAndDropTarget {
+            override fun onEntered(event: DragAndDropEvent) {
+                isDragOver = true
+            }
+
+            override fun onExited(event: DragAndDropEvent) {
+                isDragOver = false
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                isDragOver = false
+            }
+
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                isDragOver = false
+                val path = event.dragData().firstFilePathFromDrop() ?: return false
+                onFileSelected(path)
+                return true
+            }
+        }
+    }
+    val selectionShape = RoundedCornerShape(14.dp)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.paintDataImportConfirmTitle, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(
+                modifier = Modifier.width(520.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = strings.paintDataImportConfirmMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 142.dp)
+                        .border(1.dp, borderColor, selectionShape)
+                        .dragAndDropTarget(
+                            shouldStartDragAndDrop = { event -> event.dragData() is DragData.FilesList },
+                            target = dropTarget,
+                        )
+                        .clickable(onClick = onChooseFile),
+                    shape = selectionShape,
+                    color = if (isDragOver) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+                    },
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FileUpload,
+                            contentDescription = null,
+                            tint = borderColor,
+                            modifier = Modifier.size(34.dp),
+                        )
+                        Text(
+                            text = if (isDragOver) {
+                                strings.paintDataImportDropActive
+                            } else {
+                                selectedName ?: strings.paintDataImportSelectFile
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!isDragOver) {
+                            Text(
+                                text = if (selectedName == null) {
+                                    strings.paintDataImportSelectFileHint
+                                } else {
+                                    strings.paintDataImportSelectAnotherFile
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+
+                when (previewState) {
+                    DesktopPaintDataImportPreviewState.Empty -> Unit
+                    is DesktopPaintDataImportPreviewState.Validating -> Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(strings.paintDataImportPreviewValidating, style = MaterialTheme.typography.bodySmall)
+                    }
+                    is DesktopPaintDataImportPreviewState.Ready -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = strings.paintDataImportPreviewValid,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = strings.paintDataImportPreviewCounts(
+                                previewState.sessionCount,
+                                previewState.messageCount,
+                                previewState.draftCount,
+                                previewState.imageCount,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = strings.paintDataImportPreviewSource(
+                                previewState.exportedFromPlatform.localizedLabel(strings),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is DesktopPaintDataImportPreviewState.Invalid -> Text(
+                        text = previewState.error.localizedMessage(strings),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = previewState is DesktopPaintDataImportPreviewState.Ready,
+            ) {
+                Text(strings.paintDataImportConfirmAction)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.cancel)
+            }
+        },
+    )
+}
+
+private fun PaintClientPlatform.localizedLabel(strings: DesktopStrings): String = when (this) {
+    PaintClientPlatform.DESKTOP -> strings.paintOriginDesktop
+    PaintClientPlatform.ANDROID -> strings.paintOriginAndroid
+    PaintClientPlatform.IOS -> strings.paintOriginIos
+    PaintClientPlatform.UNKNOWN -> strings.paintOriginUnknown
 }
 
 @Composable
 private fun SettingsContent(
     config: WallpaperConfig,
     onEvent: (SettingsEvent) -> Unit,
+    transferState: DesktopPaintDataTransferState,
+    onExportPaintData: () -> Unit,
+    onSelectImportPaintData: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalDesktopStrings.current
@@ -1824,6 +2098,27 @@ private fun SettingsContent(
             )
         }
 
+        SettingsGroupCard(title = strings.paintDataBackupSettings) {
+            val isBusy = transferState is DesktopPaintDataTransferState.Exporting ||
+                transferState is DesktopPaintDataTransferState.Importing
+            PaintDataTransferSettingRow(
+                title = strings.paintDataExport,
+                description = strings.paintDataExportDescription,
+                buttonLabel = strings.paintDataExport,
+                enabled = !isBusy,
+                onClick = onExportPaintData,
+            )
+            SettingsItemDivider()
+            PaintDataTransferSettingRow(
+                title = strings.paintDataImport,
+                description = strings.paintDataImportDescription,
+                buttonLabel = strings.paintDataImport,
+                enabled = !isBusy,
+                onClick = onSelectImportPaintData,
+            )
+            PaintDataTransferStatus(transferState)
+        }
+
         SettingsGroupCard(title = strings.paintStorageSettings) {
             var generatedImagesPath by remember { mutableStateOf(DesktopAiPaintStoragePaths.generatedImagesPath()) }
             var responseCachePath by remember { mutableStateOf(DesktopAiPaintStoragePaths.responseCachePath()) }
@@ -1832,7 +2127,11 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintGeneratedImagesDirectory,
                 path = generatedImagesPath,
-                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.generatedImagesDirectory()) },
+                sizeProvider = {
+                    DesktopAiPaintStoragePaths.directorySize(
+                        DesktopAiPaintStoragePaths.generatedImagesDirectory(),
+                    )
+                },
                 onChoose = {
                     DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, generatedImagesPath)?.let { path ->
                         DesktopAiPaintStoragePaths.setGeneratedImagesPath(path)
@@ -1849,7 +2148,11 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintResponseCacheDirectory,
                 path = responseCachePath,
-                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.responseCacheDirectory()) },
+                sizeProvider = {
+                    DesktopAiPaintStoragePaths.directorySize(
+                        DesktopAiPaintStoragePaths.responseCacheDirectory(),
+                    )
+                },
                 onChoose = {
                     DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, responseCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setResponseCachePath(path)
@@ -1867,7 +2170,11 @@ private fun SettingsContent(
             PathSettingRow(
                 title = strings.paintClipboardCacheDirectory,
                 path = clipboardCachePath,
-                sizeProvider = { DesktopAiPaintStoragePaths.directorySize(DesktopAiPaintStoragePaths.clipboardCacheDirectory()) },
+                sizeProvider = {
+                    DesktopAiPaintStoragePaths.directorySize(
+                        DesktopAiPaintStoragePaths.clipboardCacheDirectory(),
+                    )
+                },
                 onChoose = {
                     DesktopFilePicker.pickDirectoryPath(strings.chooseFolder, clipboardCachePath)?.let { path ->
                         DesktopAiPaintStoragePaths.setClipboardCachePath(path)
@@ -1891,6 +2198,90 @@ private fun SettingsContent(
             textAlign = TextAlign.Center,
         )
     }
+}
+
+@Composable
+private fun PaintDataTransferSettingRow(
+    title: String,
+    description: String,
+    buttonLabel: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onClick, enabled = enabled) {
+            Text(buttonLabel)
+        }
+    }
+}
+
+@Composable
+private fun PaintDataTransferStatus(state: DesktopPaintDataTransferState) {
+    val strings = LocalDesktopStrings.current
+    val message = when (state) {
+        DesktopPaintDataTransferState.Idle -> null
+        DesktopPaintDataTransferState.Exporting -> strings.paintDataExporting
+        DesktopPaintDataTransferState.Importing -> strings.paintDataImporting
+        is DesktopPaintDataTransferState.Exported -> strings.paintDataExportSuccess(
+            state.sessionCount,
+            state.messageCount,
+            state.imageCount,
+        )
+        is DesktopPaintDataTransferState.Imported -> strings.paintDataImportSuccess(
+            state.sessionCount,
+            state.messageCount,
+            state.imageCount,
+        )
+        is DesktopPaintDataTransferState.Failed -> state.error.localizedMessage(strings)
+    } ?: return
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (state is DesktopPaintDataTransferState.Exporting || state is DesktopPaintDataTransferState.Importing) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (state is DesktopPaintDataTransferState.Failed) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+private fun PaintDataTransferError.localizedMessage(strings: DesktopStrings): String = when (this) {
+    PaintDataTransferError.FILE_ACCESS -> strings.paintDataErrorFileAccess
+    PaintDataTransferError.INVALID_ARCHIVE -> strings.paintDataErrorInvalidArchive
+    PaintDataTransferError.UNSUPPORTED_VERSION -> strings.paintDataErrorUnsupportedVersion
+    PaintDataTransferError.ARCHIVE_TOO_LARGE -> strings.paintDataErrorArchiveTooLarge
+    PaintDataTransferError.UNSAFE_ARCHIVE_ENTRY -> strings.paintDataErrorUnsafeArchive
+    PaintDataTransferError.MISSING_IMAGE -> strings.paintDataErrorMissingImage
+    PaintDataTransferError.CORRUPTED_DATA -> strings.paintDataErrorCorruptedData
+    PaintDataTransferError.UNKNOWN -> strings.paintDataErrorUnknown
 }
 
 @Composable
@@ -2557,6 +2948,18 @@ private fun DragData.imagePathsFromDrop(existingPaths: List<String>): List<Strin
     return collectImagePaths(droppedFiles, existingPaths)
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
+private fun DragData.firstFilePathFromDrop(): String? {
+    if (this !is DragData.FilesList) return null
+    return readFiles().firstNotNullOfOrNull { uriString ->
+        runCatching {
+            val uri = URI(uriString)
+            val file = if (uri.scheme.equals("file", ignoreCase = true)) File(uri) else File(uriString)
+            file.takeIf(File::isFile)?.absolutePath
+        }.getOrNull()
+    }
+}
+
 private fun collectImagePaths(files: List<File>, existingPaths: List<String>): List<String> {
     val existing = existingPaths.mapTo(mutableSetOf()) { normalizePath(it) }
     val collected = linkedSetOf<String>()
@@ -2854,7 +3257,14 @@ private class DesktopTrayMenuWindow(
             add(DesktopTrayMenuItem(model.strings.openWindow, menuWidth, enabled = true, onClick = onOpenWindow))
             add(DesktopTraySeparator(menuWidth))
             if (model.isSlideshowRunning) {
-                add(DesktopTrayMenuItem(model.strings.stopSlideshow, menuWidth, enabled = true, onClick = onStopSlideshow))
+                add(
+                    DesktopTrayMenuItem(
+                        model.strings.stopSlideshow,
+                        menuWidth,
+                        enabled = true,
+                        onClick = onStopSlideshow,
+                    ),
+                )
             } else {
                 add(
                     DesktopTrayMenuItem(

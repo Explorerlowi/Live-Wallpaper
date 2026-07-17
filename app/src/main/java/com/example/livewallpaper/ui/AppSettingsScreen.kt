@@ -1,7 +1,14 @@
 package com.example.livewallpaper.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,11 +31,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,10 +56,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -57,12 +69,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.livewallpaper.BuildConfig
 import com.example.livewallpaper.R
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -83,6 +98,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.filled.Storage
+import com.example.livewallpaper.paint.viewmodel.PaintDataTransferUiState
+import com.example.livewallpaper.paint.viewmodel.PaintDataImportPreviewUiState
+import com.example.livewallpaper.paint.viewmodel.PaintDataTransferViewModel
+import org.koin.androidx.compose.koinViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,7 +120,8 @@ fun AppSettingsScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
     onCheckUpdate: () -> Unit,
     onClearUpdateStatus: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    paintDataTransferViewModel: PaintDataTransferViewModel = koinViewModel(),
 ) {
     var intervalValue by remember { mutableFloatStateOf(currentInterval.toFloat()) }
     var selectedScaleMode by remember { mutableStateOf(currentScaleMode) }
@@ -109,6 +132,34 @@ fun AppSettingsScreen(
     var selectedThemeMode by remember { mutableStateOf(currentThemeMode) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val paintDataTransferState by paintDataTransferViewModel.uiState.collectAsState()
+    val paintDataImportPreviewState by paintDataTransferViewModel.importPreviewState.collectAsState()
+    val isPaintDataTransferBusy = paintDataTransferState is PaintDataTransferUiState.Exporting ||
+        paintDataTransferState is PaintDataTransferUiState.Importing
+    var showPaintDataImportDialog by rememberSaveable { mutableStateOf(false) }
+    val exportFileNamePattern = stringResource(R.string.paint_data_backup_file_name)
+    val unknownImportFileName = stringResource(R.string.paint_data_import_unknown_file_name)
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        uri?.let { paintDataTransferViewModel.export(it.toString()) }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let { selectedUri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    selectedUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            paintDataTransferViewModel.previewImport(
+                sourceIdentifier = selectedUri.toString(),
+                displayName = selectedUri.importDisplayName(context, unknownImportFileName),
+            )
+        }
+    }
 
     // Bottom Sheet States
     var showScaleModeSheet by remember { mutableStateOf(false) }
@@ -140,14 +191,21 @@ fun AppSettingsScreen(
     }
 
     // 拦截系统返回键
-    BackHandler { handleBack() }
+    BackHandler {
+        if (!isPaintDataTransferBusy) {
+            handleBack()
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    IconButton(onClick = handleBack) {
+                    IconButton(
+                        onClick = handleBack,
+                        enabled = !isPaintDataTransferBusy,
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
@@ -165,7 +223,8 @@ fun AppSettingsScreen(
                                 } else {
                                     onBack()
                                 }
-                            }
+                            },
+                            enabled = !isPaintDataTransferBusy,
                         ) {
                             Text(
                                 text = stringResource(R.string.save_and_exit),
@@ -286,6 +345,36 @@ fun AppSettingsScreen(
                             title = stringResource(R.string.cache_management),
                             value = "",
                             onClick = { showCacheManagement = true }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.FileDownload,
+                            title = stringResource(R.string.paint_data_export),
+                            value = stringResource(R.string.paint_data_export_description),
+                            onClick = {
+                                if (!isPaintDataTransferBusy) {
+                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                    exportLauncher.launch(String.format(Locale.US, exportFileNamePattern, timestamp))
+                                }
+                            }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.FileUpload,
+                            title = stringResource(R.string.paint_data_import),
+                            value = stringResource(R.string.paint_data_import_description),
+                            onClick = {
+                                if (!isPaintDataTransferBusy) {
+                                    paintDataTransferViewModel.clearImportPreview()
+                                    showPaintDataImportDialog = true
+                                }
+                            }
                         )
                     }
                 }
@@ -512,6 +601,81 @@ fun AppSettingsScreen(
             onDismiss = { showExitConfirmDialog = false }
         )
     }
+
+    if (showPaintDataImportDialog) {
+        PaintDataImportDialog(
+            previewState = paintDataImportPreviewState,
+            onChooseFile = {
+                importLauncher.launch(
+                    arrayOf(
+                        "application/zip",
+                        "application/x-zip-compressed",
+                        "application/octet-stream",
+                    ),
+                )
+            },
+            onConfirm = {
+                showPaintDataImportDialog = false
+                paintDataTransferViewModel.confirmPreviewedImport()
+            },
+            onDismiss = {
+                showPaintDataImportDialog = false
+                paintDataTransferViewModel.clearImportPreview()
+            },
+        )
+    }
+
+    if (isPaintDataTransferBusy) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp,
+                    )
+                    Text(
+                        text = if (paintDataTransferState is PaintDataTransferUiState.Exporting) {
+                            stringResource(R.string.paint_data_exporting)
+                        } else {
+                            stringResource(R.string.paint_data_importing)
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+        }
+    }
+
+    val paintDataTransferResultMessage = when (val state = paintDataTransferState) {
+        is PaintDataTransferUiState.Exported -> stringResource(
+            R.string.paint_data_export_success,
+            pluralStringResource(R.plurals.paint_data_session_count, state.sessionCount, state.sessionCount),
+            pluralStringResource(R.plurals.paint_data_message_count, state.messageCount, state.messageCount),
+            pluralStringResource(R.plurals.paint_data_image_count, state.imageCount, state.imageCount),
+        )
+        is PaintDataTransferUiState.Imported -> stringResource(
+            R.string.paint_data_import_success,
+            pluralStringResource(R.plurals.paint_data_session_count, state.sessionCount, state.sessionCount),
+            pluralStringResource(R.plurals.paint_data_message_count, state.messageCount, state.messageCount),
+            pluralStringResource(R.plurals.paint_data_image_count, state.imageCount, state.imageCount),
+        )
+        is PaintDataTransferUiState.Failed -> paintDataTransferErrorMessage(state.error)
+        else -> null
+    }
+    LaunchedEffect(paintDataTransferState, paintDataTransferResultMessage) {
+        paintDataTransferResultMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            paintDataTransferViewModel.clearResult()
+        }
+    }
     
     // 缓存管理全屏覆盖界面
     AnimatedVisibility(
@@ -529,6 +693,191 @@ fun AppSettingsScreen(
             onBack = { showCacheManagement = false }
         )
     }
+}
+
+@Composable
+private fun PaintDataImportDialog(
+    previewState: PaintDataImportPreviewUiState,
+    onChooseFile: () -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selectedName = when (previewState) {
+        PaintDataImportPreviewUiState.Empty -> null
+        is PaintDataImportPreviewUiState.Validating -> previewState.displayName
+        is PaintDataImportPreviewUiState.Ready -> previewState.displayName
+        is PaintDataImportPreviewUiState.Invalid -> previewState.displayName
+    }
+    val borderColor = when (previewState) {
+        is PaintDataImportPreviewUiState.Ready -> MaterialTheme.colorScheme.primary
+        is PaintDataImportPreviewUiState.Invalid -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val selectionShape = RoundedCornerShape(14.dp)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.paint_data_import_confirm_title),
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = stringResource(R.string.paint_data_import_confirm_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, borderColor, selectionShape)
+                        .clickable(onClick = onChooseFile),
+                    shape = selectionShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FileUpload,
+                            contentDescription = null,
+                            tint = borderColor,
+                            modifier = Modifier.size(30.dp),
+                        )
+                        Text(
+                            text = selectedName ?: stringResource(R.string.paint_data_import_select_file),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = if (selectedName == null) {
+                                stringResource(R.string.paint_data_import_select_file_hint)
+                            } else {
+                                stringResource(R.string.paint_data_import_select_another_file)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
+                when (previewState) {
+                    PaintDataImportPreviewUiState.Empty -> Unit
+                    is PaintDataImportPreviewUiState.Validating -> Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = stringResource(R.string.paint_data_import_preview_validating),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    is PaintDataImportPreviewUiState.Ready -> {
+                        Text(
+                            text = stringResource(R.string.paint_data_import_preview_valid),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.paint_data_import_preview_counts,
+                                pluralStringResource(
+                                    R.plurals.paint_data_session_count,
+                                    previewState.sessionCount,
+                                    previewState.sessionCount,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.paint_data_message_count,
+                                    previewState.messageCount,
+                                    previewState.messageCount,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.paint_data_draft_count,
+                                    previewState.draftCount,
+                                    previewState.draftCount,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.paint_data_image_count,
+                                    previewState.imageCount,
+                                    previewState.imageCount,
+                                ),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.paint_data_import_preview_source,
+                                previewState.exportedFromPlatform.localizedLabel(),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is PaintDataImportPreviewUiState.Invalid -> Text(
+                        text = paintDataTransferErrorMessage(previewState.error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = previewState is PaintDataImportPreviewUiState.Ready,
+            ) {
+                Text(stringResource(R.string.paint_data_import_confirm_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+    )
+}
+
+@Composable
+private fun PaintClientPlatform.localizedLabel(): String = when (this) {
+    PaintClientPlatform.ANDROID -> stringResource(R.string.paint_data_platform_android)
+    PaintClientPlatform.DESKTOP -> stringResource(R.string.paint_data_platform_pc)
+    PaintClientPlatform.IOS -> stringResource(R.string.paint_data_platform_ios)
+    PaintClientPlatform.UNKNOWN -> stringResource(R.string.paint_data_platform_unknown)
+}
+
+private fun Uri.importDisplayName(context: Context, fallbackName: String): String {
+    val queried = runCatching {
+        context.contentResolver.query(this, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+        }
+    }.getOrNull()
+    return queried?.takeIf { it.isNotBlank() } ?: lastPathSegment.orEmpty().ifBlank { fallbackName }
+}
+
+@Composable
+private fun paintDataTransferErrorMessage(error: PaintDataTransferError): String = when (error) {
+    PaintDataTransferError.FILE_ACCESS -> stringResource(R.string.paint_data_error_file_access)
+    PaintDataTransferError.INVALID_ARCHIVE -> stringResource(R.string.paint_data_error_invalid_archive)
+    PaintDataTransferError.UNSUPPORTED_VERSION -> stringResource(R.string.paint_data_error_unsupported_version)
+    PaintDataTransferError.ARCHIVE_TOO_LARGE -> stringResource(R.string.paint_data_error_archive_too_large)
+    PaintDataTransferError.UNSAFE_ARCHIVE_ENTRY -> stringResource(R.string.paint_data_error_unsafe_archive)
+    PaintDataTransferError.MISSING_IMAGE -> stringResource(R.string.paint_data_error_missing_image)
+    PaintDataTransferError.CORRUPTED_DATA -> stringResource(R.string.paint_data_error_corrupted_data)
+    PaintDataTransferError.UNKNOWN -> stringResource(R.string.paint_data_error_unknown)
 }
 
 @Composable
@@ -632,7 +981,11 @@ fun <T> SelectionBottomSheet(
                         text = labelProvider(option),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
                     )
 
                     if (isSelected) {

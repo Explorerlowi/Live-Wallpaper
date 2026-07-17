@@ -112,6 +112,24 @@ internal object DesktopFilePicker {
         return pickSaveFilePathWithSwing(title, defaultFileName, filter)
     }
 
+    /** Selects one existing ZIP painting data backup. */
+    fun pickZipPath(title: String, filterDescription: String): String? {
+        val filter = zipFilter(filterDescription)
+        if (Platform.isWindows()) {
+            pickFilePathWithWindowsDialog(title, filter)?.let { return it.getOrNull() }
+        }
+        return pickFilePathWithSwing(title, filter)
+    }
+
+    /** Selects a destination for a ZIP painting data backup. */
+    fun pickSaveZipPath(title: String, defaultFileName: String, filterDescription: String): String? {
+        val filter = zipFilter(filterDescription)
+        if (Platform.isWindows()) {
+            pickSaveFilePathWithWindowsDialog(title, defaultFileName, filter)?.let { return it.getOrNull() }
+        }
+        return pickSaveFilePathWithSwing(title, defaultFileName, filter)
+    }
+
     private fun pickImagePathsWithSwing(
         title: String,
         isSupportedImageName: (String) -> Boolean
@@ -326,7 +344,11 @@ internal object DesktopFilePicker {
                 result.set(
                     chooser.selectedFile?.let { file ->
                         val extension = filter.extensions.first()
-                        if (file.extension.equals(extension, ignoreCase = true)) file else File(file.path + ".$extension")
+                        if (file.extension.equals(extension, ignoreCase = true)) {
+                            file
+                        } else {
+                            File(file.path + ".$extension")
+                        }
                     }?.absolutePath,
                 )
             }
@@ -349,6 +371,12 @@ internal object DesktopFilePicker {
         description = description,
         pattern = "*.json",
         extensions = listOf("json"),
+    )
+
+    private fun zipFilter(description: String): DesktopFileDialogFilter = DesktopFileDialogFilter(
+        description = description,
+        pattern = "*.zip",
+        extensions = listOf("zip"),
     )
 
     private fun pickImagePathsWithAwtFallback(
@@ -608,7 +636,11 @@ private object WindowsFileOpenDialog {
             _invokeNativeObject(17, arrayOf(pointer, WString(title)), WinNT.HRESULT::class.java) as WinNT.HRESULT
 
         fun setDefaultExtension(extension: String): WinNT.HRESULT =
-            _invokeNativeObject(22, arrayOf(pointer, WString(extension.trimStart('.'))), WinNT.HRESULT::class.java) as WinNT.HRESULT
+            _invokeNativeObject(
+                22,
+                arrayOf(pointer, WString(extension.trimStart('.'))),
+                WinNT.HRESULT::class.java,
+            ) as WinNT.HRESULT
 
         fun getResults(): Pointer? {
             val ref = PointerByReference()
@@ -630,7 +662,11 @@ private object WindowsFileOpenDialog {
             if (COMUtils.FAILED(countHr)) return emptyList()
             return (0 until countRef.value).mapNotNull { index ->
                 val itemRef = PointerByReference()
-                val itemHr = _invokeNativeObject(8, arrayOf(pointer, index, itemRef), WinNT.HRESULT::class.java) as WinNT.HRESULT
+                val itemHr = _invokeNativeObject(
+                    8,
+                    arrayOf(pointer, index, itemRef),
+                    WinNT.HRESULT::class.java,
+                ) as WinNT.HRESULT
                 if (COMUtils.FAILED(itemHr)) return@mapNotNull null
                 val item = ShellItem(itemRef.value)
                 try {

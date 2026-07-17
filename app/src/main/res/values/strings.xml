@@ -135,6 +135,10 @@
     <string name="paint_stop_confirm_title">Stop All Generation</string>
     <string name="paint_stop_confirm_message">This will stop all ongoing image generation tasks. Continue?</string>
     <string name="paint_session_generating">Generating %1$d tasks</string>
+    <string name="paint_origin_desktop">PC</string>
+    <string name="paint_origin_android">Android</string>
+    <string name="paint_origin_ios">iOS</string>
+    <string name="paint_origin_unknown">Unknown</string>
     <string name="paint_send">Send</string>
     <string name="paint_expand_input">Expand input</string>
     <string name="paint_image">Image</string>
@@ -397,6 +401,54 @@
     
     <!-- Cache Management -->
     <string name="cache_management">Cache Management</string>
+    <string name="paint_data_export">Export painting data</string>
+    <string name="paint_data_export_description">Sessions and images</string>
+    <string name="paint_data_import">Import painting data</string>
+    <string name="paint_data_import_description">Merge a ZIP backup</string>
+    <string name="paint_data_backup_file_name">live_wallpaper_paint_backup_%1$s.zip</string>
+    <string name="paint_data_import_confirm_title">Import painting data?</string>
+    <string name="paint_data_import_confirm_message">Sessions, messages, drafts, and images in the ZIP will be merged into this device. Items with matching IDs will be overwritten; other local sessions will be kept. API configurations are not included.</string>
+    <string name="paint_data_import_select_file">Select a ZIP backup</string>
+    <string name="paint_data_import_select_file_hint">Tap this area to choose a file</string>
+    <string name="paint_data_import_select_another_file">Tap to choose another file</string>
+    <string name="paint_data_import_preview_validating">Checking the backup format and contents…</string>
+    <string name="paint_data_import_preview_valid">Backup validation passed</string>
+    <string name="paint_data_import_preview_counts">%1$s, %2$s, %3$s, and %4$s</string>
+    <string name="paint_data_import_preview_source">Created on: %1$s</string>
+    <string name="paint_data_import_confirm_action">Confirm import</string>
+    <string name="paint_data_import_unknown_file_name">painting_backup.zip</string>
+    <string name="paint_data_platform_android">Android app</string>
+    <string name="paint_data_platform_pc">PC</string>
+    <string name="paint_data_platform_ios">iOS app</string>
+    <string name="paint_data_platform_unknown">Earlier version or unknown</string>
+    <string name="paint_data_exporting">Exporting painting data…</string>
+    <string name="paint_data_importing">Validating and importing painting data…</string>
+    <string name="paint_data_export_success">Exported %1$s, %2$s, and %3$s</string>
+    <string name="paint_data_import_success">Imported %1$s, %2$s, and %3$s</string>
+    <plurals name="paint_data_session_count">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
+    <plurals name="paint_data_message_count">
+        <item quantity="one">%1$d message</item>
+        <item quantity="other">%1$d messages</item>
+    </plurals>
+    <plurals name="paint_data_draft_count">
+        <item quantity="one">%1$d draft</item>
+        <item quantity="other">%1$d drafts</item>
+    </plurals>
+    <plurals name="paint_data_image_count">
+        <item quantity="one">%1$d image</item>
+        <item quantity="other">%1$d images</item>
+    </plurals>
+    <string name="paint_data_error_file_access">Could not read or write the selected file</string>
+    <string name="paint_data_error_invalid_archive">This is not a valid painting data backup</string>
+    <string name="paint_data_error_unsupported_version">This painting data backup version is not supported</string>
+    <string name="paint_data_error_archive_too_large">The backup is too large to import safely</string>
+    <string name="paint_data_error_unsafe_archive">The backup contains an unsafe file path</string>
+    <string name="paint_data_error_missing_image">A referenced image is missing or cannot be read</string>
+    <string name="paint_data_error_corrupted_data">The painting data in this backup is incomplete or corrupted</string>
+    <string name="paint_data_error_unknown">Painting data transfer failed</string>
     <string name="cache_total_size">Total cache: %1$s</string>
     <string name="cache_image_count">%1$d images loaded</string>
     <string name="cache_loading">Loading cache...</string>

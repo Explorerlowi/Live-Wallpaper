@@ -406,6 +406,7 @@ private fun SessionItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                SessionOriginBadge(session.originPlatform)
                 if (generatingCount > 0) {
                     // 生成中状态
                     CircularProgressIndicator(
@@ -430,6 +431,30 @@ private fun SessionItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SessionOriginBadge(platform: PaintClientPlatform) {
+    val label = stringResource(
+        when (platform) {
+            PaintClientPlatform.DESKTOP -> R.string.paint_origin_desktop
+            PaintClientPlatform.ANDROID -> R.string.paint_origin_android
+            PaintClientPlatform.IOS -> R.string.paint_origin_ios
+            PaintClientPlatform.UNKNOWN -> R.string.paint_origin_unknown
+        },
+    )
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }
 

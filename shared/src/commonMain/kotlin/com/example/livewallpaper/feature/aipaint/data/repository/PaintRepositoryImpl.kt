@@ -10,6 +10,7 @@ import com.example.livewallpaper.feature.aipaint.data.local.ApiProfileBackupJson
 import com.example.livewallpaper.feature.aipaint.data.remote.GeminiApiService
 import com.example.livewallpaper.feature.aipaint.data.remote.GptApiService
 import com.example.livewallpaper.feature.aipaint.domain.model.*
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.set
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -30,12 +33,13 @@ class PaintRepositoryImpl(
     private val imageResponseProcessor: ImageResponseProcessor,
     private val gptApiService: GptApiService,
     private val gptImageResponseProcessor: GptImageResponseProcessor
-) : PaintRepository {
+) : PaintRepository, PaintDataRepository {
 
     private val json = Json { 
         ignoreUnknownKeys = true
         encodeDefaults = true  // 确保默认值也被序列化，避免时间戳丢失
     }
+    private val paintDataMutex = Mutex()
     
     companion object {
         private const val KEY_SESSIONS = "PAINT_SESSIONS"
@@ -65,36 +69,42 @@ class PaintRepositoryImpl(
 
     override suspend fun createSession(session: PaintSession): String {
         return withContext(Dispatchers.Default) {
-            val sessions = getCurrentSessions().toMutableList()
-            sessions.add(0, session)
-            saveSessions(sessions)
-            session.id
+            paintDataMutex.withLock {
+                val sessions = getCurrentSessions().toMutableList()
+                sessions.add(0, session)
+                saveSessions(sessions)
+                session.id
+            }
         }
     }
 
     override suspend fun updateSession(session: PaintSession) {
         withContext(Dispatchers.Default) {
-            val sessions = getCurrentSessions().toMutableList()
-            val index = sessions.indexOfFirst { it.id == session.id }
-            if (index >= 0) {
-                sessions[index] = session.copy(updatedAt = TimeProvider.currentTimeMillis())
-                saveSessions(sessions)
+            paintDataMutex.withLock {
+                val sessions = getCurrentSessions().toMutableList()
+                val index = sessions.indexOfFirst { it.id == session.id }
+                if (index >= 0) {
+                    sessions[index] = session.copy(updatedAt = TimeProvider.currentTimeMillis())
+                    saveSessions(sessions)
+                }
             }
         }
     }
 
     override suspend fun deleteSession(sessionId: String) {
         withContext(Dispatchers.Default) {
-            val sessions = getCurrentSessions().filter { it.id != sessionId }
-            saveSessions(sessions)
-            migrateLegacyMessagesIfNeeded(sessionId)
-            val idsKey = KEY_MESSAGE_IDS_PREFIX + sessionId
-            val ids = getCurrentMessageIds(sessionId)
-            ids.forEach { messageId ->
-                settings.remove(KEY_MESSAGE_PREFIX + messageId)
+            paintDataMutex.withLock {
+                val sessions = getCurrentSessions().filter { it.id != sessionId }
+                saveSessions(sessions)
+                migrateLegacyMessagesIfNeeded(sessionId)
+                val idsKey = KEY_MESSAGE_IDS_PREFIX + sessionId
+                val ids = getCurrentMessageIds(sessionId)
+                ids.forEach { messageId ->
+                    settings.remove(KEY_MESSAGE_PREFIX + messageId)
+                }
+                settings.remove(idsKey)
+                settings.remove(KEY_MESSAGES_PREFIX + sessionId)
             }
-            settings.remove(idsKey)
-            settings.remove(KEY_MESSAGES_PREFIX + sessionId)
         }
     }
 
@@ -105,8 +115,10 @@ class PaintRepositoryImpl(
         var messageListeners = emptyList<com.russhwolf.settings.SettingsListener>()
 
         suspend fun emitCurrentMessages() {
-            migrateLegacyMessagesIfNeeded(sessionId)
-            trySend(loadMessagesByIds(sessionId))
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(sessionId)
+                trySend(loadMessagesByIds(sessionId))
+            }
         }
 
         fun clearMessageListeners() {
@@ -125,18 +137,22 @@ class PaintRepositoryImpl(
             }
         }
 
-        val idsListener = settings.addStringListener(idsKey, "") { jsonString ->
+        val idsListener = settings.addStringListener(idsKey, "") { _ ->
             launch(Dispatchers.Default) {
-                migrateLegacyMessagesIfNeeded(sessionId)
-                val ids = parseMessageIds(jsonString)
+                val ids = paintDataMutex.withLock {
+                    migrateLegacyMessagesIfNeeded(sessionId)
+                    getCurrentMessageIds(sessionId)
+                }
                 registerMessageListeners(ids)
                 emitCurrentMessages()
             }
         }
 
         launch(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(sessionId)
-            val ids = parseMessageIds(settings.getString(idsKey, ""))
+            val ids = paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(sessionId)
+                getCurrentMessageIds(sessionId)
+            }
             registerMessageListeners(ids)
             emitCurrentMessages()
         }
@@ -157,36 +173,44 @@ class PaintRepositoryImpl(
 
     override suspend fun addMessage(message: PaintMessage) {
         withContext(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(message.sessionId)
-            val idsKey = KEY_MESSAGE_IDS_PREFIX + message.sessionId
-            val currentIds = getCurrentMessageIds(message.sessionId).toMutableList()
-            currentIds.add(message.id)
-            settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(message)
-            settings[idsKey] = json.encodeToString(currentIds)
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(message.sessionId)
+                val idsKey = KEY_MESSAGE_IDS_PREFIX + message.sessionId
+                val currentIds = getCurrentMessageIds(message.sessionId).toMutableList()
+                if (message.id !in currentIds) {
+                    currentIds.add(message.id)
+                }
+                settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(message)
+                settings[idsKey] = json.encodeToString(currentIds)
+            }
         }
     }
 
     override suspend fun updateMessage(message: PaintMessage) {
         withContext(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(message.sessionId)
-            settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(
-                message.copy(updatedAt = TimeProvider.currentTimeMillis())
-            )
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(message.sessionId)
+                settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(
+                    message.copy(updatedAt = TimeProvider.currentTimeMillis())
+                )
+            }
         }
     }
 
     override suspend fun deleteMessage(messageId: String) {
         withContext(Dispatchers.Default) {
-            val sessions = getCurrentSessions()
-            for (session in sessions) {
-                migrateLegacyMessagesIfNeeded(session.id)
-                val idsKey = KEY_MESSAGE_IDS_PREFIX + session.id
-                val ids = getCurrentMessageIds(session.id)
-                if (messageId in ids) {
-                    val filtered = ids.filter { it != messageId }
-                    settings[idsKey] = json.encodeToString(filtered)
-                    settings.remove(KEY_MESSAGE_PREFIX + messageId)
-                    break
+            paintDataMutex.withLock {
+                val sessions = getCurrentSessions()
+                for (session in sessions) {
+                    migrateLegacyMessagesIfNeeded(session.id)
+                    val idsKey = KEY_MESSAGE_IDS_PREFIX + session.id
+                    val ids = getCurrentMessageIds(session.id)
+                    if (messageId in ids) {
+                        val filtered = ids.filter { it != messageId }
+                        settings[idsKey] = json.encodeToString(filtered)
+                        settings.remove(KEY_MESSAGE_PREFIX + messageId)
+                        break
+                    }
                 }
             }
         }
@@ -194,8 +218,10 @@ class PaintRepositoryImpl(
 
     override suspend fun getMessageCount(sessionId: String): Int =
         withContext(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(sessionId)
-            getCurrentMessageIds(sessionId).size
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(sessionId)
+                getCurrentMessageIds(sessionId).size
+            }
         }
 
     override suspend fun getMessage(messageId: String): PaintMessage? =
@@ -211,15 +237,110 @@ class PaintRepositoryImpl(
 
     override suspend fun getMessagesByVersionGroup(sessionId: String, versionGroup: String): List<PaintMessage> =
         withContext(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(sessionId)
-            loadMessagesByIds(sessionId).filter { it.versionGroup == versionGroup }
-                .sortedBy { it.versionIndex }
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(sessionId)
+                loadMessagesByIds(sessionId).filter { it.versionGroup == versionGroup }
+                    .sortedBy { it.versionIndex }
+            }
         }
 
     override suspend fun getVersionCount(sessionId: String, versionGroup: String): Int =
         withContext(Dispatchers.Default) {
-            migrateLegacyMessagesIfNeeded(sessionId)
-            loadMessagesByIds(sessionId).count { it.versionGroup == versionGroup }
+            paintDataMutex.withLock {
+                migrateLegacyMessagesIfNeeded(sessionId)
+                loadMessagesByIds(sessionId).count { it.versionGroup == versionGroup }
+            }
+        }
+
+    // ========== 绘画数据备份与恢复 ==========
+
+    override suspend fun getPaintDataSnapshot(): PaintDataSnapshotReadResult =
+        withContext(Dispatchers.Default) {
+            paintDataMutex.withLock {
+                readPaintDataSnapshot()
+            }
+        }
+
+    override suspend fun mergePaintDataSnapshot(snapshot: PaintDataSnapshot): PaintDataMergeResult =
+        withContext(Dispatchers.Default) {
+            paintDataMutex.withLock {
+                val existingSnapshot = when (val result = readPaintDataSnapshot()) {
+                    PaintDataSnapshotReadResult.Corrupted -> {
+                        return@withLock PaintDataMergeResult.CorruptedExistingData
+                    }
+                    is PaintDataSnapshotReadResult.Success -> result.snapshot
+                }
+                val existingSessions = existingSnapshot.sessions
+                val existingMessages = existingSnapshot.messages
+                val importedSessionIds = snapshot.sessions.mapTo(mutableSetOf()) { it.id }
+                val importedMessageIds = snapshot.messages.mapTo(mutableSetOf()) { it.id }
+                val importedMessagesBySession = snapshot.messages.groupBy { it.sessionId }
+                val existingMessagesBySession = existingMessages.groupBy { it.sessionId }
+                val mergedSessions = snapshot.sessions + existingSessions.filterNot { it.id in importedSessionIds }
+
+                val affectedSessionIds = buildSet {
+                    addAll(importedSessionIds)
+                    existingMessages.filterTo(mutableListOf()) { it.id in importedMessageIds }
+                        .mapTo(this) { it.sessionId }
+                }
+
+                affectedSessionIds.forEach { sessionId ->
+                    val existing = existingMessagesBySession[sessionId].orEmpty()
+                    val imported = importedMessagesBySession[sessionId].orEmpty()
+                    val importedById = imported.associateBy { it.id }
+                    val existingIds = existing.mapTo(mutableSetOf()) { it.id }
+                    val mergedMessages = existing.mapNotNull { message ->
+                        when {
+                            message.id !in importedMessageIds -> message
+                            message.id in importedById -> importedById.getValue(message.id)
+                            else -> null
+                        }
+                    } + imported.filterNot { it.id in existingIds }
+
+                    mergedMessages.forEach { message ->
+                        settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(message)
+                    }
+                    settings[KEY_MESSAGE_IDS_PREFIX + sessionId] = json.encodeToString(
+                        mergedMessages.map { it.id },
+                    )
+                    settings.remove(KEY_MESSAGES_PREFIX + sessionId)
+                }
+                saveSessions(mergedSessions)
+
+                PaintDataMergeResult.Success(
+                    PaintDataImportSummary(
+                        importedSessionCount = snapshot.sessions.size,
+                        importedMessageCount = snapshot.messages.size,
+                        totalSessionCount = mergedSessions.size,
+                    ),
+                )
+            }
+        }
+
+    override suspend fun replacePaintDataSnapshot(snapshot: PaintDataSnapshot): Boolean =
+        withContext(Dispatchers.Default) {
+            paintDataMutex.withLock {
+                runCatching {
+                    settings.keys
+                        .filter { key ->
+                            key.startsWith(KEY_MESSAGE_PREFIX) ||
+                                key.startsWith(KEY_MESSAGE_IDS_PREFIX) ||
+                                key.startsWith(KEY_MESSAGES_PREFIX)
+                        }
+                        .forEach(settings::remove)
+
+                    snapshot.messages.forEach { message ->
+                        settings[KEY_MESSAGE_PREFIX + message.id] = json.encodeToString(message)
+                    }
+                    val messagesBySession = snapshot.messages.groupBy { message -> message.sessionId }
+                    snapshot.sessions.forEach { session ->
+                        settings[KEY_MESSAGE_IDS_PREFIX + session.id] = json.encodeToString(
+                            messagesBySession[session.id].orEmpty().map { message -> message.id },
+                        )
+                    }
+                    saveSessions(snapshot.sessions)
+                }.isSuccess
+            }
         }
 
     // ========== API配置管理 ==========
@@ -507,6 +628,67 @@ class PaintRepositoryImpl(
 
     private fun saveProfiles(profiles: List<ApiProfile>) {
         settings[KEY_API_PROFILES] = json.encodeToString(profiles)
+    }
+
+    private fun readPaintDataSnapshot(): PaintDataSnapshotReadResult {
+        val sessionsJson = settings.getString(KEY_SESSIONS, "")
+        val sessions = decodeStoredList<PaintSession>(sessionsJson)
+            ?: return PaintDataSnapshotReadResult.Corrupted
+        val sessionIds = sessions.map { it.id }
+        if (sessionIds.any { it.isBlank() } || sessionIds.size != sessionIds.distinct().size) {
+            return PaintDataSnapshotReadResult.Corrupted
+        }
+
+        val messages = mutableListOf<PaintMessage>()
+        sessions.forEach { session ->
+            val sessionMessages = readStoredSessionMessages(session.id)
+                ?: return PaintDataSnapshotReadResult.Corrupted
+            messages += sessionMessages
+        }
+        val messageIds = messages.map { it.id }
+        if (messageIds.size != messageIds.distinct().size) {
+            return PaintDataSnapshotReadResult.Corrupted
+        }
+        return PaintDataSnapshotReadResult.Success(
+            PaintDataSnapshot(
+                sessions = sessions,
+                messages = messages,
+            ),
+        )
+    }
+
+    private fun readStoredSessionMessages(sessionId: String): List<PaintMessage>? {
+        val idsJson = settings.getString(KEY_MESSAGE_IDS_PREFIX + sessionId, "")
+        val messages = if (idsJson.isNotBlank()) {
+            val ids = decodeStoredList<String>(idsJson) ?: return null
+            if (ids.any { it.isBlank() } || ids.size != ids.distinct().size) return null
+            ids.map { messageId ->
+                val content = settings.getString(KEY_MESSAGE_PREFIX + messageId, "")
+                if (content.isBlank()) return null
+                val message = decodeStoredValue<PaintMessage>(content) ?: return null
+                if (message.id != messageId) return null
+                message
+            }
+        } else {
+            decodeStoredList(settings.getString(KEY_MESSAGES_PREFIX + sessionId, "")) ?: return null
+        }
+        if (messages.any { it.id.isBlank() || it.sessionId != sessionId }) return null
+        return messages
+    }
+
+    private inline fun <reified T> decodeStoredList(content: String): List<T>? {
+        if (content.isBlank()) return emptyList()
+        return try {
+            json.decodeFromString(content)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private inline fun <reified T> decodeStoredValue(content: String): T? = try {
+        json.decodeFromString(content)
+    } catch (_: Exception) {
+        null
     }
 
     private fun List<PaintSession>.sortedForDisplay(): List<PaintSession> =

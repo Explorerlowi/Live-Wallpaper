@@ -17,6 +17,9 @@ object DesktopAiPaintStoragePaths {
 
     fun draftDirectory(): File = File(defaultGeneratedImagesDirectory(), "drafts").apply { mkdirs() }
 
+    /** Persistent import directory kept inside the user-configured generated-image export root. */
+    fun importedImagesDirectory(): File = File(generatedImagesDirectory(), "imports").apply { mkdirs() }
+
     fun generatedImagesPath(): String = generatedImagesDirectory().absolutePath
 
     fun responseCachePath(): String = responseCacheDirectory().absolutePath

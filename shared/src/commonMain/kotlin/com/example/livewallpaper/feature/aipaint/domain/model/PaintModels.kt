@@ -18,6 +18,7 @@ data class PaintMessage(
     val createdAt: Long = TimeProvider.currentTimeMillis(),
     val updatedAt: Long = TimeProvider.currentTimeMillis(),
     val status: MessageStatus = MessageStatus.SUCCESS,
+    val originPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
     
     // 版本管理字段（用于重新生成功能）
     val parentUserMessageId: String? = null,  // 关联的用户消息ID（仅AI消息有）
@@ -77,9 +78,19 @@ data class PaintSession(
     val gptOutputFormat: GptOutputFormat = GptOutputFormat.PNG,
     val createdAt: Long = TimeProvider.currentTimeMillis(),
     val updatedAt: Long = TimeProvider.currentTimeMillis(),
+    val originPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
     val isPinned: Boolean = false,
     val pinnedAt: Long? = null
 )
+
+/** Platform on which a painting session or message was originally created. */
+@Serializable
+enum class PaintClientPlatform {
+    DESKTOP,
+    ANDROID,
+    IOS,
+    UNKNOWN,
+}
 
 /**
  * 模型提供商

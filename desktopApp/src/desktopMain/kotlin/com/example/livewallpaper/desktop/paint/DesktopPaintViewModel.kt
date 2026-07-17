@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.livewallpaper.core.error.AppResult
 import com.example.livewallpaper.core.platform.DesktopPaintDraft
-import com.example.livewallpaper.core.platform.DesktopPaintDraftStore
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfile
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfileImportResult
 import com.example.livewallpaper.feature.aipaint.domain.model.AspectRatio
@@ -15,11 +14,15 @@ import com.example.livewallpaper.feature.aipaint.domain.model.GptOutputFormat
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageType
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintDraftImage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintModel
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintSessionDraft
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -58,7 +62,8 @@ data class DesktopPaintGenerationSuccess(
 )
 
 class DesktopPaintViewModel(
-    private val repository: PaintRepository
+    private val repository: PaintRepository,
+    private val draftRepository: PaintDraftRepository,
 ) : ViewModel() {
 
     private data class GenerationTask(
@@ -93,6 +98,11 @@ class DesktopPaintViewModel(
         }
         loadApiProfiles()
         loadSessions()
+        viewModelScope.launch {
+            draftRepository.draftsRevision
+                .drop(1)
+                .collect { reloadDraftsAfterExternalChange() }
+        }
     }
 
     fun onEvent(event: PaintEvent) {
@@ -157,11 +167,53 @@ class DesktopPaintViewModel(
     private fun loadSessions() {
         viewModelScope.launch {
             repository.getSessions().collect { sessions ->
-                _uiState.update { it.copy(sessions = sessions) }
+                val previousSession = _uiState.value.currentSession
+                val refreshedSession = previousSession?.let { current ->
+                    sessions.firstOrNull { it.id == current.id }
+                }
+                val generationSettingsChanged = previousSession != null && refreshedSession != null &&
+                    previousSession.hasDifferentGenerationSettings(refreshedSession)
+                val refreshedDraft = refreshedSession
+                    ?.takeIf { generationSettingsChanged }
+                    ?.let { session -> sessionDrafts[session.id] ?: loadPersistedDraft(session.id) }
+
+                if (previousSession != null && refreshedSession == null) {
+                    currentSessionId = null
+                    messagesCollectJob?.cancel()
+                }
+                _uiState.update { state ->
+                    when {
+                        previousSession == null -> state.copy(sessions = sessions)
+                        refreshedSession == null -> state.copy(
+                            sessions = sessions,
+                            currentSession = null,
+                            messages = emptyList(),
+                        )
+                        generationSettingsChanged -> state.copy(
+                            sessions = sessions,
+                            currentSession = refreshedSession,
+                            selectedModel = refreshedDraft?.selectedModel ?: refreshedSession.model,
+                            selectedAspectRatio = refreshedDraft?.selectedAspectRatio ?: refreshedSession.aspectRatio,
+                            selectedResolution = refreshedDraft?.selectedResolution ?: refreshedSession.resolution,
+                            selectedGptSize = refreshedDraft?.selectedGptSize ?: refreshedSession.gptImageSize,
+                            selectedGptQuality = refreshedDraft?.selectedGptQuality ?: refreshedSession.gptImageQuality,
+                            selectedGptFormat = refreshedDraft?.selectedGptFormat ?: refreshedSession.gptOutputFormat,
+                        )
+                        else -> state.copy(sessions = sessions, currentSession = refreshedSession)
+                    }
+                }
                 syncGeneratingState()
             }
         }
     }
+
+    private fun PaintSession.hasDifferentGenerationSettings(other: PaintSession): Boolean =
+        model != other.model ||
+            aspectRatio != other.aspectRatio ||
+            resolution != other.resolution ||
+            gptImageSize != other.gptImageSize ||
+            gptImageQuality != other.gptImageQuality ||
+            gptOutputFormat != other.gptOutputFormat
 
     private fun loadMessages(sessionId: String) {
         currentSessionId = sessionId
@@ -199,6 +251,7 @@ class DesktopPaintViewModel(
             val state = _uiState.value
             val session = PaintSession(
                 id = generateId(),
+                originPlatform = PaintClientPlatform.DESKTOP,
                 model = model,
                 aspectRatio = state.selectedAspectRatio,
                 resolution = state.selectedResolution,
@@ -258,7 +311,12 @@ class DesktopPaintViewModel(
                 currentSessionId = null
                 messagesCollectJob?.cancel()
                 _uiState.update {
-                    it.copy(currentSession = null, messages = emptyList(), promptText = "", selectedImages = emptyList())
+                    it.copy(
+                        currentSession = null,
+                        messages = emptyList(),
+                        promptText = "",
+                        selectedImages = emptyList(),
+                    )
                 }
             }
         }
@@ -325,6 +383,7 @@ class DesktopPaintViewModel(
             val userMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = PaintClientPlatform.DESKTOP,
                 senderIdentity = SenderIdentity.USER,
                 messageContent = prompt,
                 messageType = if (userImagesForMessage.isNotEmpty()) MessageType.IMAGE else MessageType.TEXT,
@@ -334,6 +393,7 @@ class DesktopPaintViewModel(
             val assistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = PaintClientPlatform.DESKTOP,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,
@@ -368,6 +428,7 @@ class DesktopPaintViewModel(
     private suspend fun createSessionForSend(state: PaintUiState): PaintSession {
         val session = PaintSession(
             id = generateId(),
+            originPlatform = PaintClientPlatform.DESKTOP,
             model = state.selectedModel,
             aspectRatio = state.selectedAspectRatio,
             resolution = state.selectedResolution,
@@ -553,6 +614,7 @@ class DesktopPaintViewModel(
             val newAssistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = currentMessage.sessionId,
+                originPlatform = PaintClientPlatform.DESKTOP,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,
@@ -647,8 +709,12 @@ class DesktopPaintViewModel(
 
     private fun selectModel(model: PaintModel) {
         _uiState.update { state ->
-            val ratio = state.selectedAspectRatio.takeIf { it in AspectRatio.availableFor(model) } ?: AspectRatio.RATIO_1_1
-            val resolution = state.selectedResolution.takeIf { it in Resolution.availableFor(model) } ?: Resolution.RES_1K
+            val ratio = state.selectedAspectRatio
+                .takeIf { it in AspectRatio.availableFor(model) }
+                ?: AspectRatio.RATIO_1_1
+            val resolution = state.selectedResolution
+                .takeIf { it in Resolution.availableFor(model) }
+                ?: Resolution.RES_1K
             state.copy(
                 selectedModel = model,
                 selectedAspectRatio = ratio,
@@ -739,7 +805,12 @@ class DesktopPaintViewModel(
     }
 
     private fun updateScrollState(isAtBottom: Boolean) {
-        _uiState.update { it.copy(isAtBottom = isAtBottom, newMessageCount = if (isAtBottom) 0 else it.newMessageCount) }
+        _uiState.update {
+            it.copy(
+                isAtBottom = isAtBottom,
+                newMessageCount = if (isAtBottom) 0 else it.newMessageCount,
+            )
+        }
     }
 
     private fun scrollToBottom() {
@@ -814,7 +885,11 @@ class DesktopPaintViewModel(
                 isGenerating = generationTasks.isNotEmpty(),
                 generatingMessageIds = generationTasks.keys,
                 generatingSessionCounts = sessionCounts,
-                generatingSessionId = if (currentSession != null && currentSession in sessionCounts) currentSession else null,
+                generatingSessionId = if (currentSession != null && currentSession in sessionCounts) {
+                    currentSession
+                } else {
+                    null
+                },
                 generationStartTime = generationTasks.values.minOfOrNull { task -> task.startedAt } ?: 0L,
                 generationTasks = taskItems
             )
@@ -833,25 +908,83 @@ class DesktopPaintViewModel(
             selectedGptQuality = _uiState.value.selectedGptQuality,
             selectedGptFormat = _uiState.value.selectedGptFormat
         )
-        sessionDrafts[sessionId] = draft
-        savePersistedDraft(sessionId, draft)
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.saveDraft(sessionId, draft.toDomainDraft(), expectedRevision)) {
+            sessionDrafts[sessionId] = draft
+        }
     }
 
     private fun clearDraft(sessionId: String) {
-        sessionDrafts[sessionId] = DesktopPaintDraft()
-        clearPersistedDraft(sessionId)
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.removeDraft(sessionId, expectedRevision)) {
+            sessionDrafts[sessionId] = DesktopPaintDraft()
+        }
     }
 
     private fun loadPersistedDraft(sessionId: String): DesktopPaintDraft =
-        DesktopPaintDraftStore.readDraft(sessionId)
-
-    private fun savePersistedDraft(sessionId: String, draft: DesktopPaintDraft) {
-        DesktopPaintDraftStore.writeDraft(sessionId, draft)
-    }
+        draftRepository.getDraft(sessionId)?.toDesktopDraft() ?: DesktopPaintDraft()
 
     private fun clearPersistedDraft(sessionId: String) {
-        DesktopPaintDraftStore.deleteDraft(sessionId)
+        val expectedRevision = draftRepository.draftsRevision.value
+        draftRepository.removeDraft(sessionId, expectedRevision)
     }
+
+    private fun reloadDraftsAfterExternalChange() {
+        sessionDrafts.clear()
+        val session = _uiState.value.currentSession ?: return
+        val draft = loadPersistedDraft(session.id)
+        sessionDrafts[session.id] = draft
+        _uiState.update { state ->
+            state.copy(
+                selectedModel = draft.selectedModel ?: session.model,
+                selectedAspectRatio = draft.selectedAspectRatio ?: session.aspectRatio,
+                selectedResolution = draft.selectedResolution ?: session.resolution,
+                selectedGptSize = draft.selectedGptSize ?: session.gptImageSize,
+                selectedGptQuality = draft.selectedGptQuality ?: session.gptImageQuality,
+                selectedGptFormat = draft.selectedGptFormat ?: session.gptOutputFormat,
+                promptText = draft.promptText,
+                selectedImages = draft.selectedImages,
+            )
+        }
+    }
+
+    private fun DesktopPaintDraft.toDomainDraft(): PaintSessionDraft = PaintSessionDraft(
+        promptText = promptText,
+        selectedImages = selectedImages.map { image -> image.toDomainDraftImage() },
+        selectedModel = selectedModel,
+        selectedAspectRatio = selectedAspectRatio,
+        selectedResolution = selectedResolution,
+        selectedGptSize = selectedGptSize,
+        selectedGptQuality = selectedGptQuality,
+        selectedGptFormat = selectedGptFormat,
+    )
+
+    private fun PaintSessionDraft.toDesktopDraft(): DesktopPaintDraft = DesktopPaintDraft(
+        promptText = promptText,
+        selectedImages = selectedImages.map { image -> image.toSelectedImage() },
+        selectedModel = selectedModel,
+        selectedAspectRatio = selectedAspectRatio,
+        selectedResolution = selectedResolution,
+        selectedGptSize = selectedGptSize,
+        selectedGptQuality = selectedGptQuality,
+        selectedGptFormat = selectedGptFormat,
+    )
+
+    private fun SelectedImage.toDomainDraftImage(): PaintDraftImage = PaintDraftImage(
+        id = id,
+        uri = uri,
+        mimeType = mimeType,
+        width = width,
+        height = height,
+    )
+
+    private fun PaintDraftImage.toSelectedImage(): SelectedImage = SelectedImage(
+        id = id,
+        uri = uri,
+        mimeType = mimeType,
+        width = width,
+        height = height,
+    )
 
     private fun PaintImage.asApiReferenceImage(): PaintImage? {
         val path = localPath ?: return null

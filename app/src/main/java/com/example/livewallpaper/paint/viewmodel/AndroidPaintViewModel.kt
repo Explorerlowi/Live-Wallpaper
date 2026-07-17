@@ -7,6 +7,7 @@ import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.livewallpaper.feature.aipaint.domain.model.*
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
@@ -16,9 +17,6 @@ import com.example.livewallpaper.paint.service.GenerationTaskManager
 import com.example.livewallpaper.paint.service.GenerationResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.random.Random
@@ -29,42 +27,18 @@ import kotlin.random.Random
  */
 class AndroidPaintViewModel(
     private val appContext: Context,
-    private val repository: PaintRepository
+    private val repository: PaintRepository,
+    private val draftRepository: PaintDraftRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PaintUiState())
     val uiState: StateFlow<PaintUiState> = _uiState.asStateFlow()
 
-    /**
-     * 会话草稿数据类（可序列化）
-     */
-    @Serializable
-    private data class SessionDraft(
-        val promptText: String = "",
-        val selectedImages: List<SerializableSelectedImage> = emptyList()
-    )
-    
-    /**
-     * 可序列化的选中图片数据
-     */
-    @Serializable
-    private data class SerializableSelectedImage(
-        val id: String,
-        val uri: String,
-        val mimeType: String,
-        val width: Int = 0,
-        val height: Int = 0
-    )
-    
-    private fun SelectedImage.toSerializable() = SerializableSelectedImage(id, uri, mimeType, width, height)
-    private fun SerializableSelectedImage.toSelectedImage() = SelectedImage(id, uri, mimeType, width, height)
-
-    // 草稿存储的 SharedPreferences
-    private val draftPrefs = appContext.getSharedPreferences("paint_drafts", Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true }
+    private fun SelectedImage.toDraftImage() = PaintDraftImage(id, uri, mimeType, width, height)
+    private fun PaintDraftImage.toSelectedImage() = SelectedImage(id, uri, mimeType, width, height)
     
     // 内存中的草稿缓存
-    private val sessionDrafts = mutableMapOf<String, SessionDraft>()
+    private val sessionDrafts = mutableMapOf<String, PaintSessionDraft>()
     private val tempDraftKey = "__temp_draft__"  // 临时缓存区的 key
 
     // 使用全局任务管理器，生命周期独立于 ViewModel
@@ -104,7 +78,11 @@ class AndroidPaintViewModel(
                 isGenerating = tasks.isNotEmpty(),
                 generatingMessageIds = tasks.keys,
                 generatingSessionCounts = sessionCounts,
-                generatingSessionId = if (currentSid != null && sessionCounts.containsKey(currentSid)) currentSid else null,
+                generatingSessionId = if (currentSid != null && sessionCounts.containsKey(currentSid)) {
+                    currentSid
+                } else {
+                    null
+                },
                 generationStartTime = earliestTime
             )
         }
@@ -130,7 +108,13 @@ class AndroidPaintViewModel(
                 activeProfile = initialActiveProfile,
                 isApiProfileLoaded = true,
                 promptText = tempDraft?.promptText ?: "",
-                selectedImages = tempDraft?.selectedImages?.map { img -> img.toSelectedImage() } ?: emptyList()
+                selectedImages = tempDraft?.selectedImages?.map { img -> img.toSelectedImage() } ?: emptyList(),
+                selectedModel = tempDraft?.selectedModel ?: it.selectedModel,
+                selectedAspectRatio = tempDraft?.selectedAspectRatio ?: it.selectedAspectRatio,
+                selectedResolution = tempDraft?.selectedResolution ?: it.selectedResolution,
+                selectedGptSize = tempDraft?.selectedGptSize ?: it.selectedGptSize,
+                selectedGptQuality = tempDraft?.selectedGptQuality ?: it.selectedGptQuality,
+                selectedGptFormat = tempDraft?.selectedGptFormat ?: it.selectedGptFormat,
             )
         }
         
@@ -145,6 +129,13 @@ class AndroidPaintViewModel(
                 syncGeneratingState()
             }
         }
+        // 备份导入等外部写入后，丢弃内存草稿缓存并从磁盘重新加载当前输入
+        viewModelScope.launch {
+            draftRepository.draftsRevision
+                .drop(1)
+                .collect { reloadDraftsAfterExternalChange() }
+        }
+
         // 监听生成结果事件，转发为 toast
         viewModelScope.launch {
             taskManager.resultEvents.collect { result ->
@@ -166,28 +157,15 @@ class AndroidPaintViewModel(
         }
     }
     
-    /**
-     * 从 SharedPreferences 加载草稿
-     */
-    private fun loadDraft(key: String): SessionDraft? {
-        return try {
-            val jsonStr = draftPrefs.getString(key, null) ?: return null
-            json.decodeFromString<SessionDraft>(jsonStr)
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun loadDraft(key: String): PaintSessionDraft? = draftRepository.getDraft(key)
     
     /**
      * 保存草稿到 SharedPreferences
      */
-    private fun saveDraft(key: String, draft: SessionDraft) {
-        try {
-            val jsonStr = json.encodeToString(draft)
-            draftPrefs.edit().putString(key, jsonStr).apply()
+    private fun saveDraft(key: String, draft: PaintSessionDraft) {
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.saveDraft(key, draft, expectedRevision)) {
             sessionDrafts[key] = draft
-        } catch (e: Exception) {
-            // 忽略序列化错误
         }
     }
     
@@ -195,8 +173,10 @@ class AndroidPaintViewModel(
      * 删除草稿
      */
     private fun removeDraft(key: String) {
-        draftPrefs.edit().remove(key).apply()
-        sessionDrafts.remove(key)
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.removeDraft(key, expectedRevision)) {
+            sessionDrafts.remove(key)
+        }
     }
 
     private fun loadApiProfiles() {
@@ -220,10 +200,52 @@ class AndroidPaintViewModel(
     private fun loadSessions() {
         viewModelScope.launch {
             repository.getSessions().collect { sessions ->
-                _uiState.update { it.copy(sessions = sessions) }
+                val previousSession = _uiState.value.currentSession
+                val refreshedSession = previousSession?.let { current ->
+                    sessions.firstOrNull { it.id == current.id }
+                }
+                val generationSettingsChanged = previousSession != null && refreshedSession != null &&
+                    previousSession.hasDifferentGenerationSettings(refreshedSession)
+                val refreshedDraft = refreshedSession
+                    ?.takeIf { generationSettingsChanged }
+                    ?.let { session -> restoreDraft(session.id) }
+
+                if (previousSession != null && refreshedSession == null) {
+                    currentSessionId = null
+                    messagesCollectJob?.cancel()
+                }
+                _uiState.update { state ->
+                    when {
+                        previousSession == null -> state.copy(sessions = sessions)
+                        refreshedSession == null -> state.copy(
+                            sessions = sessions,
+                            currentSession = null,
+                            messages = emptyList(),
+                        )
+                        generationSettingsChanged -> state.copy(
+                            sessions = sessions,
+                            currentSession = refreshedSession,
+                            selectedModel = refreshedDraft?.selectedModel ?: refreshedSession.model,
+                            selectedAspectRatio = refreshedDraft?.selectedAspectRatio ?: refreshedSession.aspectRatio,
+                            selectedResolution = refreshedDraft?.selectedResolution ?: refreshedSession.resolution,
+                            selectedGptSize = refreshedDraft?.selectedGptSize ?: refreshedSession.gptImageSize,
+                            selectedGptQuality = refreshedDraft?.selectedGptQuality ?: refreshedSession.gptImageQuality,
+                            selectedGptFormat = refreshedDraft?.selectedGptFormat ?: refreshedSession.gptOutputFormat,
+                        )
+                        else -> state.copy(sessions = sessions, currentSession = refreshedSession)
+                    }
+                }
             }
         }
     }
+
+    private fun PaintSession.hasDifferentGenerationSettings(other: PaintSession): Boolean =
+        model != other.model ||
+            aspectRatio != other.aspectRatio ||
+            resolution != other.resolution ||
+            gptImageSize != other.gptImageSize ||
+            gptImageQuality != other.gptImageQuality ||
+            gptOutputFormat != other.gptOutputFormat
 
     private fun loadMessages(sessionId: String) {
         currentSessionId = sessionId
@@ -319,13 +341,19 @@ class AndroidPaintViewModel(
     private fun currentDraftKey(): String =
         _uiState.value.currentSession?.id ?: tempDraftKey
 
-    private fun snapshotCurrentDraft(): SessionDraft =
-        SessionDraft(
+    private fun snapshotCurrentDraft(): PaintSessionDraft =
+        PaintSessionDraft(
             promptText = _uiState.value.promptText,
-            selectedImages = _uiState.value.selectedImages.map { it.toSerializable() }
+            selectedImages = _uiState.value.selectedImages.map { it.toDraftImage() },
+            selectedModel = _uiState.value.selectedModel,
+            selectedAspectRatio = _uiState.value.selectedAspectRatio,
+            selectedResolution = _uiState.value.selectedResolution,
+            selectedGptSize = _uiState.value.selectedGptSize,
+            selectedGptQuality = _uiState.value.selectedGptQuality,
+            selectedGptFormat = _uiState.value.selectedGptFormat,
         )
 
-    private fun restoreDraft(key: String): SessionDraft {
+    private fun restoreDraft(key: String): PaintSessionDraft {
         val cached = sessionDrafts[key]
         if (cached != null) return cached
         val loaded = loadDraft(key)
@@ -333,24 +361,49 @@ class AndroidPaintViewModel(
             sessionDrafts[key] = loaded
             loaded
         } else {
-            SessionDraft()
+            PaintSessionDraft()
         }
     }
 
-    private fun schedulePromptDraftSave(key: String, draft: SessionDraft) {
-        sessionDrafts[key] = draft
+    /**
+     * Clears in-memory draft caches after an external merge (e.g. ZIP import) and refreshes the
+     * currently visible prompt/images so a later autosave cannot overwrite imported drafts.
+     */
+    private fun reloadDraftsAfterExternalChange() {
         promptDraftSaveJob?.cancel()
-        promptDraftSaveJob = viewModelScope.launch(Dispatchers.Default) {
+        promptDraftSaveJob = null
+        sessionDrafts.clear()
+        val draft = restoreDraft(currentDraftKey())
+        _uiState.update { state ->
+            state.copy(
+                promptText = draft.promptText,
+                selectedImages = draft.selectedImages.map { it.toSelectedImage() },
+                selectedModel = draft.selectedModel ?: state.currentSession?.model ?: state.selectedModel,
+                selectedAspectRatio = draft.selectedAspectRatio
+                    ?: state.currentSession?.aspectRatio
+                    ?: state.selectedAspectRatio,
+                selectedResolution = draft.selectedResolution
+                    ?: state.currentSession?.resolution
+                    ?: state.selectedResolution,
+                selectedGptSize = draft.selectedGptSize ?: state.currentSession?.gptImageSize ?: state.selectedGptSize,
+                selectedGptQuality = draft.selectedGptQuality
+                    ?: state.currentSession?.gptImageQuality
+                    ?: state.selectedGptQuality,
+                selectedGptFormat = draft.selectedGptFormat
+                    ?: state.currentSession?.gptOutputFormat
+                    ?: state.selectedGptFormat,
+            )
+        }
+    }
+
+    private fun schedulePromptDraftSave(key: String, draft: PaintSessionDraft) {
+        sessionDrafts[key] = draft
+        val expectedRevision = draftRepository.draftsRevision.value
+        promptDraftSaveJob?.cancel()
+        promptDraftSaveJob = viewModelScope.launch {
             delay(350)
-            val jsonStr = try {
-                json.encodeToString(draft)
-            } catch (_: Exception) {
-                null
-            }
-            if (jsonStr != null) {
-                withContext(Dispatchers.IO) {
-                    draftPrefs.edit().putString(key, jsonStr).apply()
-                }
+            withContext(Dispatchers.IO) {
+                draftRepository.saveDraft(key, draft, expectedRevision)
             }
         }
     }
@@ -359,6 +412,7 @@ class AndroidPaintViewModel(
         viewModelScope.launch {
             val session = PaintSession(
                 id = generateId(),
+                originPlatform = PaintClientPlatform.ANDROID,
                 model = model,
                 aspectRatio = _uiState.value.selectedAspectRatio,
                 resolution = _uiState.value.selectedResolution,
@@ -391,12 +445,12 @@ class AndroidPaintViewModel(
                 _uiState.update { 
                     it.copy(
                         currentSession = session,
-                        selectedModel = session.model,
-                        selectedAspectRatio = session.aspectRatio,
-                        selectedResolution = session.resolution,
-                        selectedGptSize = session.gptImageSize,
-                        selectedGptQuality = session.gptImageQuality,
-                        selectedGptFormat = session.gptOutputFormat,
+                        selectedModel = draft.selectedModel ?: session.model,
+                        selectedAspectRatio = draft.selectedAspectRatio ?: session.aspectRatio,
+                        selectedResolution = draft.selectedResolution ?: session.resolution,
+                        selectedGptSize = draft.selectedGptSize ?: session.gptImageSize,
+                        selectedGptQuality = draft.selectedGptQuality ?: session.gptImageQuality,
+                        selectedGptFormat = draft.selectedGptFormat ?: session.gptOutputFormat,
                         messages = emptyList(),
                         promptText = draft.promptText,
                         selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() },
@@ -478,6 +532,7 @@ class AndroidPaintViewModel(
             val session = state.currentSession ?: run {
                 val newSession = PaintSession(
                     id = generateId(),
+                    originPlatform = PaintClientPlatform.ANDROID,
                     model = state.selectedModel,
                     aspectRatio = state.selectedAspectRatio,
                     resolution = state.selectedResolution
@@ -508,6 +563,7 @@ class AndroidPaintViewModel(
             val userMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = PaintClientPlatform.ANDROID,
                 senderIdentity = SenderIdentity.USER,
                 messageContent = prompt,
                 messageType = if (userImagesForMessage.isNotEmpty()) MessageType.IMAGE else MessageType.TEXT,
@@ -519,6 +575,7 @@ class AndroidPaintViewModel(
             val assistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = session.id,
+                originPlatform = PaintClientPlatform.ANDROID,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,
@@ -536,7 +593,7 @@ class AndroidPaintViewModel(
             
             val startTime = System.currentTimeMillis()
             // 发送消息后清空该会话的草稿
-            saveDraft(session.id, SessionDraft())
+            saveDraft(session.id, PaintSessionDraft())
             removeDraft(tempDraftKey)
             
             // 先只显示用户消息
@@ -846,8 +903,8 @@ class AndroidPaintViewModel(
         _uiState.update { it.copy(selectedImages = it.selectedImages + image) }
         // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
-        saveDraft(key, current.copy(selectedImages = current.selectedImages + image.toSerializable()))
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
+        saveDraft(key, current.copy(selectedImages = current.selectedImages + image.toDraftImage()))
     }
 
     private fun removeImage(imageId: String) {
@@ -856,7 +913,7 @@ class AndroidPaintViewModel(
         }
         // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
         saveDraft(key, current.copy(selectedImages = current.selectedImages.filter { img -> img.id != imageId }))
     }
 
@@ -865,15 +922,15 @@ class AndroidPaintViewModel(
         if (images.map { it.id }.toSet() != selectedIds) return
         _uiState.update { it.copy(selectedImages = images) }
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
-        saveDraft(key, current.copy(selectedImages = images.map { it.toSerializable() }))
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
+        saveDraft(key, current.copy(selectedImages = images.map { it.toDraftImage() }))
     }
 
     private fun clearImages() {
         _uiState.update { it.copy(selectedImages = emptyList()) }
         // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: SessionDraft()
+        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
         saveDraft(key, current.copy(selectedImages = emptyList()))
     }
 
@@ -906,9 +963,9 @@ class AndroidPaintViewModel(
             
             // 更新草稿和 UI 状态
             val key = currentDraftKey()
-            saveDraft(key, SessionDraft(
+            saveDraft(key, PaintSessionDraft(
                 promptText = promptText, 
-                selectedImages = selectedImages.map { it.toSerializable() }
+                selectedImages = selectedImages.map { it.toDraftImage() }
             ))
             _uiState.update { 
                 it.copy(
@@ -1160,6 +1217,7 @@ class AndroidPaintViewModel(
             val newAssistantMessage = PaintMessage(
                 id = generateId(),
                 sessionId = sessionId,
+                originPlatform = PaintClientPlatform.ANDROID,
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,

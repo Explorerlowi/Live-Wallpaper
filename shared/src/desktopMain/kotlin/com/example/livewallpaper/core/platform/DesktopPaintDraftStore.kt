@@ -10,7 +10,10 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImag
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Base64
+import java.util.UUID
 import java.util.prefs.Preferences
 
 /**
@@ -26,6 +29,15 @@ data class DesktopPaintDraft(
     val selectedGptQuality: GptImageQuality? = null,
     val selectedGptFormat: GptOutputFormat? = null,
 )
+
+/** Strict result used when every desktop draft must be preserved in a backup. */
+sealed interface DesktopPaintDraftBackupReadResult {
+    /** All persisted desktop drafts were decoded without dropping fields or missing images. */
+    data class Success(val drafts: Map<String, DesktopPaintDraft>) : DesktopPaintDraftBackupReadResult
+
+    /** At least one persisted draft could not be decoded safely. */
+    data object Corrupted : DesktopPaintDraftBackupReadResult
+}
 
 /**
  * Stores desktop AI paint drafts as per-session JSON files and migrates the legacy Preferences chunks on first read.
@@ -51,21 +63,138 @@ object DesktopPaintDraftStore {
     }
 
     fun writeDraft(sessionId: String, draft: DesktopPaintDraft) {
-        if (draft.isEmpty()) {
-            deleteDraft(sessionId)
-            return
-        }
-        runCatching {
-            val file = draftFile(sessionId)
-            file.parentFile.mkdirs()
-            file.writeText(json.encodeToString(PersistedDraft.serializer(), draft.toPersisted()), Charsets.UTF_8)
-            clearLegacyDraft(sessionId)
-        }
+        writeDraftStrict(sessionId, draft)
     }
 
     fun deleteDraft(sessionId: String) {
-        runCatching { draftFile(sessionId).delete() }
+        deleteDraftStrict(sessionId)
+    }
+
+    /**
+     * Reads every file-backed draft plus legacy drafts belonging to current sessions.
+     *
+     * Unlike [readDraft], this method keeps missing image references so archive creation fails
+     * visibly instead of silently omitting them.
+     */
+    fun readDraftsForBackup(sessionIds: Set<String>): DesktopPaintDraftBackupReadResult {
+        val drafts = runCatching {
+            val result = linkedMapOf<String, DesktopPaintDraft>()
+            val directory = DesktopAiPaintStoragePaths.draftDirectory()
+            check(directory.isDirectory) { "Desktop draft path is not a directory" }
+            val files = directory
+                .listFiles { file -> file.isFile && file.extension.equals("json", ignoreCase = true) }
+                .orEmpty()
+            files.forEach { file ->
+                val persisted = json.decodeFromString(
+                    PersistedDraft.serializer(),
+                    file.readText(Charsets.UTF_8),
+                )
+                val key = persisted.draftKey?.takeIf { it.isNotBlank() } ?: file.nameWithoutExtension
+                check(key !in result) { "Duplicate desktop draft key" }
+                result[key] = persisted.toDraft()
+            }
+            result
+        }.getOrElse {
+            return DesktopPaintDraftBackupReadResult.Corrupted
+        }
+
+        sessionIds.forEach { sessionId ->
+            if (sessionId in drafts) return@forEach
+            val rawResult = runCatching { readLegacyDraftContent(sessionId) }
+            if (rawResult.isFailure) return DesktopPaintDraftBackupReadResult.Corrupted
+            val raw = rawResult.getOrNull().orEmpty()
+            if (raw.isBlank()) return@forEach
+            val draft = decodeLegacyDraftStrict(raw)
+                ?: return DesktopPaintDraftBackupReadResult.Corrupted
+            drafts[sessionId] = draft
+        }
+        return DesktopPaintDraftBackupReadResult.Success(
+            drafts.filterValues { draft -> !draft.isEmpty() },
+        )
+    }
+
+    /** Merges a set of drafts and restores the previous file-backed state if any write fails. */
+    fun mergeDraftsStrict(drafts: Map<String, DesktopPaintDraft>): Boolean {
+        if (drafts.isEmpty()) return true
+        val existing = when (val result = readDraftsForBackup(emptySet())) {
+            DesktopPaintDraftBackupReadResult.Corrupted -> return false
+            is DesktopPaintDraftBackupReadResult.Success -> result.drafts
+        }
+        return replaceFileBackedDraftsWithRollback(existing + drafts, existing)
+    }
+
+    /** Replaces every file-backed draft and restores the previous state if replacement fails. */
+    fun replaceDraftsStrict(drafts: Map<String, DesktopPaintDraft>): Boolean {
+        val existing = when (val result = readDraftsForBackup(emptySet())) {
+            DesktopPaintDraftBackupReadResult.Corrupted -> return false
+            is DesktopPaintDraftBackupReadResult.Success -> result.drafts
+        }
+        return replaceFileBackedDraftsWithRollback(drafts, existing)
+    }
+
+    /** Writes one draft atomically and reports storage failures. */
+    fun writeDraftStrict(sessionId: String, draft: DesktopPaintDraft): Boolean {
+        if (draft.isEmpty()) return deleteDraftStrict(sessionId)
+        return runCatching {
+            val file = draftFile(sessionId)
+            check(file.parentFile?.mkdirs() != false || file.parentFile?.isDirectory == true)
+            val temporary = File(file.parentFile, ".${file.name}.${UUID.randomUUID()}.tmp")
+            try {
+                temporary.writeText(
+                    json.encodeToString(PersistedDraft.serializer(), draft.toPersisted(sessionId)),
+                    Charsets.UTF_8,
+                )
+                moveReplacing(temporary, file)
+            } finally {
+                temporary.delete()
+            }
+            clearLegacyDraft(sessionId)
+        }.isSuccess
+    }
+
+    /** Deletes one file-backed and legacy draft and reports storage failures. */
+    fun deleteDraftStrict(sessionId: String): Boolean = runCatching {
+        val file = draftFile(sessionId)
+        check(!file.exists() || file.delete())
         clearLegacyDraft(sessionId)
+    }.isSuccess
+
+    private fun replaceFileBackedDraftsWithRollback(
+        replacement: Map<String, DesktopPaintDraft>,
+        previous: Map<String, DesktopPaintDraft>,
+    ): Boolean {
+        if (writeFileBackedDraftSet(replacement)) return true
+        writeFileBackedDraftSet(previous)
+        return false
+    }
+
+    private fun writeFileBackedDraftSet(drafts: Map<String, DesktopPaintDraft>): Boolean = runCatching {
+        val directory = DesktopAiPaintStoragePaths.draftDirectory()
+        check(directory.isDirectory)
+        directory
+            .listFiles { file -> file.isFile && file.extension.equals("json", ignoreCase = true) }
+            .orEmpty()
+            .forEach { file -> check(file.delete()) }
+        drafts.forEach { (key, draft) ->
+            check(writeDraftStrict(key, draft))
+        }
+    }.isSuccess
+
+    private fun moveReplacing(source: File, destination: File) {
+        runCatching {
+            Files.move(
+                source.toPath(),
+                destination.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }.getOrElse {
+            Files.move(
+                source.toPath(),
+                destination.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
     }
 
     private fun readFileDraft(sessionId: String): DesktopPaintDraft? = runCatching {
@@ -75,20 +204,27 @@ object DesktopPaintDraftStore {
     }.getOrNull()
 
     private fun readLegacyDraft(sessionId: String): DesktopPaintDraft? {
-        val raw = runCatching {
-            val chunkCount = preferences.getInt(draftChunkCountKey(sessionId), 0)
-            if (chunkCount in 1..MAX_DRAFT_CHUNKS) {
-                buildString {
-                    repeat(chunkCount) { index ->
-                        append(preferences.get(draftChunkKey(sessionId, index), ""))
-                    }
-                }
-            } else {
-                preferences.get(draftKey(sessionId), "")
-            }
-        }.getOrDefault("")
+        val raw = runCatching { readLegacyDraftContent(sessionId) }.getOrDefault("")
         if (raw.isBlank()) return null
         return decodeLegacyDraft(raw)
+    }
+
+    private fun readLegacyDraftContent(sessionId: String): String {
+        val chunkCount = preferences.getInt(draftChunkCountKey(sessionId), 0)
+        check(chunkCount in 0..MAX_DRAFT_CHUNKS) { "Invalid legacy desktop draft chunk count" }
+        return if (chunkCount in 1..MAX_DRAFT_CHUNKS) {
+            buildString {
+                repeat(chunkCount) { index ->
+                    append(
+                        checkNotNull(preferences.get(draftChunkKey(sessionId, index), null)) {
+                            "Missing legacy desktop draft chunk"
+                        },
+                    )
+                }
+            }
+        } else {
+            preferences.get(draftKey(sessionId), "")
+        }
     }
 
     private fun decodeLegacyDraft(raw: String): DesktopPaintDraft? = runCatching {
@@ -108,6 +244,29 @@ object DesktopPaintDraftStore {
             )
         }
         DesktopPaintDraft(promptText = prompt, selectedImages = images)
+    }.getOrNull()
+
+    private fun decodeLegacyDraftStrict(raw: String): DesktopPaintDraft? = runCatching {
+        val lines = raw.lineSequence().toList()
+        if (lines.size < 2 || lines[0] != LEGACY_DRAFT_FORMAT_VERSION) return@runCatching null
+        val decoder = Base64.getUrlDecoder()
+        val images = lines.drop(2).map { line ->
+            val parts = line.split('\t')
+            if (parts.size != 5) return@runCatching null
+            val width = parts[3].toIntOrNull() ?: return@runCatching null
+            val height = parts[4].toIntOrNull() ?: return@runCatching null
+            SelectedImage(
+                id = parts[0],
+                uri = String(decoder.decode(parts[1]), Charsets.UTF_8),
+                mimeType = String(decoder.decode(parts[2]), Charsets.UTF_8),
+                width = width,
+                height = height,
+            )
+        }
+        DesktopPaintDraft(
+            promptText = String(decoder.decode(lines[1]), Charsets.UTF_8),
+            selectedImages = images,
+        )
     }.getOrNull()
 
     private fun clearLegacyDraft(sessionId: String) {
@@ -132,7 +291,9 @@ object DesktopPaintDraftStore {
         File(DesktopAiPaintStoragePaths.draftDirectory(), "${safeFileName(sessionId)}.json")
 
     private fun safeFileName(sessionId: String): String =
-        sessionId.map { char -> if (char.isLetterOrDigit() || char == '-' || char == '_') char else '_' }.joinToString("")
+        sessionId.map { char ->
+            if (char.isLetterOrDigit() || char == '-' || char == '_') char else '_'
+        }.joinToString("")
 
     private fun draftKey(sessionId: String): String = "paint_draft_$sessionId"
 
@@ -140,7 +301,8 @@ object DesktopPaintDraftStore {
 
     private fun draftChunkKey(sessionId: String, index: Int): String = "${draftKey(sessionId)}_$index"
 
-    private fun DesktopPaintDraft.toPersisted(): PersistedDraft = PersistedDraft(
+    private fun DesktopPaintDraft.toPersisted(draftKey: String): PersistedDraft = PersistedDraft(
+        draftKey = draftKey,
         promptText = promptText,
         selectedImages = selectedImages.map { it.toPersisted() },
         selectedModel = selectedModel?.name,
@@ -188,6 +350,7 @@ object DesktopPaintDraftStore {
 
 @Serializable
 private data class PersistedDraft(
+    val draftKey: String? = null,
     val promptText: String = "",
     val selectedImages: List<PersistedSelectedImage> = emptyList(),
     val selectedModel: String? = null,

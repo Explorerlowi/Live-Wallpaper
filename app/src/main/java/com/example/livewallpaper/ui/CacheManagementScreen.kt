@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -97,6 +98,7 @@ fun CacheManagementScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     
     // 状态
     var isLoading by remember { mutableStateOf(true) }
@@ -182,7 +184,7 @@ fun CacheManagementScreen(
         
         Toast.makeText(
             context,
-            context.getString(R.string.cache_deleted_success, deletedCount),
+            resources.getString(R.string.cache_deleted_success, deletedCount),
             Toast.LENGTH_SHORT
         ).show()
     }
