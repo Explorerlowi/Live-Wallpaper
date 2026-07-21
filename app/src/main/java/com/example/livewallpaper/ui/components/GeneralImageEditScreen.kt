@@ -10,15 +10,23 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -661,21 +669,24 @@ private fun ImageEditBody(
     val animatableScale = remember { Animatable(1f) }
     val animatableOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
 
+    // ── 当前工具状态 ──
+    var activeTool by remember { mutableStateOf<EditTool?>(null) }
+    val isBrushMode = activeTool == EditTool.BRUSH
+    val isMosaicMode = activeTool == EditTool.MOSAIC
+    val isTextMode = activeTool == EditTool.TEXT
+
     // ── 画笔状态 ──
-    var isBrushMode by remember { mutableStateOf(false) }
     var selectedBrushShape by remember { mutableStateOf(BrushShape.PEN) }
     var selectedColor by remember { mutableStateOf(Color.Red) }
     var showShapePicker by remember { mutableStateOf(false) }
     val drawHistory = remember { mutableStateListOf<DrawOperation>() }
 
     // ── 文字状态 ──
-    var isTextMode by remember { mutableStateOf(false) }
     var showTextInputDialog by remember { mutableStateOf(false) }
     var editingTextIndex by remember { mutableIntStateOf(-1) }
     var textSize by remember { mutableFloatStateOf(DEFAULT_TEXT_SIZE) }
 
     // ── 马赛克状态 ──
-    var isMosaicMode by remember { mutableStateOf(false) }
     var mosaicBrushRadius by remember { mutableFloatStateOf(30f) }
     var mosaicBlockSize by remember { mutableIntStateOf(20) }
     var mosaicBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -1187,111 +1198,146 @@ private fun ImageEditBody(
                     .fillMaxWidth()
                     .padding(bottom = navInset + 12.dp)
             ) {
-                // 互斥工具使用固定高度的承载区，模式切换时不会互相挤占布局空间。
-                AnimatedVisibility(
-                    visible = isBrushMode || isMosaicMode || isTextMode,
-                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
-                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it }
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(112.dp)
-                    ) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isBrushMode && showShapePicker,
-                            enter = fadeIn(tween(150)),
-                            exit = fadeOut(tween(150)),
-                            modifier = Modifier.align(Alignment.TopCenter)
-                        ) {
-                            ShapePickerBar(
-                                selectedShape = selectedBrushShape,
-                                onShapeSelected = { shape ->
-                                    selectedBrushShape = shape
-                                    showShapePicker = false
-                                }
-                            )
+                // 单一内容转场避免旧、新工具栏在切换过程中重叠。
+                AnimatedContent(
+                    targetState = activeTool,
+                    transitionSpec = {
+                        val transition = when {
+                            initialState == null -> {
+                                (fadeIn(tween(220)) +
+                                    slideInVertically(tween(260)) { it / 2 }) togetherWith
+                                    ExitTransition.None
+                            }
+                            targetState == null -> {
+                                EnterTransition.None togetherWith
+                                    (fadeOut(tween(160)) +
+                                        slideOutVertically(tween(220)) { it / 2 })
+                            }
+                            targetState!!.ordinal > initialState!!.ordinal -> {
+                                (fadeIn(tween(200)) +
+                                    slideInHorizontally(tween(240)) { it / 4 }) togetherWith
+                                    (fadeOut(tween(160)) +
+                                        slideOutHorizontally(tween(200)) { -it / 4 })
+                            }
+                            else -> {
+                                (fadeIn(tween(200)) +
+                                    slideInHorizontally(tween(240)) { -it / 4 }) togetherWith
+                                    (fadeOut(tween(160)) +
+                                        slideOutHorizontally(tween(200)) { it / 4 })
+                            }
                         }
+                        transition.using(
+                            SizeTransform(
+                                clip = false,
+                                sizeAnimationSpec = { _, _ -> tween(240) }
+                            )
+                        )
+                    },
+                    contentAlignment = Alignment.BottomCenter,
+                    label = "editToolPanel"
+                ) { tool ->
+                    when (tool) {
+                        EditTool.BRUSH -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(112.dp)
+                            ) {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = showShapePicker,
+                                    enter = fadeIn(tween(180)) +
+                                        slideInVertically(tween(220)) { it / 2 },
+                                    exit = fadeOut(tween(140)) +
+                                        slideOutVertically(tween(180)) { it / 2 },
+                                    modifier = Modifier.align(Alignment.TopCenter)
+                                ) {
+                                    ShapePickerBar(
+                                        selectedShape = selectedBrushShape,
+                                        onShapeSelected = { shape ->
+                                            selectedBrushShape = shape
+                                            showShapePicker = false
+                                        }
+                                    )
+                                }
 
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isBrushMode,
-                            enter = fadeIn(tween(150)),
-                            exit = fadeOut(tween(150)),
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        ) {
-                            BrushToolBar(
-                                selectedColor = selectedColor,
-                                canUndo = drawHistory.isNotEmpty(),
-                                onToggleShapePicker = { showShapePicker = !showShapePicker },
-                                onColorSelected = { selectedColor = it },
-                                onUndo = {
-                                    if (drawHistory.isNotEmpty()) {
-                                        if (selectedIndex == drawHistory.lastIndex) {
+                                BrushToolBar(
+                                    selectedColor = selectedColor,
+                                    canUndo = drawHistory.isNotEmpty(),
+                                    onToggleShapePicker = { showShapePicker = !showShapePicker },
+                                    onColorSelected = { selectedColor = it },
+                                    onUndo = {
+                                        if (drawHistory.isNotEmpty()) {
+                                            if (selectedIndex == drawHistory.lastIndex) {
+                                                selectedIndex = -1
+                                            }
+                                            drawHistory.removeAt(drawHistory.lastIndex)
+                                            if (selectedIndex >= drawHistory.size) {
+                                                selectedIndex = -1
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.align(Alignment.BottomCenter)
+                                )
+                            }
+                        }
+                        EditTool.MOSAIC -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(112.dp),
+                                contentAlignment = Alignment.BottomCenter
+                            ) {
+                                MosaicToolBar(
+                                    brushRadius = mosaicBrushRadius,
+                                    canUndo = drawHistory.isNotEmpty(),
+                                    onBrushRadiusChange = { mosaicBrushRadius = it },
+                                    onUndo = {
+                                        if (drawHistory.isNotEmpty()) {
+                                            drawHistory.removeAt(drawHistory.lastIndex)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        EditTool.TEXT -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(112.dp),
+                                contentAlignment = Alignment.BottomCenter
+                            ) {
+                                TextToolBar(
+                                    selectedColor = selectedColor,
+                                    textSize = textSize,
+                                    canUndo = drawHistory.isNotEmpty(),
+                                    onColorSelected = { color ->
+                                        selectedColor = color
+                                        val operation = drawHistory.getOrNull(selectedIndex)
+                                        if (operation is DrawOperation.TextOverlay) {
+                                            drawHistory[selectedIndex] = operation.copy(color = color)
+                                        }
+                                    },
+                                    onTextSizeChange = { newSize ->
+                                        textSize = newSize
+                                        val operation = drawHistory.getOrNull(selectedIndex)
+                                        if (operation is DrawOperation.TextOverlay) {
+                                            drawHistory[selectedIndex] = operation.copy(textSize = newSize)
+                                        }
+                                    },
+                                    onAddText = {
+                                        editingTextIndex = -1
+                                        showTextInputDialog = true
+                                    },
+                                    onUndo = {
+                                        if (drawHistory.isNotEmpty()) {
+                                            drawHistory.removeAt(drawHistory.lastIndex)
                                             selectedIndex = -1
                                         }
-                                        drawHistory.removeAt(drawHistory.lastIndex)
-                                        if (selectedIndex >= drawHistory.size) {
-                                            selectedIndex = -1
-                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
-
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isMosaicMode,
-                            enter = fadeIn(tween(150)),
-                            exit = fadeOut(tween(150)),
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        ) {
-                            MosaicToolBar(
-                                brushRadius = mosaicBrushRadius,
-                                canUndo = drawHistory.isNotEmpty(),
-                                onBrushRadiusChange = { mosaicBrushRadius = it },
-                                onUndo = {
-                                    if (drawHistory.isNotEmpty()) {
-                                        drawHistory.removeAt(drawHistory.lastIndex)
-                                    }
-                                }
-                            )
-                        }
-
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isTextMode,
-                            enter = fadeIn(tween(150)),
-                            exit = fadeOut(tween(150)),
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        ) {
-                            TextToolBar(
-                                selectedColor = selectedColor,
-                                textSize = textSize,
-                                canUndo = drawHistory.isNotEmpty(),
-                                onColorSelected = { color ->
-                                    selectedColor = color
-                                    val operation = drawHistory.getOrNull(selectedIndex)
-                                    if (operation is DrawOperation.TextOverlay) {
-                                        drawHistory[selectedIndex] = operation.copy(color = color)
-                                    }
-                                },
-                                onTextSizeChange = { newSize ->
-                                    textSize = newSize
-                                    val operation = drawHistory.getOrNull(selectedIndex)
-                                    if (operation is DrawOperation.TextOverlay) {
-                                        drawHistory[selectedIndex] = operation.copy(textSize = newSize)
-                                    }
-                                },
-                                onAddText = {
-                                    editingTextIndex = -1
-                                    showTextInputDialog = true
-                                },
-                                onUndo = {
-                                    if (drawHistory.isNotEmpty()) {
-                                        drawHistory.removeAt(drawHistory.lastIndex)
-                                        selectedIndex = -1
-                                    }
-                                }
-                            )
-                        }
+                        else -> Spacer(modifier = Modifier.fillMaxWidth())
                     }
                 }
 
@@ -1303,34 +1349,22 @@ private fun ImageEditBody(
                     onToolSelected = { tool ->
                         when (tool) {
                             EditTool.BRUSH -> {
-                                isBrushMode = !isBrushMode
-                                if (isBrushMode) {
-                                    isMosaicMode = false
-                                    isTextMode = false
-                                }
-                                if (!isBrushMode) showShapePicker = false
+                                activeTool = if (isBrushMode) null else EditTool.BRUSH
+                                if (activeTool != EditTool.BRUSH) showShapePicker = false
                             }
                             EditTool.MOSAIC -> {
-                                isMosaicMode = !isMosaicMode
-                                if (isMosaicMode) {
-                                    isBrushMode = false
-                                    isTextMode = false
-                                    showShapePicker = false
-                                }
+                                activeTool = if (isMosaicMode) null else EditTool.MOSAIC
+                                showShapePicker = false
                             }
                             EditTool.TEXT -> {
-                                isTextMode = true
-                                isBrushMode = false
-                                isMosaicMode = false
+                                activeTool = EditTool.TEXT
                                 showShapePicker = false
                                 editingTextIndex = -1
                                 showTextInputDialog = true
                                 onToolSelected(tool)
                             }
                             EditTool.CROP -> {
-                                isBrushMode = false
-                                isMosaicMode = false
-                                isTextMode = false
+                                activeTool = null
                                 showShapePicker = false
                                 scope.launch {
                                     val bitmap = withContext(Dispatchers.IO) {
@@ -2058,10 +2092,11 @@ private fun BrushToolBar(
     canUndo: Boolean,
     onToggleShapePicker: () -> Unit,
     onColorSelected: (Color) -> Unit,
-    onUndo: () -> Unit
+    onUndo: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2444,6 +2479,17 @@ private fun ToolIcon(
     isActive: Boolean = false,
     onClick: () -> Unit
 ) {
+    val iconTint by animateColorAsState(
+        targetValue = if (isActive) Color(0xFF4A90D9) else Color.White,
+        animationSpec = tween(180),
+        label = "toolIconTint"
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (isActive) 1.12f else 1f,
+        animationSpec = tween(180),
+        label = "toolIconScale"
+    )
+
     IconButton(
         onClick = onClick,
         modifier = Modifier.size(44.dp)
@@ -2451,8 +2497,13 @@ private fun ToolIcon(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (isActive) Color(0xFF4A90D9) else Color.White,
-            modifier = Modifier.size(26.dp)
+            tint = iconTint,
+            modifier = Modifier
+                .size(26.dp)
+                .graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                }
         )
     }
 }
