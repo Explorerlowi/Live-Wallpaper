@@ -34,16 +34,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Flip
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Rotate90DegreesCcw
-import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -109,6 +99,7 @@ import androidx.compose.ui.window.rememberDialogState
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.theme.AppDesignTheme
 import com.example.livewallpaper.core.design.theme.AppDesignThemeStyle
 import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
@@ -1598,7 +1589,7 @@ private fun WallpaperImagePreviewWindow(
 
                     if (showControls && canNavigate) {
                         WallpaperPreviewIconButton(
-                            icon = Icons.Default.ChevronLeft,
+                            icon = AppIcons.chevronLeft,
                             contentDescription = strings.previous,
                             modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                             enabled = currentIndex > 0,
@@ -1608,7 +1599,7 @@ private fun WallpaperImagePreviewWindow(
 
                     if (showControls && canNavigate) {
                         WallpaperPreviewIconButton(
-                            icon = Icons.Default.ChevronRight,
+                            icon = AppIcons.chevronRight,
                             contentDescription = strings.next,
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                             enabled = currentIndex < paths.lastIndex,
@@ -1632,24 +1623,32 @@ private fun WallpaperImagePreviewWindow(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Rotate90DegreesCcw,
+                                icon = AppIcons.rotateCounterClockwise,
                                 contentDescription = strings.imagePreviewRotateLeft,
                                 onClick = { updateTransform(transform.copy(rotation = transform.rotation - 90f)) },
                             )
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Rotate90DegreesCw,
+                                icon = AppIcons.rotateClockwise,
                                 contentDescription = strings.imagePreviewRotateRight,
                                 onClick = { updateTransform(transform.copy(rotation = transform.rotation + 90f)) },
                             )
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (transform.flipHorizontal) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = strings.imagePreviewFlipHorizontal,
                                 onClick = {
                                     updateTransform(transform.copy(flipHorizontal = !transform.flipHorizontal))
                                 },
                             )
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (transform.flipVertical) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = strings.imagePreviewFlipVertical,
                                 rotateIcon = 90f,
                                 onClick = {
@@ -1657,12 +1656,12 @@ private fun WallpaperImagePreviewWindow(
                                 },
                             )
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Edit,
+                                icon = AppIcons.edit,
                                 contentDescription = strings.paintEditMessage,
                                 onClick = { openPreviewImageForEdit(path) },
                             )
                             WallpaperPreviewIconButton(
-                                icon = Icons.Default.Download,
+                                icon = AppIcons.download,
                                 contentDescription = strings.paintSaveAs,
                                 onClick = { saveWallpaperPreviewImageAs(path, transform, strings.paintSaveAs) },
                             )
@@ -1900,7 +1899,7 @@ private fun DesktopPaintDataImportDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FileUpload,
+                            imageVector = AppIcons.fileUpload,
                             contentDescription = null,
                             tint = borderColor,
                             modifier = Modifier.size(34.dp),
@@ -1948,7 +1947,7 @@ private fun DesktopPaintDataImportDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector = AppIcons.checkCircle,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp),

@@ -30,8 +30,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +64,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -144,7 +143,7 @@ fun ImageComparePreviewDialog(
                         modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = AppIcons.close,
                             contentDescription = stringResource(R.string.close),
                             tint = Color.White,
                             modifier = Modifier.size(28.dp)

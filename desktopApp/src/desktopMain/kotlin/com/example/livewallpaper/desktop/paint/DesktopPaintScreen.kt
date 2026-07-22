@@ -48,42 +48,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.BlurOn
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.CallMade
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.CropSquare
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Flip
-import androidx.compose.material.icons.filled.Gesture
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Rotate90DegreesCcw
-import androidx.compose.material.icons.filled.Rotate90DegreesCw
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.Undo
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -126,6 +90,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -170,6 +135,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.desktop.DesktopFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
@@ -658,7 +624,7 @@ private fun ScrollToLatestButton(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
+                imageVector = AppIcons.chevronDown,
                 contentDescription = LocalDesktopStrings.current.paintScrollToLatest,
                 modifier = Modifier.size(20.dp),
                 tint = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
@@ -696,7 +662,7 @@ private fun CompareSelectionBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(
-                imageVector = Icons.Default.Visibility,
+                imageVector = AppIcons.visibility,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -765,7 +731,7 @@ fun ColumnScope.DesktopPaintSidebarSection(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = AppIcons.add,
                     contentDescription = strings.paintNewSession,
                     modifier = Modifier.size(22.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -952,7 +918,7 @@ private fun SessionMenuButton(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = Icons.Default.MoreHoriz,
+            imageVector = AppIcons.moreHorizontal,
             contentDescription = null,
             modifier = Modifier.size(18.dp).alpha(if (visible) 1f else 0f),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -983,7 +949,7 @@ private fun PaintTopBar(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = if (isSidebarCollapsed) Icons.Default.Menu else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    imageVector = if (isSidebarCollapsed) AppIcons.menu else AppIcons.chevronLeft,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurface,
@@ -1023,7 +989,7 @@ private fun PaintTopBar(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.Check,
+                                imageVector = AppIcons.check,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -1351,21 +1317,21 @@ private fun AssistantMessageActions(
             Spacer(modifier = Modifier.width(4.dp))
         }
         if (imagesAvailable) {
-            MessageIconButton(Icons.Default.Add, strings.paintAddReferenceImage, onClick = onAddImages)
+            MessageIconButton(AppIcons.add, strings.paintAddReferenceImage, onClick = onAddImages)
         }
         if (message.messageContent.isNotBlank()) {
-            MessageIconButton(Icons.Default.ContentCopy, strings.paintCopyMessage, onClick = onCopy)
+            MessageIconButton(AppIcons.copy, strings.paintCopyMessage, onClick = onCopy)
         }
         MessageIconButton(
-            icon = Icons.Default.Refresh,
+            icon = AppIcons.refresh,
             label = strings.paintRegenerate,
             onClick = onRegenerate,
         )
         if (imagesAvailable) {
-            MessageIconButton(Icons.Default.Download, strings.paintSaveAs, onClick = onDownload)
+            MessageIconButton(AppIcons.download, strings.paintSaveAs, onClick = onDownload)
         }
         MessageIconButton(
-            icon = Icons.Default.Delete,
+            icon = AppIcons.delete,
             label = strings.paintDeleteMessage,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
             onClick = onDelete,
@@ -1386,11 +1352,11 @@ private fun UserMessageActions(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (message.messageContent.isNotBlank()) {
-            MessageIconButton(Icons.Default.ContentCopy, strings.paintCopyMessage, onClick = onCopy)
+            MessageIconButton(AppIcons.copy, strings.paintCopyMessage, onClick = onCopy)
         }
-        MessageIconButton(Icons.Default.Edit, strings.paintEditMessage, onClick = onEdit)
+        MessageIconButton(AppIcons.edit, strings.paintEditMessage, onClick = onEdit)
         MessageIconButton(
-            icon = Icons.Default.Delete,
+            icon = AppIcons.delete,
             label = strings.paintDeleteMessage,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
             onClick = onDelete,
@@ -1449,7 +1415,7 @@ private fun VersionSwitcher(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         MessageVersionButton(
-            icon = Icons.Default.ChevronLeft,
+            icon = AppIcons.chevronLeft,
             enabled = current > 1,
             onClick = onPrevious,
         )
@@ -1459,7 +1425,7 @@ private fun VersionSwitcher(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
         )
         MessageVersionButton(
-            icon = Icons.Default.ChevronRight,
+            icon = AppIcons.chevronRight,
             enabled = current < total,
             onClick = onNext,
         )
@@ -1633,7 +1599,7 @@ private fun PaintImageThumb(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Default.Check,
+                        imageVector = AppIcons.check,
                         contentDescription = LocalDesktopStrings.current.selected,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onPrimary,
@@ -1979,7 +1945,7 @@ private fun PaintInputBar(
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = Icons.Default.Close,
+                                            imageVector = AppIcons.close,
                                             contentDescription = null,
                                             modifier = Modifier.size(13.dp),
                                             tint = Color.White,
@@ -2202,7 +2168,7 @@ private fun PaintInputBar(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.Add,
+                                        imageVector = AppIcons.add,
                                         contentDescription = strings.paintAddReferenceImage,
                                         modifier = Modifier.size(24.dp),
                                         tint = MaterialTheme.colorScheme.onSurface,
@@ -2226,7 +2192,7 @@ private fun PaintInputBar(
                                         DropdownMenuItem(
                                             leadingIcon = {
                                                 Icon(
-                                                    imageVector = Icons.Default.Image,
+                                                    imageVector = AppIcons.image,
                                                     contentDescription = null,
                                                     modifier = Modifier.size(20.dp),
                                                 )
@@ -2304,9 +2270,9 @@ private fun PaintInputBar(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = if (!hasDraft && uiState.isGenerating) {
-                                        Icons.Default.Stop
+                                        AppIcons.stop
                                     } else {
-                                        Icons.Default.ArrowUpward
+                                        AppIcons.arrowUpward
                                     },
                                     contentDescription = if (!hasDraft && uiState.isGenerating) {
                                         strings.paintStop
@@ -2491,7 +2457,7 @@ private fun ApiSettingsDialog(
                     )
                     IconButton(onClick = { showTransferActions = true }) {
                         Icon(
-                            imageVector = Icons.Default.Settings,
+                            imageVector = AppIcons.settings,
                             contentDescription = strings.paintConfigImportExport,
                             tint = MaterialTheme.colorScheme.primary,
                         )
@@ -2595,7 +2561,7 @@ private fun ApiSettingsDialog(
                                             )
                                             if (active) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Check,
+                                                    imageVector = AppIcons.check,
                                                     contentDescription = null,
                                                     modifier = Modifier.size(18.dp),
                                                     tint = MaterialTheme.colorScheme.primary,
@@ -2656,9 +2622,9 @@ private fun ApiSettingsDialog(
                                         IconButton(onClick = { showToken = !showToken }) {
                                             Icon(
                                                 imageVector = if (showToken) {
-                                                    Icons.Default.VisibilityOff
+                                                    AppIcons.visibilityOff
                                                 } else {
-                                                    Icons.Default.Visibility
+                                                    AppIcons.visibility
                                                 },
                                                 contentDescription = null,
                                             )
@@ -2751,7 +2717,7 @@ private fun ApiSettingsDialog(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(imageVector = Icons.Default.FileUpload, contentDescription = null)
+                        Icon(imageVector = AppIcons.fileUpload, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(strings.paintImportConfig)
                     }
@@ -2763,7 +2729,7 @@ private fun ApiSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = uiState.apiProfiles.isNotEmpty(),
                     ) {
-                        Icon(imageVector = Icons.Default.FileDownload, contentDescription = null)
+                        Icon(imageVector = AppIcons.download, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(strings.paintExportConfig)
                     }
@@ -2863,7 +2829,7 @@ private fun PaintOptionDialogView(
                         )
                         if (selected) {
                             Icon(
-                                imageVector = Icons.Default.Check,
+                                imageVector = AppIcons.check,
                                 contentDescription = null,
                                 modifier = Modifier.size(22.dp),
                                 tint = MaterialTheme.colorScheme.onSurface,
@@ -3180,7 +3146,7 @@ private fun PaintImagePreviewDialog(
 
                     if (showControls && paths.size > 1) {
                         PreviewRoundIconButton(
-                            icon = Icons.Default.ChevronLeft,
+                            icon = AppIcons.chevronLeft,
                             contentDescription = strings.previous,
                             modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                             enabled = currentIndex > 0,
@@ -3190,7 +3156,7 @@ private fun PaintImagePreviewDialog(
 
                     if (showControls && paths.size > 1) {
                         PreviewRoundIconButton(
-                            icon = Icons.Default.ChevronRight,
+                            icon = AppIcons.chevronRight,
                             contentDescription = strings.next,
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                             enabled = currentIndex < paths.lastIndex,
@@ -3214,24 +3180,32 @@ private fun PaintImagePreviewDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Rotate90DegreesCcw,
+                                icon = AppIcons.rotateCounterClockwise,
                                 contentDescription = strings.imagePreviewRotateLeft,
                                 onClick = { updateTransform(transform.copy(rotation = transform.rotation - 90f)) },
                             )
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Rotate90DegreesCw,
+                                icon = AppIcons.rotateClockwise,
                                 contentDescription = strings.imagePreviewRotateRight,
                                 onClick = { updateTransform(transform.copy(rotation = transform.rotation + 90f)) },
                             )
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (transform.flipHorizontal) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = strings.imagePreviewFlipHorizontal,
                                 onClick = {
                                     updateTransform(transform.copy(flipHorizontal = !transform.flipHorizontal))
                                 },
                             )
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (transform.flipVertical) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = strings.imagePreviewFlipVertical,
                                 rotateIcon = 90f,
                                 onClick = {
@@ -3239,12 +3213,12 @@ private fun PaintImagePreviewDialog(
                                 },
                             )
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Edit,
+                                icon = AppIcons.edit,
                                 contentDescription = strings.paintEditMessage,
                                 onClick = { onEdit(path) },
                             )
                             PreviewRoundIconButton(
-                                icon = Icons.Default.Download,
+                                icon = AppIcons.download,
                                 contentDescription = strings.paintSaveAs,
                                 onClick = { saveTransformedImageAs(path, transform, strings.paintSaveAs) },
                             )
@@ -3371,13 +3345,13 @@ private fun DesktopImageEditorWindow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     PreviewRoundIconButton(
-                        icon = Icons.Default.Undo,
+                        icon = AppIcons.undo,
                         contentDescription = strings.paintEditUndo,
                         enabled = operations.isNotEmpty(),
                         onClick = ::undo,
                     )
                     PreviewRoundIconButton(
-                        icon = Icons.Default.Save,
+                        icon = AppIcons.save,
                         contentDescription = strings.paintSave,
                         enabled = !isSaving && imageWidth > 0 && imageHeight > 0,
                         onClick = {
@@ -3398,7 +3372,7 @@ private fun DesktopImageEditorWindow(
                         },
                     )
                     PreviewRoundIconButton(
-                        icon = Icons.Default.Close,
+                        icon = AppIcons.close,
                         contentDescription = strings.close,
                         onClick = onDismiss,
                     )
@@ -3928,25 +3902,25 @@ private fun DesktopImageEditorWindow(
                     ) {
                         EditorModeButton(
                             selected = editMode == DesktopImageEditMode.Draw,
-                            icon = Icons.Default.Brush,
+                            icon = AppIcons.brush,
                             label = strings.paintEditBrush,
                             onClick = { editMode = DesktopImageEditMode.Draw },
                         )
                         EditorModeButton(
                             selected = editMode == DesktopImageEditMode.Mosaic,
-                            icon = Icons.Default.BlurOn,
+                            icon = AppIcons.blur,
                             label = strings.paintEditMosaic,
                             onClick = { editMode = DesktopImageEditMode.Mosaic },
                         )
                         EditorModeButton(
                             selected = editMode == DesktopImageEditMode.Text,
-                            icon = Icons.Default.TextFields,
+                            icon = AppIcons.text,
                             label = strings.paintEditText,
                             onClick = { editMode = DesktopImageEditMode.Text },
                         )
                         EditorModeButton(
                             selected = editMode == DesktopImageEditMode.Crop,
-                            icon = Icons.Default.Crop,
+                            icon = AppIcons.crop,
                             label = strings.paintEditCrop,
                             onClick = { editMode = DesktopImageEditMode.Crop },
                         )
@@ -3958,25 +3932,25 @@ private fun DesktopImageEditorWindow(
                         ) {
                             EditorShapeButton(
                                 selected = brushShape == DesktopBrushShape.Pen,
-                                icon = Icons.Default.Gesture,
+                                icon = AppIcons.gesture,
                                 contentDescription = strings.paintEditShapePen,
                                 onClick = { brushShape = DesktopBrushShape.Pen },
                             )
                             EditorShapeButton(
                                 selected = brushShape == DesktopBrushShape.Rect,
-                                icon = Icons.Default.CropSquare,
+                                icon = AppIcons.cropSquare,
                                 contentDescription = strings.paintEditShapeRect,
                                 onClick = { brushShape = DesktopBrushShape.Rect },
                             )
                             EditorShapeButton(
                                 selected = brushShape == DesktopBrushShape.Oval,
-                                icon = Icons.Default.RadioButtonUnchecked,
+                                icon = AppIcons.radioButtonOff,
                                 contentDescription = strings.paintEditShapeOval,
                                 onClick = { brushShape = DesktopBrushShape.Oval },
                             )
                             EditorShapeButton(
                                 selected = brushShape == DesktopBrushShape.Arrow,
-                                icon = Icons.Default.CallMade,
+                                icon = AppIcons.callMade,
                                 contentDescription = strings.paintEditShapeArrow,
                                 onClick = { brushShape = DesktopBrushShape.Arrow },
                             )
@@ -4016,7 +3990,7 @@ private fun DesktopImageEditorWindow(
                         ) {
                             EditorModeButton(
                                 selected = false,
-                                icon = Icons.Default.Add,
+                                icon = AppIcons.add,
                                 label = strings.paintEditAddText,
                                 onClick = { textDialog = DesktopTextDialogState(editIndex = null, initialText = "") },
                             )
@@ -5570,31 +5544,41 @@ private fun DrawScope.drawDesktopArrowHandles(start: Offset, end: Offset) {
     }
 }
 
-/** 在旋转手柄内绘制 Material Refresh 图标。 */
+/** 在旋转手柄内绘制与应用图标库一致的对象旋转图标。 */
 private fun DrawScope.drawDesktopRotateIcon(center: Offset, radius: Float) {
     val iconColor = Color(0xFF444444)
-    val s = radius / 12f
+    val scale = radius / 12f
 
-    fun px(x: Float) = center.x + (x - 12f) * s
-    fun py(y: Float) = center.y + (y - 12f) * s
+    fun px(x: Float) = center.x + (x - 12f) * scale
+    fun py(y: Float) = center.y + (y - 12f) * scale
 
-    val refreshPath = Path().apply {
-        moveTo(px(17.65f), py(6.35f))
-        cubicTo(px(16.2f), py(4.9f), px(14.21f), py(4f), px(12f), py(4f))
-        cubicTo(px(7.58f), py(4f), px(4.01f), py(7.58f), px(4.01f), py(12f))
-        cubicTo(px(4.01f), py(16.42f), px(7.58f), py(20f), px(12f), py(20f))
-        cubicTo(px(15.73f), py(20f), px(18.84f), py(17.45f), px(19.73f), py(14f))
-        lineTo(px(17.65f), py(14f))
-        cubicTo(px(16.83f), py(16.33f), px(14.61f), py(18f), px(12f), py(18f))
-        cubicTo(px(8.69f), py(18f), px(6f), py(15.31f), px(6f), py(12f))
-        cubicTo(px(6f), py(8.69f), px(8.69f), py(6f), px(12f), py(6f))
-        cubicTo(px(13.66f), py(6f), px(15.14f), py(6.69f), px(16.22f), py(7.78f))
-        lineTo(px(13f), py(11f))
-        lineTo(px(20f), py(11f))
-        lineTo(px(20f), py(4f))
+    val rotatePath = Path().apply {
+        moveTo(px(6f), py(13f))
+        lineTo(px(12f), py(13f))
+        cubicTo(px(13.1f), py(13f), px(14f), py(13.9f), px(14f), py(15f))
+        lineTo(px(14f), py(18f))
+        cubicTo(px(14f), py(19.1f), px(13.1f), py(20f), px(12f), py(20f))
+        lineTo(px(6f), py(20f))
+        cubicTo(px(4.9f), py(20f), px(4f), py(19.1f), px(4f), py(18f))
+        lineTo(px(4f), py(15f))
+        cubicTo(px(4f), py(13.9f), px(4.9f), py(13f), px(6f), py(13f))
         close()
+        moveTo(px(20f), py(13f))
+        cubicTo(px(20f), py(8.58f), px(16.42f), py(5f), px(12f), py(5f))
+        lineTo(px(10f), py(5f))
+        moveTo(px(12.5f), py(2.5f))
+        lineTo(px(10f), py(5f))
+        lineTo(px(12.5f), py(7.5f))
     }
-    drawPath(refreshPath, iconColor)
+    drawPath(
+        path = rotatePath,
+        color = iconColor,
+        style = Stroke(
+            width = 2f * scale,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        ),
+    )
 }
 
 /** 加载与展示位图同尺寸的马赛克化位图，用于涂抹时的实时预览。 */

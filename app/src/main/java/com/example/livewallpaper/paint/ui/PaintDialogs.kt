@@ -15,9 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +35,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.ui.components.ConfirmDialog
@@ -46,6 +44,11 @@ import com.example.livewallpaper.ui.components.SimpleSelectDialog
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.random.Random
+
+/**
+ * 会话抽屉宽度占屏幕宽度的比例，供抽屉内容与滑动进度计算共用。
+ */
+internal const val SESSION_DRAWER_WIDTH_FRACTION = 0.82f
 
 /**
  * 会话时间分组类型
@@ -66,7 +69,7 @@ private data class GroupedSessions(
 )
 
 /**
- * 会话抽屉内容组件（用于 ModalNavigationDrawer）
+ * 会话抽屉内容组件。
  */
 @Composable
 fun SessionDrawerContent(
@@ -79,7 +82,7 @@ fun SessionDrawerContent(
     onRenameSession: (String, String) -> Unit = { _, _ -> }
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val drawerWidth = screenWidth * 0.82f
+    val drawerWidth = screenWidth * SESSION_DRAWER_WIDTH_FRACTION
     
     // 删除确认对话框状态
     var sessionToDelete by remember { mutableStateOf<PaintSession?>(null) }
@@ -97,9 +100,13 @@ fun SessionDrawerContent(
         groupSessionsByTime(sessions, todayLabel, last7DaysLabel, last30DaysLabel)
     }
     
-    ModalDrawerSheet(
+    // 面板透明：让抽屉容器底下的整层背景直接透上来，
+    // 使会话列表与主内容背后的颜色完全连为一体（无面板拼缝）。
+    DismissibleDrawerSheet(
         modifier = Modifier.width(drawerWidth),
-        drawerContainerColor = MaterialTheme.colorScheme.surface,
+        drawerContainerColor = Color.Transparent,
+        // 容器透明时 contentColorFor 无法推导内容色（会回退为黑色），需显式跟随主题
+        drawerContentColor = MaterialTheme.colorScheme.onSurface,
         drawerShape = RoundedCornerShape(0.dp)
     ) {
         Column(
@@ -109,11 +116,12 @@ fun SessionDrawerContent(
             Spacer(modifier = Modifier.statusBarsPadding())
             
             // 标题栏 - 高度与TopAppBar对齐（64dp）
+            // 右侧留出更大间距，让列表内容与主内容卡片之间有呼吸感
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .padding(horizontal = 20.dp),
+                    .padding(start = 20.dp, end = 28.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -134,7 +142,7 @@ fun SessionDrawerContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Add,
+                        AppIcons.add,
                         contentDescription = stringResource(R.string.paint_new_session),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
@@ -163,7 +171,7 @@ fun SessionDrawerContent(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Outlined.ChatBubbleOutline,
+                                AppIcons.chat,
                                 contentDescription = null,
                                 modifier = Modifier.size(36.dp),
                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
@@ -189,7 +197,7 @@ fun SessionDrawerContent(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         start = 12.dp,
-                        end = 12.dp,
+                        end = 24.dp,
                         top = 8.dp,
                         bottom = 8.dp + navigationBarPadding.calculateBottomPadding()
                     ),
@@ -390,7 +398,7 @@ private fun SessionItem(
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
-                        Icons.Default.DeleteOutline,
+                        AppIcons.deleteOutline,
                         contentDescription = stringResource(R.string.paint_delete),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(18.dp)
@@ -529,7 +537,7 @@ fun ApiSettingsDialog(
                     Row {
                         IconButton(onClick = { showTransferActions = true }) {
                             Icon(
-                                Icons.Default.Settings,
+                                AppIcons.settings,
                                 contentDescription = stringResource(R.string.paint_config_import_export),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -543,7 +551,7 @@ fun ApiSettingsDialog(
                             if (showForm) resetForm() else showForm = true 
                         }) {
                             Icon(
-                                if (showForm) Icons.Default.Close else Icons.Default.Add,
+                                if (showForm) AppIcons.close else AppIcons.add,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -591,7 +599,7 @@ fun ApiSettingsDialog(
                             trailingIcon = {
                                 IconButton(onClick = { showToken = !showToken }) {
                                     Icon(
-                                        if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        if (showToken) AppIcons.visibilityOff else AppIcons.visibility,
                                         contentDescription = null
                                     )
                                 }
@@ -654,7 +662,7 @@ fun ApiSettingsDialog(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
-                                    Icons.Default.Key,
+                                    AppIcons.key,
                                     contentDescription = null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
@@ -712,7 +720,7 @@ fun ApiSettingsDialog(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.FileUpload, contentDescription = null)
+                        Icon(AppIcons.fileUpload, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.paint_import_config))
                     }
@@ -724,7 +732,7 @@ fun ApiSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = profiles.isNotEmpty()
                     ) {
-                        Icon(Icons.Default.FileDownload, contentDescription = null)
+                        Icon(AppIcons.download, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.paint_export_config))
                     }
@@ -786,7 +794,7 @@ private fun ApiProfileItem(
                     if (isActive) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(
-                            Icons.Default.CheckCircle,
+                            AppIcons.checkCircle,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
@@ -797,14 +805,14 @@ private fun ApiProfileItem(
             Row {
                 IconButton(onClick = onEdit) {
                     Icon(
-                        Icons.Default.Edit,
+                        AppIcons.edit,
                         contentDescription = stringResource(R.string.paint_edit),
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
-                        Icons.Default.Delete,
+                        AppIcons.delete,
                         contentDescription = stringResource(R.string.paint_delete),
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
                         modifier = Modifier.size(20.dp)
@@ -825,7 +833,7 @@ fun ModelSelectorDialog(
         SelectOption(
             value = model,
             label = model.displayName,
-            icon = Icons.Default.AutoAwesome
+            icon = AppIcons.autoAwesome
         )
     }
     
@@ -883,7 +891,7 @@ fun ResolutionSelectorDialog(
         SelectOption(
             value = resolution,
             label = resolution.displayName,
-            icon = Icons.Default.HighQuality
+            icon = AppIcons.highQuality
         )
     }
     
@@ -932,7 +940,7 @@ fun GptSizeSelectorDialog(
             SelectOption(
                 value = size,
                 label = autoLabel,
-                icon = Icons.Default.AutoAwesome
+                icon = AppIcons.autoAwesome
             )
         }
     }
@@ -966,7 +974,7 @@ fun GptQualitySelectorDialog(
                 GptImageQuality.MEDIUM -> stringResource(R.string.paint_gpt_quality_medium)
                 GptImageQuality.HIGH -> stringResource(R.string.paint_gpt_quality_high)
             },
-            icon = Icons.Default.HighQuality
+            icon = AppIcons.highQuality
         )
     }
 
@@ -995,7 +1003,7 @@ fun GptFormatSelectorDialog(
                 GptOutputFormat.JPEG -> stringResource(R.string.paint_gpt_format_jpeg)
                 GptOutputFormat.WEBP -> stringResource(R.string.paint_gpt_format_webp)
             },
-            icon = Icons.Default.Image
+            icon = AppIcons.image
         )
     }
 

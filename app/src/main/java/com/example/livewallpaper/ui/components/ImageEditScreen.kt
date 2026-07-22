@@ -11,9 +11,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +38,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.view.WindowManager
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -887,14 +885,14 @@ private fun BottomControlBar(
         ) {
             // 还原按钮
             ActionButton(
-                icon = Icons.Default.Refresh,
+                icon = AppIcons.refresh,
                 text = stringResource(R.string.image_editor_reset),
                 onClick = onReset
             )
             
             // 旋转按钮
             ActionButton(
-                icon = Icons.Default.RotateRight,
+                icon = AppIcons.rotateClockwise,
                 text = stringResource(R.string.image_editor_rotate),
                 onClick = onRotate
             )

@@ -39,12 +39,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -82,17 +76,13 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.size.Size
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.ui.components.ImagePreviewDialogFromUris
 import com.example.livewallpaper.gallery.model.Album
 import com.example.livewallpaper.gallery.model.MediaItem
 import com.example.livewallpaper.gallery.viewmodel.GalleryPage
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
-import com.example.livewallpaper.ui.theme.TextPrimary
-
-// 图库背景色（纯白色，不透明）
-private val GalleryBackgroundColor = Color(0xFFF5F5F5)
-
 /**
  * 图库浏览器主界面（使用 Dialog 确保正确的层级）
  * @param viewModel 图库 ViewModel
@@ -147,7 +137,7 @@ fun GalleryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars),
-            color = GalleryBackgroundColor,
+            color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
         ) {
             Column(
@@ -273,11 +263,11 @@ private fun GalleryTopBar(
             IconButton(onClick = onBack) {
                 Icon(
                     imageVector = when (currentPage) {
-                        is GalleryPage.AlbumList -> Icons.Default.Close
-                        is GalleryPage.ImageGrid -> Icons.AutoMirrored.Filled.ArrowBack
+                        is GalleryPage.AlbumList -> AppIcons.close
+                        is GalleryPage.ImageGrid -> AppIcons.arrowBack
                     },
                     contentDescription = stringResource(R.string.close),
-                    tint = TextPrimary
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -289,7 +279,7 @@ private fun GalleryTopBar(
                 },
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
 
@@ -427,7 +417,7 @@ private fun AlbumItem(
                     text = album.name,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -435,7 +425,7 @@ private fun AlbumItem(
                 Text(
                     text = stringResource(R.string.gallery_photo_count, album.count),
                     fontSize = 14.sp,
-                    color = TextPrimary.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -557,7 +547,7 @@ private fun ImageGridItem(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.OpenInFull,
+                            imageVector = AppIcons.openInFull,
                             contentDescription = stringResource(R.string.gallery_preview_image),
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
@@ -627,7 +617,7 @@ private fun ConfirmSelectionBar(
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = AppIcons.check,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
@@ -664,7 +654,7 @@ private fun ErrorContent(
         Text(
             text = error,
             fontSize = 16.sp,
-            color = TextPrimary.copy(alpha = 0.7f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(16.dp))
         Button(
@@ -696,7 +686,7 @@ private fun EmptyContent(message: String) {
         Text(
             text = message,
             fontSize = 16.sp,
-            color = TextPrimary.copy(alpha = 0.7f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

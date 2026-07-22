@@ -16,20 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Collections
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.AspectRatio
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
@@ -172,7 +159,7 @@ private fun StatsHeroCard(analytics: PaintSessionAnalytics) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.AccessTime,
+                    imageVector = AppIcons.accessTime,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f),
                     modifier = Modifier.size(16.dp)
@@ -200,13 +187,13 @@ private fun StatsHeroCard(analytics: PaintSessionAnalytics) {
                 ) {
                     HeroInfoItem(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.AutoAwesome,
+                        icon = AppIcons.autoAwesome,
                         label = stringResource(R.string.paint_stats_model),
                         value = analytics.modelDisplayName
                     )
                     HeroInfoItem(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Tune,
+                        icon = AppIcons.tune,
                         label = stringResource(R.string.paint_stats_ratio),
                         value = analytics.aspectRatioDisplayName
                     )
@@ -217,13 +204,13 @@ private fun StatsHeroCard(analytics: PaintSessionAnalytics) {
                 ) {
                     HeroInfoItem(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Image,
+                        icon = AppIcons.image,
                         label = stringResource(R.string.paint_stats_resolution),
                         value = analytics.resolutionDisplayName ?: stringResource(R.string.paint_stats_auto)
                     )
                     HeroInfoItem(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Analytics,
+                        icon = AppIcons.analytics,
                         label = stringResource(R.string.paint_api_settings),
                         value = analytics.activeProfileName ?: stringResource(R.string.paint_no_api)
                     )
@@ -242,14 +229,14 @@ private fun StatsOverviewSection(analytics: PaintSessionAnalytics) {
         ) {
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Description,
+                icon = AppIcons.description,
                 label = stringResource(R.string.paint_stats_total_prompts),
                 value = analytics.promptCount.toString(),
                 accent = MaterialTheme.colorScheme.primary
             )
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Bolt,
+                icon = AppIcons.flash,
                 label = stringResource(R.string.paint_stats_total_attempts),
                 value = analytics.generationAttemptCount.toString(),
                 accent = MaterialTheme.colorScheme.tertiary
@@ -262,14 +249,14 @@ private fun StatsOverviewSection(analytics: PaintSessionAnalytics) {
         ) {
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Collections,
+                icon = AppIcons.collections,
                 label = stringResource(R.string.paint_stats_total_outputs),
                 value = analytics.generatedImageCount.toString(),
                 accent = MaterialTheme.colorScheme.secondary
             )
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Layers,
+                icon = AppIcons.layers,
                 label = stringResource(R.string.paint_stats_retry_count),
                 value = analytics.retryCount.toString(),
                 accent = MaterialTheme.colorScheme.error
@@ -281,7 +268,7 @@ private fun StatsOverviewSection(analytics: PaintSessionAnalytics) {
 @Composable
 private fun SessionConfigCard(analytics: PaintSessionAnalytics) {
     SectionCard(
-        icon = Icons.Default.Tune,
+        icon = AppIcons.tune,
         title = stringResource(R.string.paint_stats_session_config)
     ) {
         StatsInfoRow(stringResource(R.string.paint_stats_model), analytics.modelDisplayName)
@@ -307,7 +294,7 @@ private fun SessionConfigCard(analytics: PaintSessionAnalytics) {
 @Composable
 private fun SuccessBreakdownCard(analytics: PaintSessionAnalytics) {
     SectionCard(
-        icon = Icons.Default.CheckCircle,
+        icon = AppIcons.checkCircle,
         title = stringResource(R.string.paint_stats_execution_breakdown)
     ) {
         LinearProgressIndicator(
@@ -328,21 +315,21 @@ private fun SuccessBreakdownCard(analytics: PaintSessionAnalytics) {
         ) {
             BreakdownStat(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.CheckCircle,
+                icon = AppIcons.checkCircle,
                 label = stringResource(R.string.paint_stats_success_count),
                 value = analytics.successCount.toString(),
                 tint = MaterialTheme.colorScheme.primary
             )
             BreakdownStat(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.WarningAmber,
+                icon = AppIcons.warning,
                 label = stringResource(R.string.paint_stats_failed_count),
                 value = analytics.failedCount.toString(),
                 tint = MaterialTheme.colorScheme.error
             )
             BreakdownStat(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Schedule,
+                icon = AppIcons.schedule,
                 label = stringResource(R.string.paint_stats_pending_count),
                 value = analytics.pendingCount.toString(),
                 tint = MaterialTheme.colorScheme.tertiary
@@ -374,7 +361,7 @@ private fun SuccessBreakdownCard(analytics: PaintSessionAnalytics) {
 @Composable
 private fun DraftStatusCard(analytics: PaintSessionAnalytics) {
     SectionCard(
-        icon = Icons.Default.PhotoLibrary,
+        icon = AppIcons.collections,
         title = stringResource(R.string.paint_stats_draft_title)
     ) {
         Row(
@@ -383,14 +370,14 @@ private fun DraftStatusCard(analytics: PaintSessionAnalytics) {
         ) {
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Description,
+                icon = AppIcons.description,
                 label = stringResource(R.string.paint_stats_draft_prompt_chars),
                 value = analytics.draftPromptLength.toString(),
                 accent = MaterialTheme.colorScheme.primary
             )
             StatsValueCard(
                 modifier = Modifier.weight(1f),
-                icon = Icons.Default.Image,
+                icon = AppIcons.image,
                 label = stringResource(R.string.paint_stats_draft_images),
                 value = stringResource(
                     R.string.paint_stats_draft_image_usage,
@@ -427,7 +414,7 @@ private fun DraftStatusCard(analytics: PaintSessionAnalytics) {
 @Composable
 private fun RecentPromptsCard(analytics: PaintSessionAnalytics) {
     SectionCard(
-        icon = Icons.Default.AccessTime,
+        icon = AppIcons.accessTime,
         title = stringResource(R.string.paint_stats_recent_prompts)
     ) {
         if (analytics.recentPrompts.isEmpty()) {

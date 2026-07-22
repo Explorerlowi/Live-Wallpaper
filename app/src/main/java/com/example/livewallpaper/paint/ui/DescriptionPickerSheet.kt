@@ -26,9 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -325,7 +323,7 @@ private fun SceneIndicator(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                imageVector = AppIcons.chevronLeft,
                 contentDescription = null,
                 tint = if (currentIndex > 0) {
                     MaterialTheme.colorScheme.onSurface
@@ -357,7 +355,7 @@ private fun SceneIndicator(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                imageVector = AppIcons.chevronRight,
                 contentDescription = null,
                 tint = if (currentIndex < scenes.size - 1) {
                     MaterialTheme.colorScheme.onSurface

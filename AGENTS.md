@@ -630,3 +630,39 @@ Surface(
   * 保持选择器组件的轻量感，避免过度的交互反馈干扰用户操作。
 
 ---
+
+### 8. 图标设计系统规范（Compose Multiplatform）
+
+* **统一入口**
+
+  * Android 与 Desktop 中的固定 UI 图标必须通过 `:core:design` 模块的 `AppIcons` 获取；
+  * 业务模块可以通过 `ImageVector` 参数传递图标，但传入值仍必须来自 `AppIcons`；
+  * `AppIcons` 属性使用业务语义命名，如 `add`、`aspectRatio`、`rotateClockwise`，调用方不得依赖具体图标库名称。
+
+* **默认图标风格**
+
+  * 默认使用 **Eva Icons Outline**；
+  * 仅允许 `AppIcons.kt` 直接导入 `EvaIcons` 及 `compose.icons.evaicons.*`；
+  * 禁止业务模块直接使用 `androidx.compose.material.icons.*`、`Icons.Default`、`Icons.Outlined` 等 Material 图标；
+  * 禁止引入或重新引入 `material-icons-extended` / `compose.materialIconsExtended` 依赖。
+
+* **自定义图标**
+
+  * Eva Icons 没有对应语义时，统一在 `CustomAppIcons.kt` 中创建自定义 `ImageVector`，再由 `AppIcons` 暴露；
+  * 自定义图标使用 `24 × 24` viewport、约 `2` 像素线宽、圆角端点与圆角连接，保持与 Eva Outline 一致；
+  * 需要填充的局部形状可以使用实心路径，但轮廓粗细、留白和视觉重心必须与现有图标一致；
+  * 同一功能存在方向或状态变化时，应提供语义明确的成对图标，并由 UI 状态切换，禁止通过含义不清的旋转角度临时复用。
+
+* **允许局部绘制的例外**
+
+  * 只有动态比例预览、绘图工具形状、编辑控制手柄等依赖实时参数的图形，才允许在业务 UI 中使用 `Canvas` 绘制；
+  * 固定按钮、菜单项、设置项和状态栏图标不得在业务模块中重复手绘；
+  * 如果同一自绘图形被复用两次及以上，必须抽到 `:core:design` 中统一维护。
+
+* **可访问性与多语言**
+
+  * 可交互图标必须提供来自 i18n 资源的 `contentDescription`；
+  * 纯装饰图标使用 `contentDescription = null`，避免屏幕阅读器重复播报；
+  * 不得在 `contentDescription` 中硬编码中文或英文文案。
+
+---

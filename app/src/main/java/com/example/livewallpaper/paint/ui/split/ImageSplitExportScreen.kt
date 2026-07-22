@@ -25,8 +25,7 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.ui.components.SelectOption
 import com.example.livewallpaper.ui.components.SimpleSelectDialog
 import androidx.compose.material3.*
@@ -474,7 +473,7 @@ fun ImageSplitExportScreen(
                                 )
                             } else {
                                 Icon(
-                                    Icons.Default.Download,
+                                    AppIcons.download,
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -620,7 +619,7 @@ private fun ExportTopBar(
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.split_back))
+                Icon(AppIcons.arrowBack, contentDescription = stringResource(R.string.split_back))
             }
         },
         title = {
@@ -685,7 +684,7 @@ private fun SelectionControlBar(
             onClick = if (isAllSelected) onDeselectAll else onSelectAll
         ) {
             Icon(
-                imageVector = if (isAllSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                imageVector = if (isAllSelected) AppIcons.checkBox else AppIcons.checkBoxOutline,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp)
             )
@@ -979,7 +978,7 @@ private fun TileCard(
                         }
                     } else {
                         Icon(
-                            imageVector = Icons.Default.RadioButtonUnchecked,
+                            imageVector = AppIcons.radioButtonOff,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             tint = selectionColor
@@ -1047,7 +1046,7 @@ private fun ExportFormatSection(
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        imageVector = if (expanded) AppIcons.chevronUp else AppIcons.chevronDown,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
@@ -1063,8 +1062,8 @@ private fun ExportFormatSection(
                 AppMenuItem(
                     title = format.extension.uppercase(),
                     subtitle = subtitle,
-                    icon = if (format == ExportFormat.PNG) Icons.Default.Image else Icons.Default.Photo,
-                    trailingIcon = if (selectedFormat == format) Icons.Default.Check else null,
+                    icon = if (format == ExportFormat.PNG) AppIcons.image else AppIcons.image,
+                    trailingIcon = if (selectedFormat == format) AppIcons.check else null,
                     selected = selectedFormat == format,
                     onClick = { onFormatSelect(format) }
                 )
@@ -1129,7 +1128,7 @@ private fun NamingRuleSection(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        Icons.Default.Undo,
+                        AppIcons.undo,
                         contentDescription = stringResource(R.string.split_undo_naming_hint),
                         modifier = Modifier.size(16.dp),
                         tint = if (canUndo) {
@@ -1229,7 +1228,7 @@ private fun NamingFieldButton(
                 style = MaterialTheme.typography.bodyMedium
             )
             Icon(
-                Icons.Default.ExpandMore,
+                AppIcons.chevronDown,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
@@ -1261,7 +1260,7 @@ private fun CompressOption(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.FolderZip,
+                    AppIcons.folderArchive,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.primary
@@ -1363,7 +1362,7 @@ private fun NamingInputDialog(
                         {
                             IconButton(onClick = { inputValue = "" }) {
                                 Icon(
-                                    imageVector = Icons.Default.Clear,
+                                    imageVector = AppIcons.close,
                                     contentDescription = "Clear",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1395,7 +1394,7 @@ private fun NamingInputDialog(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.History,
+                                    imageVector = AppIcons.history,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -1408,7 +1407,7 @@ private fun NamingInputDialog(
                                 )
                             }
                             Icon(
-                                imageVector = Icons.Default.ChevronRight,
+                                imageVector = AppIcons.chevronRight,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
@@ -1421,7 +1420,7 @@ private fun NamingInputDialog(
                     Spacer(modifier = Modifier.height(12.dp))
                     TextButton(onClick = { onSaveValue(inputValue) }) {
                         Icon(
-                            imageVector = Icons.Default.Save,
+                            imageVector = AppIcons.save,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary
@@ -1481,7 +1480,7 @@ private fun NamingInputDialog(
             SelectOption(
                 value = value,
                 label = value,
-                icon = Icons.Default.History
+                icon = AppIcons.history
             )
         }
         

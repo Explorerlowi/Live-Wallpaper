@@ -8,6 +8,6 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     
-    <!-- 窗口背景色 - 浅色主题使用薄荷绿背景，与 Compose 主题的 BackgroundMint 一致 -->
-    <color name="window_background">#FFE8F5E9</color>
+    <!-- 窗口背景色 - 与 Compose 浅色主题（Fresh）的 pageBackground 一致 -->
+    <color name="window_background">#FFF6F7F9</color>
 </resources>

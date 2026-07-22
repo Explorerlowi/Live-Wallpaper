@@ -9,6 +9,7 @@ lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.12.2"
 composeBom = "2025.12.01"
 composeMultiplatform = "1.10.3"
+composeIcons = "1.1.1"
 kotlinx-coroutines = "1.10.2"
 kotlinx-serialization = "1.9.0"
 multiplatformSettings = "1.3.0"
@@ -19,6 +20,7 @@ lifecycleViewModel = "2.10.0"
 media3Effect = "1.9.0"
 composeReorderable = "2.4.3"
 appcompat = "1.7.1"
+exifinterface = "1.4.1"
 runtime = "1.10.0"
 ktor = "3.3.3"
 foundationLayout = "1.10.0"
@@ -39,7 +41,7 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
-androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+compose-icons-eva = { module = "br.com.devsrsouza.compose.icons:eva-icons", version.ref = "composeIcons" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
@@ -68,6 +70,7 @@ ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.r
 androidx-media3-effect = { group = "androidx.media3", name = "media3-effect", version.ref = "media3Effect" }
 compose-reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "composeReorderable" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
 

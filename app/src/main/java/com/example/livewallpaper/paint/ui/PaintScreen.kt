@@ -26,26 +26,25 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -60,6 +59,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
@@ -188,8 +188,22 @@ fun PaintScreen(
     val focusManager = LocalFocusManager.current
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Conversation) }
     
-    // 使用 DrawerState 控制抽屉
+    // 使用 DrawerState 控制会话抽屉
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val isDrawerTargetOpen = drawerState.targetValue == DrawerValue.Open
+
+    // 抽屉打开进度（0 = 关闭，1 = 全开）。
+    // 直接从 currentOffset 推导，使圆角、阴影、缩放、遮罩全程跟随手指拖动，
+    // 而非在状态切换时才播放独立动画，从而复刻 DeepSeek 的抽屉观感。
+    val density = LocalDensity.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+    val drawerWidthPx = with(density) { (screenWidthDp * SESSION_DRAWER_WIDTH_FRACTION).toPx() }
+    val drawerProgress by remember(drawerWidthPx) {
+        derivedStateOf {
+            val offset = drawerState.currentOffset
+            if (offset.isNaN()) 0f else ((drawerWidthPx + offset) / drawerWidthPx).coerceIn(0f, 1f)
+        }
+    }
     
     // 监听抽屉状态变化，开始打开时立即清除焦点（收起键盘）
     LaunchedEffect(drawerState.currentValue, drawerState.targetValue) {
@@ -293,7 +307,7 @@ fun PaintScreen(
         if (imageSelectionMode) {
             imageSelectionMode = false
             selectedImageSources = emptyList()
-        } else if (drawerState.isOpen) {
+        } else if (drawerState.currentValue == DrawerValue.Open || isDrawerTargetOpen) {
             scope.launch { drawerState.close() }
         } else if (currentScreen == Screen.SessionStats) {
             currentScreen = Screen.Conversation
@@ -477,8 +491,12 @@ fun PaintScreen(
         }
     }
 
-    // 使用 ModalNavigationDrawer 实现侧边抽屉
-    ModalNavigationDrawer(
+    // 推移式抽屉：会话列表进入时，主内容同步右移，形成 DeepSeek 风格的前后层级。
+    // 背景铺满与抽屉一致的 surface 色，避免主内容缩放后露出 Activity 的 windowBackground。
+    DismissibleNavigationDrawer(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface),
         drawerState = drawerState,
         drawerContent = {
             SessionDrawerContent(
@@ -499,10 +517,29 @@ fun PaintScreen(
                 }
             )
         },
-        gesturesEnabled = currentScreen == Screen.Conversation && !imageSelectionMode,
-        scrimColor = Color.Black.copy(alpha = 0.4f)
+        gesturesEnabled = currentScreen == Screen.Conversation && !imageSelectionMode
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        // 前景卡片效果随 drawerProgress 连续变化：圆角、阴影、轻微缩放、模糊
+        val contentCornerRadius = 28.dp * drawerProgress
+        val contentShape = RoundedCornerShape(contentCornerRadius)
+        val contentScale = 1f - 0.03f * drawerProgress
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                }
+                .shadow(
+                    elevation = 18.dp * drawerProgress,
+                    shape = contentShape,
+                    clip = false
+                )
+                .clip(contentShape)
+                // 随进度渐强的模糊（Android 12+ 生效，低版本自动忽略）
+                .blur(2.dp * drawerProgress)
+        ) {
             Scaffold(
             topBar = {
                 if (imageSelectionMode) {
@@ -584,7 +621,8 @@ fun PaintScreen(
                 )
                 }
             },
-            containerColor = MaterialTheme.colorScheme.background
+            // 主页面使用 surface（浅色主题下为纯白），比灰色的 background 更干净
+            containerColor = MaterialTheme.colorScheme.surface
             ) { paddingValues ->
             Box(
                 modifier = Modifier
@@ -825,6 +863,21 @@ fun PaintScreen(
                     }
                 )
             }
+
+            // 随滑动进度渐深的蒙版：既拦截主内容点击（点按关闭抽屉），也压暗后层内容
+            if (drawerProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.10f * drawerProgress))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            scope.launch { drawerState.close() }
+                        }
+                )
+            }
         }
     }
 
@@ -1016,7 +1069,10 @@ private fun PaintTopBar(
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = onSessionClick) {
-                Icon(Icons.Default.Menu, contentDescription = "会话")
+                Icon(
+                    AppIcons.menu,
+                    contentDescription = stringResource(R.string.paint_sessions)
+                )
             }
         },
         title = {
@@ -1032,7 +1088,7 @@ private fun PaintTopBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.AutoAwesome,
+                    AppIcons.autoAwesome,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.size(20.dp)
@@ -1048,11 +1104,11 @@ private fun PaintTopBar(
         },
         actions = {
             IconButton(onClick = onClose) {
-                Icon(Icons.Default.Close, contentDescription = "关闭")
+                Icon(AppIcons.close, contentDescription = "关闭")
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = MaterialTheme.colorScheme.surface
         )
     )
 }
@@ -1065,7 +1121,7 @@ private fun PaintSessionStatsTopBar(
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                Icon(AppIcons.arrowBack, contentDescription = null)
             }
         },
         title = {
@@ -1134,7 +1190,7 @@ private fun EmptyState() {
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            Icons.Default.Brush,
+            AppIcons.brush,
             contentDescription = null,
             modifier = Modifier.size(80.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
@@ -1582,7 +1638,7 @@ private fun MessageActionBar(
     val moreMenuItems = listOf(
         AppMenuItem(
             title = stringResource(R.string.split_image),
-            icon = Icons.Default.ContentCut,
+            icon = AppIcons.scissors,
             enabled = hasImages,
             onClick = {
                 showMoreMenu = false
@@ -1591,7 +1647,7 @@ private fun MessageActionBar(
         ),
         AppMenuItem(
             title = stringResource(R.string.image_edit_entry),
-            icon = Icons.Default.Edit,
+            icon = AppIcons.edit,
             enabled = hasImages,
             onClick = {
                 showMoreMenu = false
@@ -1624,7 +1680,7 @@ private fun MessageActionBar(
         // 添加图片按钮（仅图片实际可用时显示）
         if (imagesAvailable) {
             ActionIconButton(
-                icon = Icons.Default.Add,
+                icon = AppIcons.add,
                 contentDescription = stringResource(R.string.message_add_to_selected),
                 onClick = onAddImages
             )
@@ -1633,7 +1689,7 @@ private fun MessageActionBar(
         // 复制按钮（仅有文本且图片可用时显示，图片不可用时精简按钮）
         if (message.messageContent.isNotEmpty() && imagesAvailable) {
             ActionIconButton(
-                icon = Icons.Default.ContentCopy,
+                icon = AppIcons.copy,
                 contentDescription = stringResource(R.string.message_copy),
                 onClick = onCopy
             )
@@ -1641,7 +1697,7 @@ private fun MessageActionBar(
         
         // 重新生成按钮
         ActionIconButton(
-            icon = Icons.Default.Refresh,
+            icon = AppIcons.refresh,
             contentDescription = stringResource(R.string.message_regenerate),
             onClick = onRegenerate
         )
@@ -1649,7 +1705,7 @@ private fun MessageActionBar(
         // 下载按钮（仅图片实际可用时显示）
         if (imagesAvailable) {
             ActionIconButton(
-                icon = Icons.Default.Download,
+                icon = AppIcons.download,
                 contentDescription = stringResource(R.string.message_download),
                 onClick = onDownload
             )
@@ -1657,7 +1713,7 @@ private fun MessageActionBar(
         
         // 删除按钮
         ActionIconButton(
-            icon = Icons.Outlined.Delete,
+            icon = AppIcons.deleteOutline,
             contentDescription = stringResource(R.string.message_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
@@ -1667,7 +1723,7 @@ private fun MessageActionBar(
         if (imagesAvailable) {
             Box {
                 ActionIconButton(
-                    icon = Icons.Default.MoreVert,
+                    icon = AppIcons.moreVertical,
                     contentDescription = "更多",
                     onClick = { showMoreMenu = true }
                 )
@@ -1699,7 +1755,7 @@ private fun UserMessageActionBar(
         // 复制按钮（仅有文本时显示）
         if (message.messageContent.isNotEmpty()) {
             ActionIconButton(
-                icon = Icons.Default.ContentCopy,
+                icon = AppIcons.copy,
                 contentDescription = stringResource(R.string.message_copy),
                 onClick = onCopy
             )
@@ -1707,14 +1763,14 @@ private fun UserMessageActionBar(
         
         // 编辑按钮
         ActionIconButton(
-            icon = Icons.Default.Edit,
+            icon = AppIcons.edit,
             contentDescription = stringResource(R.string.message_edit),
             onClick = onEdit
         )
         
         // 删除按钮
         ActionIconButton(
-            icon = Icons.Outlined.Delete,
+            icon = AppIcons.deleteOutline,
             contentDescription = stringResource(R.string.message_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
@@ -1747,7 +1803,7 @@ private fun VersionSwitcher(
             modifier = Modifier.size(24.dp)
         ) {
             Icon(
-                Icons.Default.ChevronLeft,
+                AppIcons.chevronLeft,
                 contentDescription = stringResource(R.string.message_version_previous),
                 modifier = Modifier.size(16.dp),
                 tint = if (current > 1) 
@@ -1769,7 +1825,7 @@ private fun VersionSwitcher(
             modifier = Modifier.size(24.dp)
         ) {
             Icon(
-                Icons.Default.ChevronRight,
+                AppIcons.chevronRight,
                 contentDescription = stringResource(R.string.message_version_next),
                 modifier = Modifier.size(16.dp),
                 tint = if (current < total) 
@@ -1881,7 +1937,7 @@ private fun MessageImage(
         } else {
             // 加载占位符
             Icon(
-                imageVector = Icons.Default.Image,
+                imageVector = AppIcons.image,
                 contentDescription = null,
                 modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -1979,7 +2035,7 @@ private fun MessageLocalImage(
             // 加载中显示图片图标
             if (isLoading) {
                 Icon(
-                    imageVector = Icons.Default.Image,
+                    imageVector = AppIcons.image,
                     contentDescription = null,
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -2006,7 +2062,7 @@ private fun ScrollToBottomButton(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
-                Icons.Default.KeyboardArrowDown,
+                AppIcons.chevronDown,
                 contentDescription = null,
                 tint = if (newMessageCount > 0) Color.White else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(20.dp)
@@ -2086,7 +2142,7 @@ private fun ImageSelectionBottomBar(
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 Icon(
-                    Icons.Default.Compare,
+                    AppIcons.compare,
                     contentDescription = stringResource(R.string.compare_preview_title),
                     tint = if (enabled) {
                         MaterialTheme.colorScheme.primary
@@ -2254,7 +2310,7 @@ private fun GeneratingPlaceholder(
     ) {
         // 中心图片图标
         Icon(
-            imageVector = Icons.Default.Image,
+            imageVector = AppIcons.image,
             contentDescription = null,
             modifier = Modifier.size(40.dp),
             tint = Color(0xFFBDBDBD)

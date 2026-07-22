@@ -113,6 +113,15 @@ internal fun colorsForStyle(style: AppDesignThemeStyle): AppColorTokens {
     }
 }
 
+/**
+ * Maps app color tokens to a complete Material3 [ColorScheme].
+ *
+ * All surface-family roles are mapped explicitly. Material3 components such as dialogs, menus,
+ * sheets, and cards read the surfaceContainer roles; leaving them unmapped would make those
+ * components fall back to Material baseline (purple-tinted) neutrals that do not match any app
+ * palette. surfaceTint is pinned to the surface color so tonal elevation never tints surfaces
+ * toward the brand color.
+ */
 private fun materialColorScheme(colors: AppColorTokens, dark: Boolean): ColorScheme {
     return if (dark) {
         darkColorScheme(
@@ -120,6 +129,7 @@ private fun materialColorScheme(colors: AppColorTokens, dark: Boolean): ColorSch
             onPrimary = colors.onBrand,
             primaryContainer = colors.brandSubtle,
             onPrimaryContainer = colors.textPrimary,
+            inversePrimary = colors.brandPressed,
             secondary = colors.brandPressed,
             onSecondary = colors.onBrand,
             secondaryContainer = colors.surfaceMuted,
@@ -134,8 +144,19 @@ private fun materialColorScheme(colors: AppColorTokens, dark: Boolean): ColorSch
             onSurface = colors.textPrimary,
             surfaceVariant = colors.surfaceMuted,
             onSurfaceVariant = colors.textSecondary,
+            surfaceTint = colors.surface,
+            surfaceBright = colors.surfaceElevated,
+            surfaceDim = colors.pageBackground,
+            surfaceContainerLowest = colors.surface,
+            surfaceContainerLow = colors.surfaceElevated,
+            surfaceContainer = colors.surfaceElevated,
+            surfaceContainerHigh = colors.surfaceElevated,
+            surfaceContainerHighest = colors.surfaceMuted,
+            inverseSurface = colors.textPrimary,
+            inverseOnSurface = colors.surface,
             outline = colors.border,
             outlineVariant = colors.divider,
+            scrim = Color.Black,
             error = colors.danger,
             onError = Color.White,
             errorContainer = colors.surfaceMuted,
@@ -147,6 +168,7 @@ private fun materialColorScheme(colors: AppColorTokens, dark: Boolean): ColorSch
             onPrimary = colors.onBrand,
             primaryContainer = colors.brandSubtle,
             onPrimaryContainer = colors.textPrimary,
+            inversePrimary = colors.brandSubtle,
             secondary = colors.brandPressed,
             onSecondary = colors.onBrand,
             secondaryContainer = colors.surfaceMuted,
@@ -161,8 +183,19 @@ private fun materialColorScheme(colors: AppColorTokens, dark: Boolean): ColorSch
             onSurface = colors.textPrimary,
             surfaceVariant = colors.surfaceMuted,
             onSurfaceVariant = colors.textSecondary,
+            surfaceTint = colors.surface,
+            surfaceBright = colors.surface,
+            surfaceDim = colors.pageBackground,
+            surfaceContainerLowest = colors.surface,
+            surfaceContainerLow = colors.surfaceElevated,
+            surfaceContainer = colors.surfaceElevated,
+            surfaceContainerHigh = colors.surfaceElevated,
+            surfaceContainerHighest = colors.surfaceMuted,
+            inverseSurface = colors.textPrimary,
+            inverseOnSurface = colors.surface,
             outline = colors.border,
             outlineVariant = colors.divider,
+            scrim = Color.Black,
             error = colors.danger,
             onError = Color.White,
             errorContainer = colors.surfaceMuted,

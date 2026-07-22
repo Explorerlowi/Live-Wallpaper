@@ -42,14 +42,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Flip
-import androidx.compose.material.icons.filled.Rotate90DegreesCcw
-import androidx.compose.material.icons.filled.Rotate90DegreesCw
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,6 +78,7 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImagePainter
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
@@ -303,7 +296,7 @@ fun ImagePreviewDialog(
                             modifier = Modifier.align(Alignment.CenterEnd)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = AppIcons.close,
                                 contentDescription = stringResource(R.string.close),
                                 tint = Color.White,
                                 modifier = Modifier.size(28.dp)
@@ -341,7 +334,7 @@ fun ImagePreviewDialog(
                         // 左旋按钮
                         if (config.showRotateButton) {
                             ToolbarButton(
-                                icon = Icons.Default.Rotate90DegreesCcw,
+                                icon = AppIcons.rotateCounterClockwise,
                                 contentDescription = "左旋",
                                 onClick = {
                                     val current = transformStates[currentPage] ?: ImageTransformState()
@@ -356,7 +349,7 @@ fun ImagePreviewDialog(
                         // 右旋按钮
                         if (config.showRotateButton) {
                             ToolbarButton(
-                                icon = Icons.Default.Rotate90DegreesCw,
+                                icon = AppIcons.rotateClockwise,
                                 contentDescription = "右旋",
                                 onClick = {
                                     val current = transformStates[currentPage] ?: ImageTransformState()
@@ -371,7 +364,11 @@ fun ImagePreviewDialog(
                         // 左右镜像按钮
                         if (config.showFlipButton) {
                             ToolbarButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (currentTransform.flipHorizontal) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = "左右镜像",
                                 onClick = {
                                     val current = transformStates[currentPage] ?: ImageTransformState()
@@ -385,7 +382,11 @@ fun ImagePreviewDialog(
                         // 上下镜像按钮
                         if (config.showFlipButton) {
                             ToolbarButton(
-                                icon = Icons.Default.Flip,
+                                icon = if (currentTransform.flipVertical) {
+                                    AppIcons.flipLeftFilled
+                                } else {
+                                    AppIcons.flipRightFilled
+                                },
                                 contentDescription = "上下镜像",
                                 rotateIcon = 90f,
                                 onClick = {
@@ -400,7 +401,7 @@ fun ImagePreviewDialog(
                         // 下载按钮
                         if (config.showDownloadButton) {
                             ToolbarButton(
-                                icon = Icons.Default.Download,
+                                icon = AppIcons.download,
                                 contentDescription = "下载",
                                 onClick = {
                                     if (onDownload != null) {
@@ -424,7 +425,7 @@ fun ImagePreviewDialog(
                         // 分享按钮
                         onShare?.let { share ->
                             ToolbarButton(
-                                icon = Icons.Default.Share,
+                                icon = AppIcons.share,
                                 contentDescription = "分享",
                                 onClick = { share(currentPage) }
                             )
@@ -433,7 +434,7 @@ fun ImagePreviewDialog(
                         // 删除按钮
                         onDelete?.let { delete ->
                             ToolbarButton(
-                                icon = Icons.Default.Delete,
+                                icon = AppIcons.delete,
                                 contentDescription = "删除",
                                 onClick = { delete(currentPage) }
                             )

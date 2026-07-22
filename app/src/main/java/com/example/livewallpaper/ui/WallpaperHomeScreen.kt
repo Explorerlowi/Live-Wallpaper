@@ -2,6 +2,7 @@ package com.example.livewallpaper.ui
 
 import android.Manifest
 import android.app.WallpaperManager
+import android.graphics.BitmapFactory
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -46,20 +47,13 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Reorder
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -82,9 +76,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.core.os.LocaleListCompat
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.clickable
@@ -111,10 +107,16 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.exifinterface.media.ExifInterface
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Size
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.LiveWallpaperService
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.dynamicwallpaper.presentation.state.SettingsEvent
@@ -122,13 +124,7 @@ import com.example.livewallpaper.feature.dynamicwallpaper.presentation.viewmodel
 import com.example.livewallpaper.gallery.data.MediaStoreRepository
 import com.example.livewallpaper.gallery.ui.GalleryScreen
 import com.example.livewallpaper.gallery.viewmodel.GalleryViewModel
-import com.example.livewallpaper.ui.theme.ButtonPrimary
 import com.example.livewallpaper.ui.components.LiquidGlassButton
-import com.example.livewallpaper.ui.theme.MintGreen100
-import com.example.livewallpaper.ui.theme.MintGreen200
-import com.example.livewallpaper.ui.theme.MintGreen300
-import com.example.livewallpaper.ui.theme.TextPrimary
-import com.example.livewallpaper.ui.theme.TextSecondary
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
@@ -650,7 +646,7 @@ private fun TopBar(
                 modifier = Modifier.size(40.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = AppIcons.close,
                     contentDescription = stringResource(R.string.cancel),
                     tint = MaterialTheme.colorScheme.onBackground
                 )
@@ -693,7 +689,7 @@ private fun TopBar(
                 )
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    imageVector = AppIcons.delete,
                     contentDescription = stringResource(R.string.delete_selected)
                 )
             }
@@ -714,7 +710,7 @@ private fun TopBar(
             ) {
                 // 绘图
                 SmallIconBtn(
-                    icon = Icons.Default.Brush,
+                    icon = AppIcons.brush,
                     contentDescription = stringResource(R.string.draw),
                     onClick = onDrawClick
                 )
@@ -722,7 +718,7 @@ private fun TopBar(
                 // 排序
                 if (isReorderEnabled) {
                     SmallIconBtn(
-                        icon = Icons.Default.Reorder,
+                        icon = AppIcons.reorder,
                         contentDescription = stringResource(R.string.reorder),
                         onClick = onReorderClick
                     )
@@ -730,7 +726,7 @@ private fun TopBar(
 
                 // 设置
                 SmallIconBtn(
-                    icon = Icons.Default.Settings,
+                    icon = AppIcons.settings,
                     contentDescription = stringResource(R.string.settings),
                     onClick = onSettingsClick
                 )
@@ -765,6 +761,71 @@ private fun SmallIconBtn(
     }
 }
 
+/** 瀑布流滑动时向后预取的图片数量 */
+private const val PHOTO_PREFETCH_AHEAD_COUNT = 6
+
+/** 图片真实尺寸未知时的占位宽高比 */
+private const val DEFAULT_PHOTO_ASPECT_RATIO = 0.75f
+
+/**
+ * 构建瀑布流缩略图的加载请求。
+ *
+ * 预取和实际显示必须使用同一份请求参数，保证内存缓存 key 一致、预取结果可被直接复用。
+ *
+ * @param context 上下文
+ * @param uri 图片 URI 字符串
+ * @return 限制解码尺寸并启用 RGB_565 的图片请求
+ */
+private fun buildPhotoThumbnailRequest(context: android.content.Context, uri: String): ImageRequest {
+    return ImageRequest.Builder(context)
+        .data(uri)
+        .size(Size(600, 1200))  // 缩略图尺寸，足够瀑布流显示
+        .allowRgb565(true)      // 使用 RGB_565 格式，内存减半
+        .crossfade(true)
+        .error(android.R.drawable.ic_menu_report_image)
+        .build()
+}
+
+/**
+ * 仅解码图片边界信息获取宽高比，不加载像素数据，开销极小。
+ *
+ * @param context 用于访问 ContentResolver
+ * @param uri 图片 URI 字符串
+ * @return 宽高比（宽/高），已按 EXIF 旋转修正；读取失败时返回 null
+ */
+private fun resolveImageAspectRatio(context: android.content.Context, uri: String): Float? {
+    return try {
+        val parsed = Uri.parse(uri)
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(parsed)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+        val width = options.outWidth
+        val height = options.outHeight
+        if (width <= 0 || height <= 0) return null
+
+        // 手机拍摄的照片常通过 EXIF 标记旋转，90/270 度时需要交换宽高
+        val swapped = context.contentResolver.openInputStream(parsed)?.use { stream ->
+            when (
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            ) {
+                ExifInterface.ORIENTATION_ROTATE_90,
+                ExifInterface.ORIENTATION_ROTATE_270,
+                ExifInterface.ORIENTATION_TRANSPOSE,
+                ExifInterface.ORIENTATION_TRANSVERSE -> true
+                else -> false
+            }
+        } ?: false
+
+        if (swapped) height.toFloat() / width else width.toFloat() / height
+    } catch (e: Exception) {
+        null
+    }
+}
+
 /**
  * 瀑布流图片网格
  */
@@ -778,8 +839,42 @@ private fun StaggeredPhotoGrid(
     onImageLongPress: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val gridState = rememberLazyStaggeredGridState()
+
+    // 宽高比缓存提升到网格层级：
+    // 条目滑出屏幕被回收后再滑回来时比例不丢失，避免瀑布流布局反复跳动
+    val aspectRatios = remember { mutableStateMapOf<String, Float>() }
+
+    // 后台预读所有图片的真实宽高（仅解码边界信息），
+    // 让条目首次上屏就使用真实比例，消除「占位比例 -> 真实比例」的布局跳变
+    LaunchedEffect(imageUris) {
+        val missing = imageUris.filter { it !in aspectRatios }
+        if (missing.isEmpty()) return@LaunchedEffect
+        val resolved = withContext(Dispatchers.IO) {
+            missing.mapNotNull { uri ->
+                resolveImageAspectRatio(context, uri)?.let { uri to it }
+            }
+        }
+        resolved.forEach { (uri, ratio) -> aspectRatios[uri] = ratio }
+    }
+
+    // 预取即将滑入屏幕的图片，提前写入内存缓存，减少快速滑动时的加载闪烁
+    LaunchedEffect(gridState, imageUris) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .distinctUntilChanged()
+            .collect { lastVisible ->
+                if (lastVisible < 0) return@collect
+                val end = (lastVisible + PHOTO_PREFETCH_AHEAD_COUNT).coerceAtMost(imageUris.lastIndex)
+                for (i in (lastVisible + 1)..end) {
+                    context.imageLoader.enqueue(buildPhotoThumbnailRequest(context, imageUris[i]))
+                }
+            }
+    }
+
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
+        state = gridState,
         contentPadding = PaddingValues(
             start = 12.dp,
             end = 12.dp,
@@ -792,10 +887,13 @@ private fun StaggeredPhotoGrid(
     ) {
         itemsIndexed(
             items = imageUris,
-            key = { _, uri -> uri }
+            key = { _, uri -> uri },
+            contentType = { _, _ -> "photo" }
         ) { index, uri ->
             PhotoCard(
                 uri = uri,
+                aspectRatio = aspectRatios[uri],
+                onAspectRatioResolved = { ratio -> aspectRatios[uri] = ratio },
                 hasCropParams = imageCropParams.containsKey(uri),
                 isMultiSelectMode = isMultiSelectMode,
                 isSelected = selectedUris.contains(uri),
@@ -968,7 +1066,7 @@ private fun ReorderRow(
         }
 
         Icon(
-            imageVector = Icons.Default.Reorder,
+            imageVector = AppIcons.reorder,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp)
@@ -999,10 +1097,15 @@ private fun applyLanguage(languageTag: String?) {
 
 /**
  * 单个图片卡片 - 纯净样式
+ *
+ * @param aspectRatio 图片宽高比，由网格层级的缓存提供；为 null 时使用默认占位比例
+ * @param onAspectRatioResolved 预读失败时的兜底回调，图片解码成功后回传真实比例
  */
 @Composable
 private fun PhotoCard(
     uri: String,
+    aspectRatio: Float?,
+    onAspectRatioResolved: (Float) -> Unit,
     hasCropParams: Boolean,
     isMultiSelectMode: Boolean,
     isSelected: Boolean,
@@ -1010,32 +1113,21 @@ private fun PhotoCard(
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
-    
-    // 使用 ImageRequest 限制图片尺寸，启用 RGB_565 减少内存占用
-    val imageRequest = remember(uri) {
-        ImageRequest.Builder(context)
-            .data(uri)
-            .size(Size(600, 1200))  // 缩略图尺寸，足够瀑布流显示
-            .allowRgb565(true)      // 使用 RGB_565 格式，内存减半
-            .crossfade(true)
-            .placeholder(android.R.drawable.ic_menu_gallery)
-            .error(android.R.drawable.ic_menu_report_image)
-            .build()
-    }
-    
+
+    // 与预取共用同一份请求参数，保证缓存命中；
+    // 不设置 placeholder，加载期间由卡片的 surfaceVariant 底色充当占位
+    val imageRequest = remember(uri) { buildPhotoThumbnailRequest(context, uri) }
+
     val painter = rememberAsyncImagePainter(imageRequest)
     val painterState = painter.state
 
-    // 比例计算：
-    // - 首次进入时图片通常还没解码完成，拿不到宽高，只能先用默认比例占位
-    // - 一旦加载成功，用 drawable 的 intrinsicWidth/Height 更新为真实比例
-    var aspectRatio by remember(uri) { mutableStateOf(0.75f) }
-    if (painterState is AsyncImagePainter.State.Success) {
-        val drawable = painterState.result.drawable
-        val w = drawable.intrinsicWidth
-        val h = drawable.intrinsicHeight
-        if (w > 0 && h > 0) {
-            aspectRatio = w.toFloat() / h.toFloat()
+    // 兜底：预读宽高失败的图片，在解码成功后用真实尺寸修正比例
+    LaunchedEffect(painterState, aspectRatio) {
+        if (aspectRatio == null && painterState is AsyncImagePainter.State.Success) {
+            val drawable = painterState.result.drawable
+            if (drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0) {
+                onAspectRatioResolved(drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight)
+            }
         }
     }
     
@@ -1046,7 +1138,7 @@ private fun PhotoCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio.coerceIn(0.5f, 2f))
+            .aspectRatio((aspectRatio ?: DEFAULT_PHOTO_ASPECT_RATIO).coerceIn(0.5f, 2f))
             .pointerInput(uri) {
                 detectTapGestures(
                     onTap = { onClick() },
@@ -1076,7 +1168,7 @@ private fun PhotoCard(
                 
                 // 选中图标
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
+                    imageVector = AppIcons.checkCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
@@ -1090,7 +1182,7 @@ private fun PhotoCard(
             // 如果有裁剪参数，显示一个小标记
             if (hasCropParams && !isMultiSelectMode) {
                  Icon(
-                    imageVector = Icons.Default.CheckCircle, // 或者换成 Crop 图标
+                    imageVector = AppIcons.checkCircle, // 或者换成 Crop 图标
                     contentDescription = "Cropped",
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier
@@ -1171,7 +1263,7 @@ private fun FloatingBottomBar(
                 shape = CircleShape,
                 contentPadding = PaddingValues(0.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
+                Icon(AppIcons.add, contentDescription = "Add")
             }
 
             // 设置壁纸按钮
@@ -1207,7 +1299,7 @@ private fun AddImageButton(
             .height(56.dp),
         shape = RoundedCornerShape(28.dp)
     ) {
-        Icon(Icons.Default.Add, contentDescription = null)
+        Icon(AppIcons.add, contentDescription = null)
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = stringResource(R.string.add_image),

@@ -42,38 +42,43 @@ enum class AppDesignThemeStyle {
     Clear,
 }
 
+// 浅色主题：与品牌青色同色相的薄荷色系，表面与文字均带青灰调，
+// 让强调色与中性层属于同一家族（参照星辰主题的单色相分层逻辑）。
 internal val FreshLightColors = AppColorTokens(
-    pageBackground = Color(0xFFF6F7F9),
+    pageBackground = Color(0xFFF2F7F6),
     surface = Color.White,
     surfaceElevated = Color.White,
-    surfaceMuted = Color(0xFFF2F4F7),
-    textPrimary = Color(0xFF111827),
-    textSecondary = Color(0xFF5F6673),
-    textTertiary = Color(0xFF9AA1AD),
-    divider = Color(0xFFEDEFF3),
-    border = Color(0xFFE1E5EB),
+    surfaceMuted = Color(0xFFE3EEEB),
+    textPrimary = Color(0xFF16211F),
+    textSecondary = Color(0xFF5C6E6A),
+    textTertiary = Color(0xFF92A5A0),
+    divider = Color(0xFFE0EBE8),
+    border = Color(0xFFCFE0DC),
     brand = Color(0xFF14B8A6),
     brandPressed = Color(0xFF0F9486),
-    brandSubtle = Color(0xFFE7F8F5),
+    brandSubtle = Color(0xFFDDF3EF),
     success = Color(0xFF18A058),
     warning = Color(0xFFFFA940),
     danger = Color(0xFFFF4D4F),
     onBrand = Color.White,
 )
 
+// 深色主题：青黑色系深色，表面与文字统一偏向品牌青色相，
+// 并拉宽 pageBackground → surface → surfaceMuted 的明度阶梯，
+// 保证卡片以半透明叠加后仍能与背景分层（参照星辰主题的分层逻辑）。
 internal val DarkColors = AppColorTokens(
-    pageBackground = Color(0xFF111418),
-    surface = Color(0xFF191D23),
-    surfaceElevated = Color(0xFF20252C),
-    surfaceMuted = Color(0xFF252B33),
-    textPrimary = Color(0xFFF4F6F8),
-    textSecondary = Color(0xFFB8C0CC),
-    textTertiary = Color(0xFF7F8896),
-    divider = Color(0xFF2D333D),
-    border = Color(0xFF363D48),
-    brand = Color(0xFF4DD6C8),
-    brandPressed = Color(0xFF24B9AA),
-    brandSubtle = Color(0xFF163D3A),
+    pageBackground = Color(0xFF0D1414),
+    surface = Color(0xFF141D1C),
+    surfaceElevated = Color(0xFF1B2724),
+    surfaceMuted = Color(0xFF273834),
+    textPrimary = Color(0xFFEAF4F2),
+    textSecondary = Color(0xFFB4CBC7),
+    textTertiary = Color(0xFF7C9C96),
+    divider = Color(0xFF243230),
+    border = Color(0xFF35494A),
+    brand = Color(0xFF66CFC1),
+    brandPressed = Color(0xFF3FB3A4),
+    brandSubtle = Color(0xFF1C3733),
     success = Color(0xFF52C41A),
     warning = Color(0xFFFFC069),
     danger = Color(0xFFFF7875),
@@ -99,16 +104,18 @@ internal val StardustColors = AppColorTokens(
     onBrand = Color(0xFF0B1838),
 )
 
+// 清透主题：紫色系整体保持不变，仅加深中间层（surfaceMuted / divider / border），
+// 拉宽与纯白表面之间的明度阶梯，让卡片与分割线在半透明叠加后仍清晰可读。
 internal val ClearColors = AppColorTokens(
-    pageBackground = Color(0xFFFAFAFF),
+    pageBackground = Color(0xFFF7F5FD),
     surface = Color.White,
     surfaceElevated = Color.White,
-    surfaceMuted = Color(0xFFF2F0F8),
+    surfaceMuted = Color(0xFFE9E4F6),
     textPrimary = Color(0xFF343044),
     textSecondary = Color(0xFF6F687E),
     textTertiary = Color(0xFF9E97AE),
-    divider = Color(0xFFEDE9F5),
-    border = Color(0xFFE2DCEF),
+    divider = Color(0xFFE5DFF2),
+    border = Color(0xFFD8CFEC),
     brand = Color(0xFF8177F6),
     brandPressed = Color(0xFF6B60DC),
     brandSubtle = Color(0xFFF0EEFF),

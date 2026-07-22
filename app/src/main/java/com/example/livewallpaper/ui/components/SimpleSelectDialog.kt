@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,6 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.livewallpaper.core.design.icon.AppIcons
 
 /**
  * 选择项数据类
@@ -114,7 +113,7 @@ private fun <T> SelectOptionItem(
         // 选中勾选
         if (isSelected) {
             Icon(
-                imageVector = Icons.Default.Check,
+                imageVector = AppIcons.check,
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
                 tint = MaterialTheme.colorScheme.onSurface

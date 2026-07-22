@@ -17,8 +17,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.gallery.data.MediaStoreRepository
 import com.example.livewallpaper.gallery.ui.GalleryScreen
@@ -365,7 +364,7 @@ fun ImageGridEditorScreen(
                     enabled = sourceBitmap != null
                 ) {
                     Icon(
-                        Icons.Default.ContentCut,
+                        AppIcons.scissors,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp)
                     )
@@ -515,7 +514,7 @@ private fun GridEditorTopBar(
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = AppIcons.arrowBack,
                     contentDescription = stringResource(R.string.split_back)
                 )
             }
@@ -530,7 +529,7 @@ private fun GridEditorTopBar(
         actions = {
             IconButton(onClick = onPickImage) {
                 Icon(
-                    imageVector = Icons.Default.Image,
+                    imageVector = AppIcons.image,
                     contentDescription = stringResource(R.string.split_replace_image)
                 )
             }
@@ -826,7 +825,7 @@ private fun GridEditFullScreenDialog(
                     .background(Color.Black.copy(alpha = 0.35f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = AppIcons.close,
                     contentDescription = stringResource(R.string.close),
                     tint = Color.White
                 )
@@ -841,7 +840,7 @@ private fun GridEditFullScreenDialog(
                     .background(Color.Black.copy(alpha = 0.35f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = AppIcons.check,
                     contentDescription = stringResource(R.string.confirm),
                     tint = Color.White
                 )
@@ -862,19 +861,19 @@ private fun GridEditFullScreenDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GridEditToolButton(
-                        icon = Icons.Default.Undo,
+                        icon = AppIcons.undo,
                         label = stringResource(R.string.split_undo),
                         enabled = undoStack.isNotEmpty(),
                         onClick = { undo() }
                     )
                     GridEditToolButton(
-                        icon = Icons.Default.Redo,
+                        icon = AppIcons.redo,
                         label = stringResource(R.string.split_redo),
                         enabled = redoStack.isNotEmpty(),
                         onClick = { redo() }
                     )
                     GridEditToolButton(
-                        icon = Icons.Default.Refresh,
+                        icon = AppIcons.refresh,
                         label = stringResource(R.string.split_reset_grid),
                         enabled = true,
                         onClick = { resetGrid() }
@@ -934,19 +933,19 @@ private fun OperationBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             OperationButton(
-                icon = Icons.Default.Undo,
+                icon = AppIcons.undo,
                 label = stringResource(R.string.split_undo),
                 enabled = canUndo,
                 onClick = onUndo
             )
             OperationButton(
-                icon = Icons.Default.Redo,
+                icon = AppIcons.redo,
                 label = stringResource(R.string.split_redo),
                 enabled = canRedo,
                 onClick = onRedo
             )
             OperationButton(
-                icon = Icons.Default.Refresh,
+                icon = AppIcons.refresh,
                 label = stringResource(R.string.split_reset_grid),
                 enabled = true,
                 onClick = onReset
@@ -1051,7 +1050,7 @@ private fun GridConfigSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.GridView,
+                            imageVector = AppIcons.grid,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.primary
@@ -1066,7 +1065,7 @@ private fun GridConfigSection(
                         // 把菜单锚点放到右侧箭头上，让下拉从右侧弹出
                         Box {
                             Icon(
-                                imageVector = if (presetExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                imageVector = if (presetExpanded) AppIcons.chevronUp else AppIcons.chevronDown,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1079,8 +1078,8 @@ private fun GridConfigSection(
                                     .map { preset ->
                                         AppMenuItem(
                                             title = getPresetLabel(preset, preset.rows, preset.columns),
-                                            icon = Icons.Default.GridView,
-                                            trailingIcon = if (gridConfig.preset == preset) Icons.Default.Check else null,
+                                            icon = AppIcons.grid,
+                                            trailingIcon = if (gridConfig.preset == preset) AppIcons.check else null,
                                             selected = gridConfig.preset == preset,
                                             onClick = { onPresetSelect(preset) }
                                         )
@@ -1174,7 +1173,7 @@ private fun NumberStepper(
                 enabled = value > minValue
             ) {
                 Icon(
-                    Icons.Default.Remove,
+                    AppIcons.remove,
                     contentDescription = "Decrease",
                     tint = if (value > minValue) {
                         MaterialTheme.colorScheme.onSurface
@@ -1199,7 +1198,7 @@ private fun NumberStepper(
                 enabled = value < maxValue
             ) {
                 Icon(
-                    Icons.Default.Add,
+                    AppIcons.add,
                     contentDescription = "Increase",
                     tint = if (value < maxValue) {
                         MaterialTheme.colorScheme.onSurface

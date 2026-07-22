@@ -28,12 +28,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import java.io.File
 import java.text.DecimalFormat
@@ -203,7 +198,7 @@ fun CacheManagementScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = AppIcons.arrowBack,
                             contentDescription = "Back"
                         )
                     }
@@ -455,7 +450,7 @@ private fun CacheImageItem(
         ) {
             if (isSelected) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = AppIcons.check,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
@@ -593,7 +588,7 @@ private fun SortOption(
         
         if (isSelected) {
             Icon(
-                imageVector = Icons.Default.Check,
+                imageVector = AppIcons.check,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary
             )

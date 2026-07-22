@@ -15,9 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
@@ -228,7 +226,7 @@ fun PaintBottomBar(
                 ) {
                     // API设置
                     QuickActionChip(
-                        icon = Icons.Default.Settings,
+                        icon = AppIcons.settings,
                         label = when {
                             !isApiProfileLoaded -> stringResource(R.string.paint_api_loading)
                             activeProfile != null -> activeProfile.name
@@ -240,7 +238,7 @@ fun PaintBottomBar(
                     
                     // 模型选择
                     QuickActionChip(
-                        icon = Icons.Default.AutoAwesome,
+                        icon = AppIcons.autoAwesome,
                         label = selectedModel.displayName,
                         onClick = onModelClick
                     )
@@ -248,7 +246,7 @@ fun PaintBottomBar(
                     // 比例选择（Gemini 模型使用）
                     if (!selectedModel.isGpt) {
                         QuickActionChip(
-                            icon = Icons.Default.AspectRatio,
+                            icon = AppIcons.aspectRatio,
                             label = selectedRatio.displayName,
                             onClick = onRatioClick
                         )
@@ -257,7 +255,7 @@ fun PaintBottomBar(
                     // 分辨率选择（支持分辨率的模型显示）
                     if (selectedModel.supportsResolution) {
                         QuickActionChip(
-                            icon = Icons.Default.HighQuality,
+                            icon = AppIcons.highQuality,
                             label = selectedResolution.displayName,
                             onClick = onResolutionClick
                         )
@@ -266,7 +264,7 @@ fun PaintBottomBar(
                     // GPT 尺寸选择
                     if (selectedModel.supportsGptSize) {
                         QuickActionChip(
-                            icon = Icons.Default.PhotoSizeSelectLarge,
+                            icon = AppIcons.aspectRatio,
                             label = if (selectedGptSize == GptImageSize.AUTO) {
                                 stringResource(R.string.paint_gpt_size_auto)
                             } else {
@@ -279,7 +277,7 @@ fun PaintBottomBar(
                     // GPT 质量选择
                     if (selectedModel.supportsGptQuality) {
                         QuickActionChip(
-                            icon = Icons.Default.HighQuality,
+                            icon = AppIcons.highQuality,
                             label = when (selectedGptQuality) {
                                 GptImageQuality.AUTO -> stringResource(R.string.paint_gpt_quality_auto)
                                 GptImageQuality.LOW -> stringResource(R.string.paint_gpt_quality_low)
@@ -293,7 +291,7 @@ fun PaintBottomBar(
                     // GPT 输出格式选择
                     if (selectedModel.isGpt) {
                         QuickActionChip(
-                            icon = Icons.Default.Image,
+                            icon = AppIcons.image,
                             label = when (selectedGptFormat) {
                                 GptOutputFormat.PNG -> stringResource(R.string.paint_gpt_format_png)
                                 GptOutputFormat.JPEG -> stringResource(R.string.paint_gpt_format_jpeg)
@@ -305,7 +303,7 @@ fun PaintBottomBar(
 
                     // 添加描述
                     QuickActionChip(
-                        icon = Icons.Default.Add,
+                        icon = AppIcons.add,
                         label = stringResource(R.string.desc_add_description),
                         onClick = { showDescriptionPicker = true }
                     )
@@ -375,7 +373,7 @@ fun PaintBottomBar(
                                             modifier = Modifier.fillMaxSize()
                                         ) {
                                             Icon(
-                                                Icons.Default.Image,
+                                                AppIcons.image,
                                                 contentDescription = stringResource(R.string.add_image),
                                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                                 modifier = Modifier.size(22.dp)
@@ -397,7 +395,7 @@ fun PaintBottomBar(
                                             modifier = Modifier.fillMaxSize()
                                         ) {
                                             Icon(
-                                                Icons.Default.Stop,
+                                                AppIcons.stop,
                                                 contentDescription = stringResource(R.string.paint_stop),
                                                 tint = Color.White,
                                                 modifier = Modifier.size(18.dp)
@@ -417,7 +415,7 @@ fun PaintBottomBar(
                                             modifier = Modifier.fillMaxSize()
                                         ) {
                                             Icon(
-                                                Icons.Default.ArrowUpward,
+                                                AppIcons.arrowUpward,
                                                 contentDescription = stringResource(R.string.paint_send),
                                                 tint = Color.White,
                                                 modifier = Modifier.size(20.dp)
@@ -446,7 +444,7 @@ fun PaintBottomBar(
                                         modifier = Modifier.size(28.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.OpenInFull,
+                                            AppIcons.openInFull,
                                             contentDescription = stringResource(R.string.paint_expand_input),
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(18.dp)
@@ -587,7 +585,7 @@ private fun AddReferenceImageCard(onClick: () -> Unit) {
                 verticalArrangement = Arrangement.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = AppIcons.add,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     modifier = Modifier.size(20.dp)
@@ -644,7 +642,7 @@ private fun SelectedImagePreview(
                     .size(20.dp)
             ) {
                 Icon(
-                    Icons.Default.Close,
+                    AppIcons.close,
                     contentDescription = stringResource(R.string.delete_image),
                     tint = Color.White,
                     modifier = Modifier
@@ -756,7 +754,7 @@ fun FullScreenPromptOverlay(
             ) {
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        Icons.Default.Close,
+                        AppIcons.close,
                         contentDescription = stringResource(R.string.close),
                         tint = MaterialTheme.colorScheme.onSurface
                     )
@@ -884,7 +882,7 @@ fun FullScreenPromptOverlay(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
-                                Icons.Default.Image,
+                                AppIcons.image,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
@@ -910,7 +908,7 @@ fun FullScreenPromptOverlay(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
-                                Icons.Default.Stop,
+                                AppIcons.stop,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)

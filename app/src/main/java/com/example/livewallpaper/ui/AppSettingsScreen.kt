@@ -25,18 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -74,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.BuildConfig
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
@@ -97,7 +86,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.material.icons.filled.Storage
 import com.example.livewallpaper.paint.viewmodel.PaintDataTransferUiState
 import com.example.livewallpaper.paint.viewmodel.PaintDataImportPreviewUiState
 import com.example.livewallpaper.paint.viewmodel.PaintDataTransferViewModel
@@ -207,7 +195,7 @@ fun AppSettingsScreen(
                         enabled = !isPaintDataTransferBusy,
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = AppIcons.arrowBack,
                             contentDescription = "Back"
                         )
                     }
@@ -264,7 +252,7 @@ fun AppSettingsScreen(
                     SettingsGroupCard {
                         // 切换间隔
                         SettingsItem(
-                            icon = Icons.Default.Timer,
+                            icon = AppIcons.timer,
                             title = stringResource(R.string.interval_label),
                             value = stringResource(R.string.interval_seconds, intervalValue / 1000f),
                             onClick = { showIntervalInputDialog = true }
@@ -280,7 +268,7 @@ fun AppSettingsScreen(
                             ScaleMode.FIT_CENTER -> stringResource(R.string.scale_mode_fit)
                         }
                         SettingsItem(
-                            icon = Icons.Default.AspectRatio,
+                            icon = AppIcons.aspectRatio,
                             title = stringResource(R.string.scale_mode_label),
                             value = scaleModeLabel,
                             onClick = { showScaleModeSheet = true }
@@ -296,7 +284,7 @@ fun AppSettingsScreen(
                             PlayMode.RANDOM -> stringResource(R.string.play_mode_random)
                         }
                         SettingsItem(
-                            icon = Icons.Default.PlayCircle,
+                            icon = AppIcons.playCircle,
                             title = stringResource(R.string.play_mode_label),
                             value = playModeLabel,
                             onClick = { showPlayModeSheet = true }
@@ -316,7 +304,7 @@ fun AppSettingsScreen(
                             ThemeMode.CLEAR -> stringResource(R.string.theme_clear)
                         }
                         SettingsItem(
-                            icon = Icons.Default.ColorLens,
+                            icon = AppIcons.colorPalette,
                             title = stringResource(R.string.theme_label),
                             value = themeLabel,
                             onClick = { showThemeSheet = true }
@@ -328,7 +316,7 @@ fun AppSettingsScreen(
 
                         // 语言
                         SettingsItem(
-                            icon = Icons.Default.Language,
+                            icon = AppIcons.language,
                             title = stringResource(R.string.language_label),
                             value = stringResource(selectedLanguage.labelRes),
                             onClick = { showLanguageSheet = true }
@@ -341,7 +329,7 @@ fun AppSettingsScreen(
                     SettingsGroupCard {
                         // 缓存管理
                         SettingsItem(
-                            icon = Icons.Default.Storage,
+                            icon = AppIcons.storage,
                             title = stringResource(R.string.cache_management),
                             value = "",
                             onClick = { showCacheManagement = true }
@@ -351,7 +339,7 @@ fun AppSettingsScreen(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                         )
                         SettingsItem(
-                            icon = Icons.Default.FileDownload,
+                            icon = AppIcons.download,
                             title = stringResource(R.string.paint_data_export),
                             value = stringResource(R.string.paint_data_export_description),
                             onClick = {
@@ -366,7 +354,7 @@ fun AppSettingsScreen(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                         )
                         SettingsItem(
-                            icon = Icons.Default.FileUpload,
+                            icon = AppIcons.fileUpload,
                             title = stringResource(R.string.paint_data_import),
                             value = stringResource(R.string.paint_data_import_description),
                             onClick = {
@@ -383,7 +371,7 @@ fun AppSettingsScreen(
                 item {
                     SettingsGroupCard {
                         SettingsItem(
-                            icon = Icons.Default.Info,
+                            icon = AppIcons.info,
                             title = stringResource(R.string.check_update),
                             value = stringResource(R.string.current_version, BuildConfig.VERSION_NAME),
                             onClick = onCheckUpdate
@@ -744,7 +732,7 @@ private fun PaintDataImportDialog(
                         verticalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FileUpload,
+                            imageVector = AppIcons.fileUpload,
                             contentDescription = null,
                             tint = borderColor,
                             modifier = Modifier.size(30.dp),
@@ -925,7 +913,7 @@ fun SettingsItem(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    imageVector = AppIcons.arrowForward,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.outlineVariant
@@ -990,7 +978,7 @@ fun <T> SelectionBottomSheet(
 
                     if (isSelected) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            imageVector = AppIcons.check,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )

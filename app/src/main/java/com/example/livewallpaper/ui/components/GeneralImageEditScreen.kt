@@ -53,17 +53,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.BlurOn
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.CheckCircleOutline
-import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -124,6 +113,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.rememberAsyncImagePainter
+import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1797,34 +1787,41 @@ private fun DrawScope.drawShapeSelectionHandles(corners: List<Offset>) {
     drawRotateIcon(rotatePos, ROTATE_HANDLE_RADIUS)
 }
 
-/**
- * 在指定位置绘制旋转图标（Material Refresh 图标 path）
- */
+/** 在指定位置绘制与应用图标库一致的对象旋转图标。 */
 private fun DrawScope.drawRotateIcon(center: Offset, radius: Float) {
     val iconColor = Color(0xFF444444)
-    val s = radius / 12f  // 24x24 viewBox，中心 12,12
+    val scale = radius / 12f
 
-    // Material Icons "Refresh" path，坐标已相对于 center 做偏移和缩放
-    fun px(x: Float) = center.x + (x - 12f) * s
-    fun py(y: Float) = center.y + (y - 12f) * s
+    fun px(x: Float) = center.x + (x - 12f) * scale
+    fun py(y: Float) = center.y + (y - 12f) * scale
 
-    val refreshPath = Path().apply {
-        moveTo(px(17.65f), py(6.35f))
-        cubicTo(px(16.2f), py(4.9f), px(14.21f), py(4f), px(12f), py(4f))
-        cubicTo(px(7.58f), py(4f), px(4.01f), py(7.58f), px(4.01f), py(12f))
-        cubicTo(px(4.01f), py(16.42f), px(7.58f), py(20f), px(12f), py(20f))
-        cubicTo(px(15.73f), py(20f), px(18.84f), py(17.45f), px(19.73f), py(14f))
-        lineTo(px(17.65f), py(14f))
-        cubicTo(px(16.83f), py(16.33f), px(14.61f), py(18f), px(12f), py(18f))
-        cubicTo(px(8.69f), py(18f), px(6f), py(15.31f), px(6f), py(12f))
-        cubicTo(px(6f), py(8.69f), px(8.69f), py(6f), px(12f), py(6f))
-        cubicTo(px(13.66f), py(6f), px(15.14f), py(6.69f), px(16.22f), py(7.78f))
-        lineTo(px(13f), py(11f))
-        lineTo(px(20f), py(11f))
-        lineTo(px(20f), py(4f))
+    val rotatePath = Path().apply {
+        moveTo(px(6f), py(13f))
+        lineTo(px(12f), py(13f))
+        cubicTo(px(13.1f), py(13f), px(14f), py(13.9f), px(14f), py(15f))
+        lineTo(px(14f), py(18f))
+        cubicTo(px(14f), py(19.1f), px(13.1f), py(20f), px(12f), py(20f))
+        lineTo(px(6f), py(20f))
+        cubicTo(px(4.9f), py(20f), px(4f), py(19.1f), px(4f), py(18f))
+        lineTo(px(4f), py(15f))
+        cubicTo(px(4f), py(13.9f), px(4.9f), py(13f), px(6f), py(13f))
         close()
+        moveTo(px(20f), py(13f))
+        cubicTo(px(20f), py(8.58f), px(16.42f), py(5f), px(12f), py(5f))
+        lineTo(px(10f), py(5f))
+        moveTo(px(12.5f), py(2.5f))
+        lineTo(px(10f), py(5f))
+        lineTo(px(12.5f), py(7.5f))
     }
-    drawPath(refreshPath, iconColor)
+    drawPath(
+        path = rotatePath,
+        color = iconColor,
+        style = Stroke(
+            width = 2f * scale,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        ),
+    )
 }
 
 /**
@@ -2114,7 +2111,7 @@ private fun BrushToolBar(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Edit,
+                imageVector = AppIcons.edit,
                 contentDescription = stringResource(R.string.image_edit_brush),
                 tint = Color.White,
                 modifier = Modifier.size(18.dp)
@@ -2164,7 +2161,7 @@ private fun BrushToolBar(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.Undo,
+                imageVector = AppIcons.undo,
                 contentDescription = stringResource(R.string.image_edit_undo),
                 tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f),
                 modifier = Modifier.size(22.dp)
@@ -2196,7 +2193,7 @@ private fun TextToolBar(
         ) {
             IconButton(onClick = onAddText, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = AppIcons.add,
                     contentDescription = stringResource(R.string.image_edit_add_text),
                     tint = Color.White
                 )
@@ -2230,7 +2227,7 @@ private fun TextToolBar(
             }
             IconButton(onClick = onUndo, enabled = canUndo, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Undo,
+                    imageVector = AppIcons.undo,
                     contentDescription = stringResource(R.string.image_edit_undo),
                     tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f)
                 )
@@ -2338,7 +2335,7 @@ private fun SaveOverlay(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircleOutline,
+                            imageVector = AppIcons.checkCircleOutline,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(20.dp)
@@ -2389,7 +2386,7 @@ private fun EditTopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                imageVector = AppIcons.arrowBack,
                 contentDescription = stringResource(R.string.image_edit_back),
                 tint = Color.White,
                 modifier = Modifier.size(26.dp)
@@ -2397,7 +2394,7 @@ private fun EditTopBar(
         }
         IconButton(onClick = onDownload) {
             Icon(
-                imageVector = Icons.Default.Download,
+                imageVector = AppIcons.download,
                 contentDescription = stringResource(R.string.image_edit_download),
                 tint = Color.White,
                 modifier = Modifier.size(26.dp)
@@ -2427,25 +2424,25 @@ private fun EditBottomBar(
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             ToolIcon(
-                icon = Icons.Default.Brush,
+                icon = AppIcons.brush,
                 label = stringResource(R.string.image_edit_brush),
                 isActive = isBrushMode,
                 onClick = { onToolSelected(EditTool.BRUSH) }
             )
             ToolIcon(
-                icon = Icons.Default.BlurOn,
+                icon = AppIcons.blur,
                 label = stringResource(R.string.image_edit_mosaic),
                 isActive = isMosaicMode,
                 onClick = { onToolSelected(EditTool.MOSAIC) }
             )
             ToolIcon(
-                icon = Icons.Default.TextFields,
+                icon = AppIcons.text,
                 label = stringResource(R.string.image_edit_text),
                 isActive = isTextMode,
                 onClick = { onToolSelected(EditTool.TEXT) }
             )
             ToolIcon(
-                icon = Icons.Default.Crop,
+                icon = AppIcons.crop,
                 label = stringResource(R.string.image_edit_crop),
                 onClick = { onToolSelected(EditTool.CROP) }
             )
@@ -2564,7 +2561,7 @@ private fun MosaicToolBar(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.Undo,
+                imageVector = AppIcons.undo,
                 contentDescription = stringResource(R.string.image_edit_undo),
                 tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.3f),
                 modifier = Modifier.size(22.dp)
