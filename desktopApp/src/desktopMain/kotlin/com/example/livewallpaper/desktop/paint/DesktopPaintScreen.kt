@@ -154,6 +154,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatfor
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintModel
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageState
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
@@ -234,6 +235,10 @@ fun AiPaintWorkspace(
     onSetWallpaperPath: (String) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val storageWaiting = uiState.storageState is PaintStorageState.Initializing ||
+        uiState.storageState is PaintStorageState.Migrating
+    val storageReadOnly = uiState.storageState is PaintStorageState.ReadOnly
+    val storageRecoveryRequired = uiState.storageState is PaintStorageState.RecoveryRequired
     val strings = LocalDesktopStrings.current
     val currentSessionId = uiState.currentSession?.id
     val listState = remember(currentSessionId) { LazyListState() }
@@ -541,13 +546,15 @@ fun AiPaintWorkspace(
                     }
                 }
             }
-            PaintInputBar(
-                uiState = uiState,
-                onEvent = viewModel::onEvent,
-                onShowApiSettings = { showApiSettings = true },
-                onShowOptions = { optionDialog = it },
-                onPreviewImage = ::showReferenceImagePreview,
-            )
+            if (!storageReadOnly) {
+                PaintInputBar(
+                    uiState = uiState,
+                    onEvent = viewModel::onEvent,
+                    onShowApiSettings = { showApiSettings = true },
+                    onShowOptions = { optionDialog = it },
+                    onPreviewImage = ::showReferenceImagePreview,
+                )
+            }
             uiState.error?.let { error ->
                 Surface(
                     color = MaterialTheme.colorScheme.error.copy(alpha = 0.10f),
@@ -571,6 +578,53 @@ fun AiPaintWorkspace(
                         }
                     }
                 }
+            }
+        }
+        if (storageWaiting) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(strings.paintStorageMigrating)
+                }
+            }
+        } else if (storageRecoveryRequired) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = strings.paintStorageRecoveryRequired,
+                        modifier = Modifier.padding(32.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+        } else if (storageReadOnly || uiState.storageState is PaintStorageState.LegacyFallback) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 74.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shadowElevation = 4.dp,
+            ) {
+                Text(
+                    text = if (storageReadOnly) {
+                        strings.paintStorageRecoveryRequired
+                    } else {
+                        strings.paintStorageLegacyFallback
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
         if (showCopyFeedback) {
@@ -1274,7 +1328,7 @@ private fun PaintMessageRow(
                 message = message,
                 versions = versions,
                 currentVersionIndex = currentVersionIndex,
-                imagesAvailable = message.images.any { it.localPath?.let { path -> localImageFile(path)?.isFile } == true || it.base64Data != null },
+                imagesAvailable = message.images.any { it.localPath?.let { path -> localImageFile(path)?.isFile } == true },
                 onAddImages = { onAddImages(message.images) },
                 onCopy = { onCopyText(message.messageContent) },
                 onRegenerate = onRegenerate,

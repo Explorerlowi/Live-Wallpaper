@@ -1,11 +1,32 @@
 package com.example.livewallpaper.feature.aipaint.domain.repository
 
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataMergeResult
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataImportCommitResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshot
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshotReadResult
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStoredData
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStoredDataReadResult
 
 /** Repository operations used by full painting data backup and restore. */
 interface PaintDataRepository {
+    /** Reads conversations and drafts from one consistent storage snapshot. */
+    suspend fun getStoredData(): PaintStoredDataReadResult
+
+    /** Merges conversations and drafts in one transaction. */
+    suspend fun mergeStoredData(data: PaintStoredData): PaintDataMergeResult
+
+    /** Replaces conversations and drafts in one transaction. */
+    suspend fun replaceStoredData(data: PaintStoredData): Boolean
+
+    /**
+     * Commits one imported bundle while excluding ordinary conversation and draft writes.
+     *
+     * Implementations must use one atomic database transaction or capture the rollback snapshot
+     * under the same operation gate used by the merge. A concurrent message write must never be
+     * replaced by an older snapshot.
+     */
+    suspend fun importStoredData(data: PaintStoredData): PaintDataImportCommitResult
+
     /**
      * Reads every saved session and message as one consistent snapshot.
      *

@@ -2,10 +2,15 @@ package com.example.livewallpaper.feature.aipaint.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.livewallpaper.core.error.AppResult
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.domain.model.*
+import com.example.livewallpaper.feature.aipaint.domain.repository.ImageRequestPayloadReader
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
+import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.Job
@@ -15,6 +20,9 @@ import kotlin.random.Random
 
 class PaintViewModel(
     private val repository: PaintRepository,
+    private val storageStateProvider: PaintStorageStateProvider,
+    private val referenceImageStore: PaintReferenceImageStore,
+    private val payloadReader: ImageRequestPayloadReader,
     private val clientPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
 ) : ViewModel() {
 
@@ -31,6 +39,11 @@ class PaintViewModel(
     init {
         loadApiProfiles()
         loadSessions()
+        viewModelScope.launch {
+            storageStateProvider.storageState.collect { storageState ->
+                _uiState.update { it.copy(storageState = storageState) }
+            }
+        }
     }
 
     private fun loadApiProfiles() {
@@ -96,6 +109,9 @@ class PaintViewModel(
     }
 
     fun onEvent(event: PaintEvent) {
+        val storageState = _uiState.value.storageState
+        val writable = storageState == PaintStorageState.Ready || storageState is PaintStorageState.LegacyFallback
+        if (!writable && (storageState !is PaintStorageState.ReadOnly || !event.isAllowedWhenStorageReadOnly())) return
         when (event) {
             is PaintEvent.CreateSession -> createSession(event.model)
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
@@ -246,13 +262,38 @@ class PaintViewModel(
             }
 
             // 创建用户消息
-            val userImages = state.selectedImages.map { img ->
-                PaintImage(
-                    id = generateId(),
-                    mimeType = img.mimeType,
-                    localPath = img.uri,
-                    isReference = true
+            val createdReferences = mutableSetOf<String>()
+            val userImages = mutableListOf<PaintImage>()
+            for (selected in state.selectedImages) {
+                val imageId = generateId()
+                val localPath = referenceImageStore.persistReference(
+                    sessionId = session.id,
+                    imageId = imageId,
+                    sourceIdentifier = selected.uri,
+                    mimeType = selected.mimeType,
                 )
+                if (localPath == null) {
+                    referenceImageStore.discardUnreferenced(createdReferences, emptySet())
+                    return@launch
+                }
+                createdReferences += localPath
+                userImages += PaintImage(
+                    id = imageId,
+                    mimeType = selected.mimeType,
+                    localPath = localPath,
+                    width = selected.width,
+                    height = selected.height,
+                    isReference = true,
+                )
+            }
+            val requestImages = mutableListOf<ImageRequestPayload>()
+            for (image in userImages) {
+                val payload = payloadReader.read(image.localPath.orEmpty(), image.mimeType)
+                if (payload == null) {
+                    referenceImageStore.discardUnreferenced(createdReferences, emptySet())
+                    return@launch
+                }
+                requestImages += payload
             }
             
             val userMessage = PaintMessage(
@@ -275,7 +316,13 @@ class PaintViewModel(
                 senderIdentity = SenderIdentity.ASSISTANT,
                 messageContent = "",
                 messageType = MessageType.IMAGE,
-                status = MessageStatus.GENERATING
+                status = MessageStatus.GENERATING,
+                generationModel = state.selectedModel,
+                generationAspectRatio = state.selectedAspectRatio,
+                generationResolution = state.selectedResolution,
+                generationGptSize = state.selectedGptSize,
+                generationGptQuality = state.selectedGptQuality,
+                generationGptFormat = state.selectedGptFormat,
             )
             repository.addMessage(assistantMessage)
 
@@ -296,28 +343,54 @@ class PaintViewModel(
             val msgId = assistantMessage.id
             generationJobs[msgId] = launch {
                 try {
-                    val result = callGeminiApi(
-                        profile = state.activeProfile,
-                        model = state.selectedModel,
-                        prompt = prompt,
-                        images = userImages,
-                        aspectRatio = state.selectedAspectRatio,
-                        resolution = state.selectedResolution
-                    )
-                    
-                    val updatedMessage = assistantMessage.copy(
-                        messageContent = "",
-                        images = listOf(
-                            PaintImage(
-                                id = generateId(),
-                                base64Data = result,
-                                mimeType = "image/png"
-                            )
-                        ),
-                        status = MessageStatus.SUCCESS,
-                        updatedAt = TimeProvider.currentTimeMillis()
-                    )
-                    repository.updateMessage(updatedMessage)
+                    val result = if (state.selectedModel.isGpt) {
+                        repository.generateGptImage(
+                            profile = state.activeProfile,
+                            prompt = prompt,
+                            images = requestImages,
+                            size = state.selectedGptSize,
+                            quality = state.selectedGptQuality,
+                            outputFormat = state.selectedGptFormat,
+                            sessionId = session.id,
+                            messageId = assistantMessage.id,
+                        )
+                    } else {
+                        repository.generateImage(
+                            profile = state.activeProfile,
+                            model = state.selectedModel,
+                            prompt = prompt,
+                            images = requestImages,
+                            aspectRatio = state.selectedAspectRatio,
+                            resolution = state.selectedResolution,
+                            sessionId = session.id,
+                            messageId = assistantMessage.id,
+                        )
+                    }
+                    when (result) {
+                        is AppResult.Success -> repository.updateMessage(
+                            assistantMessage.copy(
+                                messageContent = "",
+                                images = result.data.map { file ->
+                                    PaintImage(
+                                        id = generateId(),
+                                        localPath = file.filePath,
+                                        mimeType = mimeTypeFromPath(file.filePath),
+                                        width = file.width,
+                                        height = file.height,
+                                    )
+                                },
+                                status = MessageStatus.SUCCESS,
+                                updatedAt = TimeProvider.currentTimeMillis(),
+                            ),
+                        )
+                        is AppResult.Error -> repository.updateMessage(
+                            assistantMessage.copy(
+                                messageContent = result.error.message.orEmpty(),
+                                status = MessageStatus.ERROR,
+                                updatedAt = TimeProvider.currentTimeMillis(),
+                            ),
+                        )
+                    }
                     
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     // 用户主动取消，更新消息状态为 CANCELLED
@@ -644,21 +717,11 @@ class PaintViewModel(
     private fun generateId(): String = 
         "${TimeProvider.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
 
-    // API调用方法 - 这些将在Android端实现
-    private suspend fun callGeminiApi(
-        profile: ApiProfile,
-        model: PaintModel,
-        prompt: String,
-        images: List<PaintImage>,
-        aspectRatio: AspectRatio,
-        resolution: Resolution
-    ): String {
-        // 实际实现在Android端
-        throw NotImplementedError("需要在Android端实现")
+    private fun mimeTypeFromPath(path: String): String = when (path.substringAfterLast('.').lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        else -> "image/png"
     }
 
-    private suspend fun callEnhanceApi(profile: ApiProfile, prompt: String): String {
-        // 实际实现在Android端
-        throw NotImplementedError("需要在Android端实现")
-    }
 }

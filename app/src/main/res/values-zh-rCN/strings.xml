@@ -124,6 +124,9 @@
     
     <!-- AI绘画 -->
     <string name="paint_title">AI绘画</string>
+    <string name="paint_storage_migrating">正在准备绘画历史记录…</string>
+    <string name="paint_storage_legacy_fallback">数据库迁移失败，本次暂用旧存储；下次启动会自动重试。</string>
+    <string name="paint_storage_recovery_required">绘画存储需要恢复。为保护数据，编辑功能已停用；请重启应用或从备份恢复。</string>
     <string name="paint_empty_title">开始创作</string>
     <string name="paint_empty_subtitle">输入描述，让AI为你绘制图像</string>
     <string name="paint_prompt_hint">描述你想要的画面...</string>
@@ -446,6 +449,8 @@
     <string name="paint_data_error_unsafe_archive">备份中包含不安全的文件路径</string>
     <string name="paint_data_error_missing_image">备份引用的图片缺失或无法读取</string>
     <string name="paint_data_error_corrupted_data">备份中的绘画数据不完整或已损坏</string>
+    <string name="paint_data_error_storage_busy">请等待当前图片生成任务结束后再导入</string>
+    <string name="paint_data_error_storage_recovery_required">存储需要恢复。为保护数据，编辑功能已停用</string>
     <string name="paint_data_error_unknown">绘画数据传输失败</string>
     <string name="cache_total_size">缓存总大小：%1$s</string>
     <string name="cache_image_count">已加载 %1$d 张图片</string>

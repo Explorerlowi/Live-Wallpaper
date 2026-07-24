@@ -56,11 +56,24 @@ enum class MessageStatus {
 data class PaintImage(
     val id: String,
     val localPath: String? = null,
-    val base64Data: String? = null,
     val mimeType: String = "image/png",
     val width: Int = 0,
     val height: Int = 0,
     val isReference: Boolean = false // 是否为参考图
+)
+
+/**
+ * In-memory image content used only while constructing an image generation request.
+ *
+ * The payload is deliberately separate from [PaintImage] so encoded image bytes cannot be
+ * persisted as part of a conversation or backup.
+ *
+ * @property bytes Raw image bytes read from a platform-owned resource.
+ * @property mimeType MIME type sent to the remote image API.
+ */
+data class ImageRequestPayload(
+    val bytes: ByteArray,
+    val mimeType: String,
 )
 
 /**

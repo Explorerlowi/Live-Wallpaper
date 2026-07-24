@@ -5,11 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
-import android.util.Base64
-import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,7 +35,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
@@ -86,83 +82,9 @@ import org.koin.compose.koinInject
 import java.io.ByteArrayOutputStream
 import kotlin.random.Random
 
-/**
- * 图片缓存 - 避免重复解码 Base64
- * 使用基于内存大小的 LruCache，限制为 64MB
- */
-private object ImageCache {
-    // 最大缓存 64MB
-    private const val MAX_CACHE_SIZE = 64 * 1024 * 1024
-    
-    private val cache = object : LruCache<String, Bitmap>(MAX_CACHE_SIZE) {
-        override fun sizeOf(key: String, bitmap: Bitmap): Int {
-            return bitmap.allocationByteCount
-        }
-    }
-    
-    fun get(imageId: String): Bitmap? = cache.get(imageId)
-    
-    fun put(imageId: String, bitmap: Bitmap) {
-        cache.put(imageId, bitmap)
-    }
-    
-    fun clear() {
-        cache.evictAll()
-    }
-}
-
 private enum class Screen {
     Conversation,
     SessionStats
-}
-
-/**
- * 异步解码 Base64 图片
- * 使用采样率降低内存占用，避免 OOM
- */
-@Composable
-private fun rememberDecodedBitmap(imageId: String, base64: String): Bitmap? {
-    var bitmap by remember(imageId) { mutableStateOf(ImageCache.get(imageId)) }
-    
-    LaunchedEffect(imageId) {
-        if (bitmap == null) {
-            bitmap = withContext(Dispatchers.Default) {
-                try {
-                    // 使用流式解码避免一次性加载整个 byte 数组
-                    val inputStream = java.io.ByteArrayInputStream(base64.toByteArray(Charsets.US_ASCII))
-                    val base64Stream = android.util.Base64InputStream(inputStream, Base64.DEFAULT)
-                    
-                    // 先获取图片尺寸
-                    val tempBytes = base64Stream.readBytes()
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, options)
-                    
-                    // 计算采样率，目标最大边 2048px
-                    val maxDimension = maxOf(options.outWidth, options.outHeight)
-                    val targetSize = 2048
-                    var sampleSize = 1
-                    while (maxDimension / sampleSize > targetSize) {
-                        sampleSize *= 2
-                    }
-                    
-                    // 使用采样率解码
-                    val decodeOptions = BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                        inPreferredConfig = Bitmap.Config.RGB_565 // 使用 RGB_565 减少内存
-                    }
-                    BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, decodeOptions)?.also {
-                        ImageCache.put(imageId, it)
-                    }
-                } catch (e: Exception) {
-                    null
-                }
-            }
-        }
-    }
-    
-    return bitmap
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -181,6 +103,11 @@ fun PaintScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
+    val storageWaiting = uiState.storageState is PaintStorageState.Initializing ||
+        uiState.storageState is PaintStorageState.Migrating
+    val storageReadOnly = uiState.storageState is PaintStorageState.ReadOnly
+    val storageRecoveryRequired = uiState.storageState is PaintStorageState.RecoveryRequired
+    val storageBlocked = storageWaiting || storageReadOnly || storageRecoveryRequired
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
@@ -566,7 +493,9 @@ fun PaintScreen(
                 }
             },
             bottomBar = {
-                if (imageSelectionMode) {
+                if (storageBlocked) {
+                    Unit
+                } else if (imageSelectionMode) {
                     ImageSelectionBottomBar(
                         selectedCount = selectedImageSources.size,
                         onCompare = {
@@ -629,7 +558,23 @@ fun PaintScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (uiState.isLoading) {
+                if (storageWaiting) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator()
+                        Text(stringResource(R.string.paint_storage_migrating))
+                    }
+                } else if (storageRecoveryRequired) {
+                    Text(
+                        text = stringResource(R.string.paint_storage_recovery_required),
+                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                } else if (uiState.isLoading) {
                     // 切换会话时的空屏过渡
                     Box(modifier = Modifier.fillMaxSize())
                 } else if (uiState.messages.isEmpty() && uiState.currentSession == null) {
@@ -809,6 +754,26 @@ fun PaintScreen(
                         newMessageCount = uiState.newMessageCount,
                         onClick = { viewModel.onEvent(PaintEvent.ScrollToBottom) }
                     )
+                }
+                if (uiState.storageState is PaintStorageState.LegacyFallback || storageReadOnly) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (storageReadOnly) {
+                                    R.string.paint_storage_recovery_required
+                                } else {
+                                    R.string.paint_storage_legacy_fallback
+                                },
+                            ),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             }
@@ -1419,10 +1384,7 @@ private fun MessageItem(
                 
                 // 图片 - 支持多图预览
                 val imageSources = remember(message.images) {
-                    message.images.mapNotNull { image ->
-                        image.localPath?.let { ImageSource.StringSource(it) }
-                            ?: image.base64Data?.let { ImageSource.Base64Source(it, image.mimeType) }
-                    }
+                    message.images.mapNotNull { image -> image.localPath?.let(ImageSource::StringSource) }
                 }
                 
                 message.images.forEachIndexed { index, image ->
@@ -1449,24 +1411,6 @@ private fun MessageItem(
                                 }
                             )
                         }
-                        image.base64Data?.let { base64 ->
-                            MessageImage(
-                                imageId = image.id,
-                                base64 = base64,
-                                width = image.width,
-                                height = image.height,
-                                onClick = { onImageClick(imageSources, index) },
-                                onLongClick = {
-                                    if (imageSource != null) onImageLongClick(imageSource)
-                                },
-                                onDimensionsLoaded = { w, h ->
-                                    if (image.width == 0 || image.height == 0) {
-                                        onUpdateImageDimensions(message.id, image.id, w, h)
-                                    }
-                                }
-                            )
-                        }
-                        
                         // 选择模式下显示勾选标记
                         if (imageSelectionMode) {
                             Box(
@@ -1566,7 +1510,6 @@ private fun MessageItem(
                 // 检查图片文件是否实际可用（缓存可能已被清理）
                 imagesAvailable = message.images.any { image ->
                     image.localPath?.let { java.io.File(it).exists() } == true
-                        || image.base64Data != null
                 },
                 onAddImages = { onAddImages(message.images) },
                 onCopy = { onCopyText(message.messageContent) },
@@ -1878,71 +1821,6 @@ private fun formatDuration(durationMillis: Long): String {
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         stringResource(R.string.paint_time_format_minutes, minutes, seconds)
-    }
-}
-
-/**
- * 消息图片组件 - 异步解码，带缓存
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun MessageImage(
-    imageId: String,
-    base64: String,
-    width: Int = 0,
-    height: Int = 0,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit = {},
-    onDimensionsLoaded: ((Int, Int) -> Unit)? = null
-) {
-    val bitmap = rememberDecodedBitmap(imageId, base64)
-    val shape = remember { RoundedCornerShape(8.dp) }
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val maxWidth = screenWidth / 2
-    
-    // 优先使用预设宽高，否则从解码后的 bitmap 获取
-    val aspectRatio = when {
-        width > 0 && height > 0 -> width.toFloat() / height.toFloat()
-        bitmap != null -> bitmap.width.toFloat() / bitmap.height.toFloat()
-        else -> 1f // 默认 1:1 占位
-    }
-    
-    // 如果没有预设宽高且 bitmap 已加载，回调通知
-    LaunchedEffect(bitmap, width, height) {
-        if (bitmap != null && (width == 0 || height == 0)) {
-            onDimensionsLoaded?.invoke(bitmap.width, bitmap.height)
-        }
-    }
-    
-    Box(
-        modifier = Modifier
-            .widthIn(max = maxWidth)
-            .aspectRatio(aspectRatio)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = onLongClick
-                    ),
-                contentScale = ContentScale.Fit
-            )
-        } else {
-            // 加载占位符
-            Icon(
-                imageVector = AppIcons.image,
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            )
-        }
     }
 }
 

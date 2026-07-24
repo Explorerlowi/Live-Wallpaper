@@ -3,6 +3,7 @@ package com.example.livewallpaper.feature.aipaint.presentation.state
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 
 data class PaintUiState(
+    val storageState: PaintStorageState = PaintStorageState.Initializing,
     val currentSession: PaintSession? = null,
     val sessions: List<PaintSession> = emptyList(),
     val messages: List<PaintMessage> = emptyList(),

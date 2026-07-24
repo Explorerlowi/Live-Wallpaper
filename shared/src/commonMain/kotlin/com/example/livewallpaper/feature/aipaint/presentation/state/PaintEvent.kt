@@ -61,3 +61,20 @@ sealed class PaintEvent {
     // 错误处理
     data object ClearError : PaintEvent()
 }
+
+/** Returns whether this event only changes navigation or in-memory presentation state. */
+fun PaintEvent.isAllowedWhenStorageReadOnly(): Boolean = when (this) {
+    is PaintEvent.SelectSession,
+    PaintEvent.LoadMoreMessages,
+    is PaintEvent.SwitchMessageVersion,
+    PaintEvent.StopGeneration,
+    is PaintEvent.CancelGeneration,
+    is PaintEvent.DismissGenerationTask,
+    PaintEvent.ClearGenerationTaskHistory,
+    is PaintEvent.UpdateScrollState,
+    PaintEvent.ScrollToBottom,
+    PaintEvent.ClearNewMessageCount,
+    PaintEvent.ClearError,
+    -> true
+    else -> false
+}

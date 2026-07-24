@@ -112,6 +112,9 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferE
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
+import com.example.livewallpaper.feature.aipaint.data.local.PaintStorageCoordinator
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ExportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ImportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.PreviewPaintDataImportUseCase
@@ -173,6 +176,9 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 import javax.swing.border.EmptyBorder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -283,8 +289,12 @@ private class DesktopSingleInstanceController(
 fun main() {
     val singleInstanceController = DesktopSingleInstanceController.acquire() ?: return
 
-    startKoin {
+    val koinApplication = startKoin {
         modules(appModule, platformModule)
+    }
+    val storageInitializationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    storageInitializationScope.launch {
+        koinApplication.koin.get<PaintStorageCoordinator>().initialize()
     }
 
     val wallpaperController = WindowsWallpaperController()
@@ -375,6 +385,7 @@ fun main() {
         }
     }
     } finally {
+        storageInitializationScope.cancel()
         singleInstanceController.close()
     }
 }
@@ -493,6 +504,8 @@ private fun DesktopShell(
         DesktopPaintViewModel(
             repository = koin.get<PaintRepository>(),
             draftRepository = koin.get<PaintDraftRepository>(),
+            storageStateProvider = koin.get<PaintStorageStateProvider>(),
+            referenceImageStore = koin.get<PaintReferenceImageStore>(),
         )
     }
     val paintDataTransferViewModel = remember {
@@ -2280,6 +2293,8 @@ private fun PaintDataTransferError.localizedMessage(strings: DesktopStrings): St
     PaintDataTransferError.UNSAFE_ARCHIVE_ENTRY -> strings.paintDataErrorUnsafeArchive
     PaintDataTransferError.MISSING_IMAGE -> strings.paintDataErrorMissingImage
     PaintDataTransferError.CORRUPTED_DATA -> strings.paintDataErrorCorruptedData
+    PaintDataTransferError.STORAGE_BUSY -> strings.paintDataErrorStorageBusy
+    PaintDataTransferError.STORAGE_RECOVERY_REQUIRED -> strings.paintDataErrorStorageRecoveryRequired
     PaintDataTransferError.UNKNOWN -> strings.paintDataErrorUnknown
 }
 

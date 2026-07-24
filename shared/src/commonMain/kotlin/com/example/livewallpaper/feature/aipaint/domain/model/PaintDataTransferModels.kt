@@ -13,6 +13,54 @@ data class PaintDataSnapshot(
     val messages: List<PaintMessage>,
 )
 
+/** Complete transactional state persisted by the painting database. */
+data class PaintStoredData(
+    val snapshot: PaintDataSnapshot,
+    val drafts: Map<String, PaintSessionDraft>,
+)
+
+/** Result of reading all transactional painting data. */
+sealed interface PaintStoredDataReadResult {
+    /** Every conversation and draft was decoded successfully. */
+    data class Success(val data: PaintStoredData) : PaintStoredDataReadResult
+
+    /** Stored rows could not be mapped without losing data. */
+    data object Corrupted : PaintStoredDataReadResult
+}
+
+/** Observable readiness of the local painting storage backend. */
+sealed interface PaintStorageState {
+    /** The database driver and migration marker are being inspected. */
+    data object Initializing : PaintStorageState
+
+    /** Legacy conversations and drafts are being copied transactionally. */
+    data object Migrating : PaintStorageState
+
+    /** SQLDelight is the active storage backend. */
+    data object Ready : PaintStorageState
+
+    /** Verified SQL data remains readable, but writes are blocked until the epoch marker is repaired. */
+    data class ReadOnly(val reason: PaintStorageFailure) : PaintStorageState
+
+    /** Migration failed and the retained legacy backend is active for this process. */
+    data class LegacyFallback(val reason: PaintStorageFailure) : PaintStorageState
+
+    /** SQL-era storage cannot be trusted; all painting writes remain disabled until recovery. */
+    data class RecoveryRequired(val reason: PaintStorageFailure) : PaintStorageState
+}
+
+/** Normalized non-user-facing reasons for falling back to legacy storage. */
+enum class PaintStorageFailure {
+    CORRUPTED_LEGACY_DATA,
+    IMAGE_MATERIALIZATION_FAILED,
+    DATABASE_WRITE_FAILED,
+    DATABASE_UNAVAILABLE,
+    MIGRATION_STATE_READ_FAILED,
+    MIGRATION_STATE_WRITE_FAILED,
+    IMPORT_ROLLBACK_FAILED,
+    UNKNOWN,
+}
+
 /** Result of reading a complete painting conversation snapshot from local storage. */
 sealed interface PaintDataSnapshotReadResult {
     /** Successfully decoded every saved session and referenced message. */
@@ -95,6 +143,24 @@ sealed interface PaintDataMergeResult {
     data object CorruptedExistingData : PaintDataMergeResult
 }
 
+/** Result of an import commit whose snapshot, merge, and rollback share one storage gate. */
+sealed interface PaintDataImportCommitResult {
+    /** The imported bundle was committed successfully. */
+    data class Success(val summary: PaintDataImportSummary) : PaintDataImportCommitResult
+
+    /** Existing rows were corrupted, so no import mutation was attempted. */
+    data object CorruptedExistingData : PaintDataImportCommitResult
+
+    /** The merge failed and the exact pre-import state was restored. */
+    data object Failed : PaintDataImportCommitResult
+
+    /** Neither the merge nor restoration could establish a trustworthy state. */
+    data object RollbackFailed : PaintDataImportCommitResult
+
+    /** A live image generation is still updating conversation rows. */
+    data object Busy : PaintDataImportCommitResult
+}
+
 /**
  * A file that must be written into a painting data archive.
  *
@@ -147,6 +213,8 @@ enum class PaintDataTransferError {
     UNSAFE_ARCHIVE_ENTRY,
     MISSING_IMAGE,
     CORRUPTED_DATA,
+    STORAGE_BUSY,
+    STORAGE_RECOVERY_REQUIRED,
     UNKNOWN,
 }
 

@@ -15,10 +15,6 @@ interface PaintDataArchiveGateway {
     val clientPlatform: PaintClientPlatform
         get() = PaintClientPlatform.UNKNOWN
 
-    /** Whether raw Base64 image payloads may be embedded directly in the manifest. */
-    val allowEmbeddedImageData: Boolean
-        get() = true
-
     /**
      * Keeps only image identifiers that the current platform permits and can read for export.
      *

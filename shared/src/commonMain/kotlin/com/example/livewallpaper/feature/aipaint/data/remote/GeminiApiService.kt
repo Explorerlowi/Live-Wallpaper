@@ -30,7 +30,7 @@ class GeminiApiService(
         profile: ApiProfile,
         model: PaintModel,
         prompt: String,
-        images: List<PaintImage>,
+        images: List<ImageRequestPayload>,
         aspectRatio: AspectRatio,
         resolution: Resolution
     ): AppResult<HttpResponse> {
@@ -66,22 +66,20 @@ class GeminiApiService(
 
     private fun buildGenerateImageRequest(
         prompt: String,
-        images: List<PaintImage>,
+        images: List<ImageRequestPayload>,
         model: PaintModel,
         aspectRatio: AspectRatio,
         resolution: Resolution
     ): JsonObject {
         val parts = buildJsonArray {
             add(buildJsonObject { put("text", prompt) })
-            images.forEach { img ->
-                img.base64Data?.let { data ->
-                    add(buildJsonObject {
-                        put("inlineData", buildJsonObject {
-                            put("mimeType", img.mimeType)
-                            put("data", data)
-                        })
+            images.forEach { image ->
+                add(buildJsonObject {
+                    put("inlineData", buildJsonObject {
+                        put("mimeType", image.mimeType)
+                        put("data", encodeBase64(image.bytes))
                     })
-                }
+                })
             }
         }
 
@@ -103,6 +101,23 @@ class GeminiApiService(
                 put("responseModalities", buildJsonArray { add("IMAGE") })
                 put("imageConfig", imageConfig)
             })
+        }
+    }
+
+    private fun encodeBase64(bytes: ByteArray): String {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        return buildString((bytes.size + 2) / 3 * 4) {
+            var index = 0
+            while (index < bytes.size) {
+                val first = bytes[index].toInt() and 0xFF
+                val second = bytes.getOrNull(index + 1)?.toInt()?.and(0xFF)
+                val third = bytes.getOrNull(index + 2)?.toInt()?.and(0xFF)
+                append(alphabet[first shr 2])
+                append(alphabet[((first and 0x03) shl 4) or ((second ?: 0) shr 4)])
+                append(if (second == null) '=' else alphabet[((second and 0x0F) shl 2) or ((third ?: 0) shr 6)])
+                append(if (third == null) '=' else alphabet[third and 0x3F])
+                index += 3
+            }
         }
     }
 

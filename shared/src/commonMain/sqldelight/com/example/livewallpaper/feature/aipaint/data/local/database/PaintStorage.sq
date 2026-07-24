@@ -1,0 +1,244 @@
+PRAGMA foreign_keys = 1;
+
+CREATE TABLE paint_session (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    model TEXT NOT NULL,
+    aspect_ratio TEXT NOT NULL,
+    resolution TEXT NOT NULL,
+    gpt_image_size TEXT NOT NULL,
+    gpt_image_quality TEXT NOT NULL,
+    gpt_output_format TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    origin_platform TEXT NOT NULL,
+    is_pinned INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0,
+    pinned_at INTEGER
+);
+
+CREATE INDEX paint_session_display_order
+ON paint_session(is_pinned, pinned_at, updated_at);
+
+CREATE TABLE paint_message (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES paint_session(id) ON DELETE CASCADE,
+    sender_identity TEXT NOT NULL,
+    message_content TEXT NOT NULL,
+    reasoning_content TEXT,
+    message_type TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    origin_platform TEXT NOT NULL,
+    parent_user_message_id TEXT,
+    version_group TEXT,
+    version_index INTEGER NOT NULL DEFAULT 0,
+    generation_model TEXT,
+    generation_aspect_ratio TEXT,
+    generation_resolution TEXT,
+    generation_gpt_size TEXT,
+    generation_gpt_quality TEXT,
+    generation_gpt_format TEXT,
+    sort_order INTEGER NOT NULL
+);
+
+CREATE INDEX paint_message_session_order
+ON paint_message(session_id, created_at, sort_order);
+
+CREATE INDEX paint_message_version_group
+ON paint_message(session_id, version_group, version_index);
+
+CREATE TABLE paint_message_image (
+    id TEXT NOT NULL PRIMARY KEY,
+    message_id TEXT NOT NULL REFERENCES paint_message(id) ON DELETE CASCADE,
+    local_path TEXT,
+    mime_type TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    is_reference INTEGER AS kotlin.Boolean NOT NULL,
+    sort_order INTEGER NOT NULL
+);
+
+CREATE INDEX paint_message_image_order
+ON paint_message_image(message_id, sort_order);
+
+CREATE TABLE paint_draft (
+    draft_key TEXT NOT NULL PRIMARY KEY,
+    prompt_text TEXT NOT NULL,
+    selected_model TEXT,
+    selected_aspect_ratio TEXT,
+    selected_resolution TEXT,
+    selected_gpt_size TEXT,
+    selected_gpt_quality TEXT,
+    selected_gpt_format TEXT
+);
+
+CREATE TABLE paint_draft_image (
+    draft_key TEXT NOT NULL REFERENCES paint_draft(draft_key) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL,
+    PRIMARY KEY(draft_key, id)
+);
+
+CREATE INDEX paint_draft_image_order
+ON paint_draft_image(draft_key, sort_order);
+
+CREATE TABLE storage_migration (
+    migration_key TEXT NOT NULL PRIMARY KEY,
+    completed_at INTEGER NOT NULL,
+    session_count INTEGER NOT NULL,
+    message_count INTEGER NOT NULL,
+    image_count INTEGER NOT NULL,
+    draft_count INTEGER NOT NULL
+);
+
+selectSessions:
+SELECT * FROM paint_session
+ORDER BY is_pinned DESC, COALESCE(pinned_at, 0) DESC, updated_at DESC;
+
+selectSessionById:
+SELECT * FROM paint_session WHERE id = ?;
+
+insertSession:
+INSERT OR IGNORE INTO paint_session VALUES ?;
+
+updateSessionRecord:
+UPDATE paint_session SET
+    title = :title,
+    model = :model,
+    aspect_ratio = :aspect_ratio,
+    resolution = :resolution,
+    gpt_image_size = :gpt_image_size,
+    gpt_image_quality = :gpt_image_quality,
+    gpt_output_format = :gpt_output_format,
+    created_at = :created_at,
+    updated_at = :updated_at,
+    origin_platform = :origin_platform,
+    is_pinned = :is_pinned,
+    pinned_at = :pinned_at
+WHERE id = :id;
+
+deleteSession:
+DELETE FROM paint_session WHERE id = ?;
+
+deleteAllSessions:
+DELETE FROM paint_session;
+
+selectMessagesBySession:
+SELECT * FROM paint_message
+WHERE session_id = ?
+ORDER BY created_at ASC, sort_order ASC;
+
+selectMessagesPaged:
+SELECT * FROM paint_message
+WHERE session_id = ?
+ORDER BY created_at DESC, sort_order DESC
+LIMIT ? OFFSET ?;
+
+selectMessageById:
+SELECT * FROM paint_message WHERE id = ?;
+
+selectMessagesByVersionGroup:
+SELECT * FROM paint_message
+WHERE session_id = ? AND version_group = ?
+ORDER BY version_index ASC;
+
+countMessagesBySession:
+SELECT count(*) FROM paint_message WHERE session_id = ?;
+
+countMessagesByVersionGroup:
+SELECT count(*) FROM paint_message WHERE session_id = ? AND version_group = ?;
+
+nextMessageSortOrder:
+SELECT COALESCE(MAX(sort_order), -1) + 1 FROM paint_message WHERE session_id = ?;
+
+selectMessageIdsForStorageOrder:
+SELECT id FROM paint_message
+WHERE session_id = ?
+ORDER BY created_at ASC, id ASC;
+
+updateMessageSortOrder:
+UPDATE paint_message SET sort_order = :sort_order WHERE id = :id;
+
+insertMessage:
+INSERT OR REPLACE INTO paint_message VALUES ?;
+
+deleteMessage:
+DELETE FROM paint_message WHERE id = ?;
+
+deleteAllMessages:
+DELETE FROM paint_message;
+
+selectImagesByMessage:
+SELECT * FROM paint_message_image
+WHERE message_id = ?
+ORDER BY sort_order ASC;
+
+selectImagePathsBySession:
+SELECT paint_message_image.local_path
+FROM paint_message_image
+JOIN paint_message ON paint_message.id = paint_message_image.message_id
+WHERE paint_message.session_id = ? AND paint_message_image.local_path IS NOT NULL;
+
+selectAllMessageImagePaths:
+SELECT local_path FROM paint_message_image WHERE local_path IS NOT NULL;
+
+insertMessageImage:
+INSERT OR REPLACE INTO paint_message_image VALUES ?;
+
+deleteImagesByMessage:
+DELETE FROM paint_message_image WHERE message_id = ?;
+
+selectDraft:
+SELECT * FROM paint_draft WHERE draft_key = ?;
+
+selectAllDrafts:
+SELECT * FROM paint_draft ORDER BY draft_key ASC;
+
+insertDraft:
+INSERT OR REPLACE INTO paint_draft VALUES ?;
+
+deleteDraft:
+DELETE FROM paint_draft WHERE draft_key = ?;
+
+deleteAllDrafts:
+DELETE FROM paint_draft;
+
+selectDraftImages:
+SELECT * FROM paint_draft_image
+WHERE draft_key = ?
+ORDER BY sort_order ASC;
+
+selectAllDraftImagePaths:
+SELECT local_path FROM paint_draft_image;
+
+insertDraftImage:
+INSERT OR REPLACE INTO paint_draft_image VALUES ?;
+
+deleteDraftImages:
+DELETE FROM paint_draft_image WHERE draft_key = ?;
+
+selectMigration:
+SELECT * FROM storage_migration WHERE migration_key = ?;
+
+insertMigration:
+INSERT OR REPLACE INTO storage_migration VALUES ?;
+
+countSessions:
+SELECT count(*) FROM paint_session;
+
+countMessages:
+SELECT count(*) FROM paint_message;
+
+countImages:
+SELECT count(*) FROM paint_message_image;
+
+countDrafts:
+SELECT count(*) FROM paint_draft;
+
+countDraftImages:
+SELECT count(*) FROM paint_draft_image;

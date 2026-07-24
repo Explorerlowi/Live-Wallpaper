@@ -11,6 +11,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.GeneratedImageFile
 import com.example.livewallpaper.feature.aipaint.domain.model.GptImageQuality
 import com.example.livewallpaper.feature.aipaint.domain.model.GptImageSize
 import com.example.livewallpaper.feature.aipaint.domain.model.GptOutputFormat
+import com.example.livewallpaper.feature.aipaint.domain.model.ImageRequestPayload
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageType
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
@@ -20,14 +21,18 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintModel
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSessionDraft
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageState
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,7 +51,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Base64
 import javax.imageio.ImageIO
 import kotlin.random.Random
 
@@ -64,6 +68,8 @@ data class DesktopPaintGenerationSuccess(
 class DesktopPaintViewModel(
     private val repository: PaintRepository,
     private val draftRepository: PaintDraftRepository,
+    private val storageStateProvider: PaintStorageStateProvider,
+    private val referenceImageStore: PaintReferenceImageStore,
 ) : ViewModel() {
 
     private data class GenerationTask(
@@ -99,6 +105,11 @@ class DesktopPaintViewModel(
         loadApiProfiles()
         loadSessions()
         viewModelScope.launch {
+            storageStateProvider.storageState.collect { storageState ->
+                _uiState.update { it.copy(storageState = storageState) }
+            }
+        }
+        viewModelScope.launch {
             draftRepository.draftsRevision
                 .drop(1)
                 .collect { reloadDraftsAfterExternalChange() }
@@ -106,6 +117,9 @@ class DesktopPaintViewModel(
     }
 
     fun onEvent(event: PaintEvent) {
+        val storageState = _uiState.value.storageState
+        val writable = storageState == PaintStorageState.Ready || storageState is PaintStorageState.LegacyFallback
+        if (!writable && (storageState !is PaintStorageState.ReadOnly || !event.isAllowedWhenStorageReadOnly())) return
         when (event) {
             is PaintEvent.CreateSession -> createSession(event.model)
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
@@ -363,7 +377,15 @@ class DesktopPaintViewModel(
 
         viewModelScope.launch {
             val session = state.currentSession ?: createSessionForSend(state)
-            val selectedImagesSnapshot = state.selectedImages
+            val selectedImagesSnapshot = state.selectedImages.map { image ->
+                val storedPath = referenceImageStore.persistReference(
+                    sessionId = session.id,
+                    imageId = image.id,
+                    sourceIdentifier = image.uri,
+                    mimeType = image.mimeType,
+                ) ?: return@launch
+                image.copy(uri = storedPath)
+            }
             val userImagesForMessage = withContext(Dispatchers.IO) {
                 selectedImagesSnapshot.map { selected ->
                     val (width, height) = imageDimensions(selected.uri)
@@ -446,7 +468,7 @@ class DesktopPaintViewModel(
         profile: ApiProfile,
         assistantMessage: PaintMessage,
         prompt: String,
-        images: List<PaintImage>
+        images: List<ImageRequestPayload>
     ) {
         val startedAt = System.currentTimeMillis()
         val job = viewModelScope.launch {
@@ -684,10 +706,19 @@ class DesktopPaintViewModel(
     }
 
     private fun addImage(image: SelectedImage) {
-        val maxImages = _uiState.value.selectedModel.maxImages
-        if (_uiState.value.selectedImages.size >= maxImages) return
-        _uiState.update { it.copy(selectedImages = it.selectedImages + image) }
-        saveCurrentDraft()
+        viewModelScope.launch {
+            val maxImages = _uiState.value.selectedModel.maxImages
+            if (_uiState.value.selectedImages.size >= maxImages) return@launch
+            val sessionKey = _uiState.value.currentSession?.id ?: "__temp_draft__"
+            val storedPath = referenceImageStore.persistReference(
+                sessionId = sessionKey,
+                imageId = image.id,
+                sourceIdentifier = image.uri,
+                mimeType = image.mimeType,
+            ) ?: return@launch
+            _uiState.update { it.copy(selectedImages = it.selectedImages + image.copy(uri = storedPath)) }
+            saveCurrentDraft()
+        }
     }
 
     private fun removeImage(imageId: String) {
@@ -909,27 +940,29 @@ class DesktopPaintViewModel(
             selectedGptFormat = _uiState.value.selectedGptFormat
         )
         val expectedRevision = draftRepository.draftsRevision.value
-        if (draftRepository.saveDraft(sessionId, draft.toDomainDraft(), expectedRevision)) {
-            sessionDrafts[sessionId] = draft
+        viewModelScope.launch {
+            if (draftRepository.saveDraft(sessionId, draft.toDomainDraft(), expectedRevision)) {
+                sessionDrafts[sessionId] = draft
+            }
         }
     }
 
-    private fun clearDraft(sessionId: String) {
+    private suspend fun clearDraft(sessionId: String) {
         val expectedRevision = draftRepository.draftsRevision.value
         if (draftRepository.removeDraft(sessionId, expectedRevision)) {
             sessionDrafts[sessionId] = DesktopPaintDraft()
         }
     }
 
-    private fun loadPersistedDraft(sessionId: String): DesktopPaintDraft =
+    private suspend fun loadPersistedDraft(sessionId: String): DesktopPaintDraft =
         draftRepository.getDraft(sessionId)?.toDesktopDraft() ?: DesktopPaintDraft()
 
-    private fun clearPersistedDraft(sessionId: String) {
+    private suspend fun clearPersistedDraft(sessionId: String) {
         val expectedRevision = draftRepository.draftsRevision.value
         draftRepository.removeDraft(sessionId, expectedRevision)
     }
 
-    private fun reloadDraftsAfterExternalChange() {
+    private suspend fun reloadDraftsAfterExternalChange() {
         sessionDrafts.clear()
         val session = _uiState.value.currentSession ?: return
         val draft = loadPersistedDraft(session.id)
@@ -986,12 +1019,11 @@ class DesktopPaintViewModel(
         height = height,
     )
 
-    private fun PaintImage.asApiReferenceImage(): PaintImage? {
+    private fun PaintImage.asApiReferenceImage(): ImageRequestPayload? {
         val path = localPath ?: return null
         val file = File(path.removePrefix("file://"))
         if (!file.isFile) return null
-        val base64 = Base64.getEncoder().encodeToString(file.readBytes())
-        return copy(base64Data = base64)
+        return ImageRequestPayload(bytes = file.readBytes(), mimeType = mimeType)
     }
 
     private fun imageDimensions(path: String): Pair<Int, Int> {

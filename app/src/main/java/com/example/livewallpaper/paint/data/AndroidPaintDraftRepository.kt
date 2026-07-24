@@ -2,12 +2,14 @@ package com.example.livewallpaper.paint.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.example.livewallpaper.core.coroutines.CoroutineDispatcherProvider
+import com.example.livewallpaper.feature.aipaint.data.local.LegacyPaintDraftSource
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDraftReadResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSessionDraft
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -17,8 +19,12 @@ import kotlinx.serialization.json.Json
  * Android storage adapter for unsent painting drafts.
  *
  * @param context Application context used to access the existing draft preferences.
+ * @param dispatchers Injected dispatcher provider used for every Preferences operation.
  */
-class AndroidPaintDraftRepository(context: Context) : PaintDraftRepository {
+class AndroidPaintDraftRepository(
+    context: Context,
+    private val dispatchers: CoroutineDispatcherProvider,
+) : LegacyPaintDraftSource {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val json = Json {
         encodeDefaults = true
@@ -29,19 +35,25 @@ class AndroidPaintDraftRepository(context: Context) : PaintDraftRepository {
 
     override val draftsRevision: StateFlow<Long> = _draftsRevision.asStateFlow()
 
-    override suspend fun getAllDrafts(): PaintDraftReadResult = synchronized(storageLock) {
-        val drafts = mutableMapOf<String, PaintSessionDraft>()
-        preferences.all.forEach { (key, value) ->
-            val content = value as? String ?: return PaintDraftReadResult.Corrupted
-            val draft = decodeDraft(content) ?: return PaintDraftReadResult.Corrupted
-            drafts[key] = draft
+    override suspend fun getAllDrafts(): PaintDraftReadResult = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            val drafts = mutableMapOf<String, PaintSessionDraft>()
+            preferences.all.forEach { (key, value) ->
+                val content = value as? String ?: return@synchronized PaintDraftReadResult.Corrupted
+                val draft = decodeDraft(content) ?: return@synchronized PaintDraftReadResult.Corrupted
+                drafts[key] = draft
+            }
+            PaintDraftReadResult.Success(drafts)
         }
-        return PaintDraftReadResult.Success(drafts)
     }
 
-    override fun getDraft(key: String): PaintSessionDraft? = synchronized(storageLock) {
-        val content = preferences.getString(key, null) ?: return null
-        return decodeDraft(content)
+    override suspend fun getAllDrafts(sessionIds: Set<String>): PaintDraftReadResult = getAllDrafts()
+
+    override suspend fun getDraft(key: String): PaintSessionDraft? = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            val content = preferences.getString(key, null) ?: return@synchronized null
+            decodeDraft(content)
+        }
     }
 
     private fun decodeDraft(content: String): PaintSessionDraft? {
@@ -54,44 +66,52 @@ class AndroidPaintDraftRepository(context: Context) : PaintDraftRepository {
         }
     }
 
-    override fun saveDraft(key: String, draft: PaintSessionDraft, expectedRevision: Long): Boolean =
+    override suspend fun saveDraft(key: String, draft: PaintSessionDraft, expectedRevision: Long): Boolean =
+        withContext(dispatchers.io) {
+            synchronized(storageLock) {
+                if (_draftsRevision.value != expectedRevision) return@synchronized false
+                preferences.edit {
+                    putString(key, json.encodeToString(draft))
+                }
+                true
+            }
+        }
+
+    override suspend fun removeDraft(key: String, expectedRevision: Long): Boolean = withContext(dispatchers.io) {
         synchronized(storageLock) {
             if (_draftsRevision.value != expectedRevision) return@synchronized false
             preferences.edit {
-                putString(key, json.encodeToString(draft))
+                remove(key)
             }
             true
         }
-
-    override fun removeDraft(key: String, expectedRevision: Long): Boolean = synchronized(storageLock) {
-        if (_draftsRevision.value != expectedRevision) return@synchronized false
-        preferences.edit {
-            remove(key)
-        }
-        true
     }
 
-    override fun mergeDrafts(drafts: Map<String, PaintSessionDraft>) = synchronized(storageLock) {
-        if (drafts.isEmpty()) return@synchronized
-        val encodedDrafts = drafts.mapValues { (_, draft) -> json.encodeToString(draft) }
-        val editor = preferences.edit()
-        encodedDrafts.forEach { (key, encodedDraft) ->
-            editor.putString(key, encodedDraft)
-        }
-        check(editor.commit()) { "Unable to persist imported Android painting drafts" }
-        _draftsRevision.value = _draftsRevision.value + 1
-    }
-
-    override fun replaceDrafts(drafts: Map<String, PaintSessionDraft>): Boolean = synchronized(storageLock) {
-        runCatching {
+    override suspend fun mergeDrafts(drafts: Map<String, PaintSessionDraft>) = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            if (drafts.isEmpty()) return@synchronized
             val encodedDrafts = drafts.mapValues { (_, draft) -> json.encodeToString(draft) }
-            val editor = preferences.edit().clear()
+            val editor = preferences.edit()
             encodedDrafts.forEach { (key, encodedDraft) ->
                 editor.putString(key, encodedDraft)
             }
-            check(editor.commit()) { "Unable to restore Android painting drafts" }
+            check(editor.commit()) { "Unable to persist imported Android painting drafts" }
             _draftsRevision.value = _draftsRevision.value + 1
-        }.isSuccess
+        }
+    }
+
+    override suspend fun replaceDrafts(drafts: Map<String, PaintSessionDraft>): Boolean = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            runCatching {
+                val encodedDrafts = drafts.mapValues { (_, draft) -> json.encodeToString(draft) }
+                val editor = preferences.edit().clear()
+                encodedDrafts.forEach { (key, encodedDraft) ->
+                    editor.putString(key, encodedDraft)
+                }
+                check(editor.commit()) { "Unable to restore Android painting drafts" }
+                _draftsRevision.value = _draftsRevision.value + 1
+            }.isSuccess
+        }
     }
 
     private companion object {

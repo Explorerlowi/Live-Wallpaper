@@ -1,7 +1,7 @@
 package com.example.livewallpaper.di
 
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataArchiveGateway
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
+import com.example.livewallpaper.feature.aipaint.data.local.LegacyPaintDraftSource
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ExportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ImportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.PreviewPaintDataImportUseCase
@@ -19,10 +19,10 @@ import org.koin.dsl.module
  */
 val paintModule = module {
     single<PaintDataArchiveGateway> { AndroidPaintDataArchiveGateway(androidContext()) }
-    single<PaintDraftRepository> { AndroidPaintDraftRepository(androidContext()) }
-    factory { ExportPaintDataUseCase(get(), get(), get()) }
-    factory { ImportPaintDataUseCase(get(), get(), get()) }
+    single<LegacyPaintDraftSource> { AndroidPaintDraftRepository(androidContext(), get()) }
+    factory { ExportPaintDataUseCase(get(), get()) }
+    factory { ImportPaintDataUseCase(get(), get(), get(), get()) }
     factory { PreviewPaintDataImportUseCase(get()) }
-    viewModel { AndroidPaintViewModel(androidContext(), get(), get()) }
+    viewModel { AndroidPaintViewModel(androidContext(), get(), get(), get(), get()) }
     viewModel { PaintDataTransferViewModel(get(), get(), get()) }
 }

@@ -865,6 +865,9 @@ private fun paintDataTransferErrorMessage(error: PaintDataTransferError): String
     PaintDataTransferError.UNSAFE_ARCHIVE_ENTRY -> stringResource(R.string.paint_data_error_unsafe_archive)
     PaintDataTransferError.MISSING_IMAGE -> stringResource(R.string.paint_data_error_missing_image)
     PaintDataTransferError.CORRUPTED_DATA -> stringResource(R.string.paint_data_error_corrupted_data)
+    PaintDataTransferError.STORAGE_BUSY -> stringResource(R.string.paint_data_error_storage_busy)
+    PaintDataTransferError.STORAGE_RECOVERY_REQUIRED ->
+        stringResource(R.string.paint_data_error_storage_recovery_required)
     PaintDataTransferError.UNKNOWN -> stringResource(R.string.paint_data_error_unknown)
 }
 

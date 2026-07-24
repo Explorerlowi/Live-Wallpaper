@@ -3,15 +3,17 @@ package com.example.livewallpaper.paint.viewmodel
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import com.example.livewallpaper.paint.service.ImageGenerationService
 import com.example.livewallpaper.paint.service.GenerationTaskManager
 import com.example.livewallpaper.paint.service.GenerationResult
@@ -29,6 +31,8 @@ class AndroidPaintViewModel(
     private val appContext: Context,
     private val repository: PaintRepository,
     private val draftRepository: PaintDraftRepository,
+    private val storageStateProvider: PaintStorageStateProvider,
+    private val referenceImageStore: PaintReferenceImageStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PaintUiState())
@@ -99,28 +103,38 @@ class AndroidPaintViewModel(
         val initialProfiles = repository.getApiProfilesSync()
         val initialActiveProfile = repository.getActiveProfileSync()
         
-        // 恢复临时缓存区的草稿（初始进入未选择会话时）
-        val tempDraft = loadDraft(tempDraftKey)
-        
         _uiState.update { 
             it.copy(
                 apiProfiles = initialProfiles,
                 activeProfile = initialActiveProfile,
                 isApiProfileLoaded = true,
-                promptText = tempDraft?.promptText ?: "",
-                selectedImages = tempDraft?.selectedImages?.map { img -> img.toSelectedImage() } ?: emptyList(),
-                selectedModel = tempDraft?.selectedModel ?: it.selectedModel,
-                selectedAspectRatio = tempDraft?.selectedAspectRatio ?: it.selectedAspectRatio,
-                selectedResolution = tempDraft?.selectedResolution ?: it.selectedResolution,
-                selectedGptSize = tempDraft?.selectedGptSize ?: it.selectedGptSize,
-                selectedGptQuality = tempDraft?.selectedGptQuality ?: it.selectedGptQuality,
-                selectedGptFormat = tempDraft?.selectedGptFormat ?: it.selectedGptFormat,
             )
+        }
+        viewModelScope.launch {
+            val tempDraft = loadDraft(tempDraftKey) ?: return@launch
+            sessionDrafts[tempDraftKey] = tempDraft
+            _uiState.update {
+                it.copy(
+                    promptText = tempDraft.promptText,
+                    selectedImages = tempDraft.selectedImages.map { image -> image.toSelectedImage() },
+                    selectedModel = tempDraft.selectedModel ?: it.selectedModel,
+                    selectedAspectRatio = tempDraft.selectedAspectRatio ?: it.selectedAspectRatio,
+                    selectedResolution = tempDraft.selectedResolution ?: it.selectedResolution,
+                    selectedGptSize = tempDraft.selectedGptSize ?: it.selectedGptSize,
+                    selectedGptQuality = tempDraft.selectedGptQuality ?: it.selectedGptQuality,
+                    selectedGptFormat = tempDraft.selectedGptFormat ?: it.selectedGptFormat,
+                )
+            }
         }
         
         // 继续监听后续变化
         loadApiProfiles()
         loadSessions()
+        viewModelScope.launch {
+            storageStateProvider.storageState.collect { storageState ->
+                _uiState.update { it.copy(storageState = storageState) }
+            }
+        }
         
         // 从全局任务管理器恢复生成状态，并持续监听变化
         syncGeneratingState()
@@ -157,15 +171,17 @@ class AndroidPaintViewModel(
         }
     }
     
-    private fun loadDraft(key: String): PaintSessionDraft? = draftRepository.getDraft(key)
+    private suspend fun loadDraft(key: String): PaintSessionDraft? = draftRepository.getDraft(key)
     
     /**
      * 保存草稿到 SharedPreferences
      */
     private fun saveDraft(key: String, draft: PaintSessionDraft) {
         val expectedRevision = draftRepository.draftsRevision.value
-        if (draftRepository.saveDraft(key, draft, expectedRevision)) {
-            sessionDrafts[key] = draft
+        viewModelScope.launch {
+            if (draftRepository.saveDraft(key, draft, expectedRevision)) {
+                sessionDrafts[key] = draft
+            }
         }
     }
     
@@ -174,8 +190,10 @@ class AndroidPaintViewModel(
      */
     private fun removeDraft(key: String) {
         val expectedRevision = draftRepository.draftsRevision.value
-        if (draftRepository.removeDraft(key, expectedRevision)) {
-            sessionDrafts.remove(key)
+        viewModelScope.launch {
+            if (draftRepository.removeDraft(key, expectedRevision)) {
+                sessionDrafts.remove(key)
+            }
         }
     }
 
@@ -295,6 +313,9 @@ class AndroidPaintViewModel(
 
 
     fun onEvent(event: PaintEvent) {
+        val storageState = _uiState.value.storageState
+        val writable = storageState == PaintStorageState.Ready || storageState is PaintStorageState.LegacyFallback
+        if (!writable && (storageState !is PaintStorageState.ReadOnly || !event.isAllowedWhenStorageReadOnly())) return
         when (event) {
             is PaintEvent.CreateSession -> createSession(event.model)
             is PaintEvent.SelectSession -> selectSession(event.sessionId)
@@ -353,7 +374,7 @@ class AndroidPaintViewModel(
             selectedGptFormat = _uiState.value.selectedGptFormat,
         )
 
-    private fun restoreDraft(key: String): PaintSessionDraft {
+    private suspend fun restoreDraft(key: String): PaintSessionDraft {
         val cached = sessionDrafts[key]
         if (cached != null) return cached
         val loaded = loadDraft(key)
@@ -369,7 +390,7 @@ class AndroidPaintViewModel(
      * Clears in-memory draft caches after an external merge (e.g. ZIP import) and refreshes the
      * currently visible prompt/images so a later autosave cannot overwrite imported drafts.
      */
-    private fun reloadDraftsAfterExternalChange() {
+    private suspend fun reloadDraftsAfterExternalChange() {
         promptDraftSaveJob?.cancel()
         promptDraftSaveJob = null
         sessionDrafts.clear()
@@ -543,7 +564,18 @@ class AndroidPaintViewModel(
                 newSession
             }
 
-            val selectedImagesSnapshot = state.selectedImages
+            val selectedImagesSnapshot = state.selectedImages.map { image ->
+                val storedPath = referenceImageStore.persistReference(
+                    sessionId = session.id,
+                    imageId = image.id,
+                    sourceIdentifier = image.uri,
+                    mimeType = image.mimeType,
+                ) ?: run {
+                    _toastEvent.emit(PaintToastMessage.GenerateFailed(null))
+                    return@launch
+                }
+                image.copy(uri = storedPath)
+            }
 
             // 在 IO 线程获取图片尺寸，避免阻塞主线程
             val userImagesForMessage = withContext(Dispatchers.IO) {
@@ -736,7 +768,7 @@ class AndroidPaintViewModel(
         }
     }
 
-    private fun loadReferenceImagesForApi(images: List<SelectedImage>): List<PaintImage> {
+    private fun loadReferenceImagesForApi(images: List<SelectedImage>): List<ImageRequestPayload> {
         if (images.isEmpty()) return emptyList()
         return images.mapNotNull { selected ->
             val bytes = try {
@@ -757,11 +789,9 @@ class AndroidPaintViewModel(
             } catch (_: Exception) {
                 null
             } ?: return@mapNotNull null
-            PaintImage(
-                id = generateId(),
-                base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+            ImageRequestPayload(
+                bytes = bytes,
                 mimeType = selected.mimeType,
-                isReference = true
             )
         }
     }
@@ -889,22 +919,30 @@ class AndroidPaintViewModel(
     private fun updatePrompt(text: String) {
         _uiState.update { it.copy(promptText = text) }
         val key = currentDraftKey()
-        val current = restoreDraft(key)
-        schedulePromptDraftSave(key, current.copy(promptText = text))
+        schedulePromptDraftSave(key, snapshotCurrentDraft())
     }
 
     private fun addImage(image: SelectedImage) {
-        val state = _uiState.value
-        val maxImages = state.selectedModel.maxImages
-        if (state.selectedImages.size >= maxImages) {
-            viewModelScope.launch { _toastEvent.emit(PaintToastMessage.ImageLimitExceeded(maxImages)) }
-            return
+        viewModelScope.launch {
+            val state = _uiState.value
+            val maxImages = state.selectedModel.maxImages
+            if (state.selectedImages.size >= maxImages) {
+                _toastEvent.emit(PaintToastMessage.ImageLimitExceeded(maxImages))
+                return@launch
+            }
+            val key = currentDraftKey()
+            val storedPath = referenceImageStore.persistReference(
+                sessionId = key,
+                imageId = image.id,
+                sourceIdentifier = image.uri,
+                mimeType = image.mimeType,
+            ) ?: run {
+                _toastEvent.emit(PaintToastMessage.GenerateFailed(null))
+                return@launch
+            }
+            _uiState.update { it.copy(selectedImages = it.selectedImages + image.copy(uri = storedPath)) }
+            saveDraft(key, snapshotCurrentDraft())
         }
-        _uiState.update { it.copy(selectedImages = it.selectedImages + image) }
-        // 保存草稿
-        val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
-        saveDraft(key, current.copy(selectedImages = current.selectedImages + image.toDraftImage()))
     }
 
     private fun removeImage(imageId: String) {
@@ -913,8 +951,7 @@ class AndroidPaintViewModel(
         }
         // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
-        saveDraft(key, current.copy(selectedImages = current.selectedImages.filter { img -> img.id != imageId }))
+        saveDraft(key, snapshotCurrentDraft())
     }
 
     private fun reorderImages(images: List<SelectedImage>) {
@@ -922,16 +959,14 @@ class AndroidPaintViewModel(
         if (images.map { it.id }.toSet() != selectedIds) return
         _uiState.update { it.copy(selectedImages = images) }
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
-        saveDraft(key, current.copy(selectedImages = images.map { it.toDraftImage() }))
+        saveDraft(key, snapshotCurrentDraft())
     }
 
     private fun clearImages() {
         _uiState.update { it.copy(selectedImages = emptyList()) }
         // 保存草稿
         val key = currentDraftKey()
-        val current = sessionDrafts[key] ?: loadDraft(key) ?: PaintSessionDraft()
-        saveDraft(key, current.copy(selectedImages = emptyList()))
+        saveDraft(key, snapshotCurrentDraft())
     }
 
     /**
@@ -1270,11 +1305,9 @@ class AndroidPaintViewModel(
                     } catch (_: Exception) {
                         null
                     } ?: return@mapNotNull null
-                    PaintImage(
-                        id = generateId(),
-                        base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                    ImageRequestPayload(
+                        bytes = bytes,
                         mimeType = img.mimeType,
-                        isReference = true
                     )
                 }
             

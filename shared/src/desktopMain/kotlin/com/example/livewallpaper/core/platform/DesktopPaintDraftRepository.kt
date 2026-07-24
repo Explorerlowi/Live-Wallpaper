@@ -1,31 +1,33 @@
 package com.example.livewallpaper.core.platform
 
-import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshotReadResult
+import com.example.livewallpaper.core.coroutines.CoroutineDispatcherProvider
+import com.example.livewallpaper.feature.aipaint.data.local.LegacyPaintDraftSource
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDraftImage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDraftReadResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSessionDraft
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataRepository
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
-/** Desktop adapter that exposes file-backed AI painting drafts to shared backup use cases. */
+/**
+ * Desktop adapter that exposes file-backed AI painting drafts to shared backup use cases.
+ *
+ * @param dispatchers Injected dispatcher provider used for every file operation.
+ */
 class DesktopPaintDraftRepository(
-    private val paintDataRepository: PaintDataRepository,
-) : PaintDraftRepository {
+    private val dispatchers: CoroutineDispatcherProvider,
+) : LegacyPaintDraftSource {
     private val storageLock = Any()
     private val _draftsRevision = MutableStateFlow(0L)
 
     override val draftsRevision: StateFlow<Long> = _draftsRevision.asStateFlow()
 
-    override suspend fun getAllDrafts(): PaintDraftReadResult {
-        val sessionIds = when (val result = paintDataRepository.getPaintDataSnapshot()) {
-            PaintDataSnapshotReadResult.Corrupted -> return PaintDraftReadResult.Corrupted
-            is PaintDataSnapshotReadResult.Success -> result.snapshot.sessions.mapTo(mutableSetOf()) { it.id }
-        }
-        return synchronized(storageLock) {
+    override suspend fun getAllDrafts(): PaintDraftReadResult = getAllDrafts(emptySet())
+
+    override suspend fun getAllDrafts(sessionIds: Set<String>): PaintDraftReadResult = withContext(dispatchers.io) {
+        synchronized(storageLock) {
             when (val result = DesktopPaintDraftStore.readDraftsForBackup(sessionIds)) {
                 DesktopPaintDraftBackupReadResult.Corrupted -> PaintDraftReadResult.Corrupted
                 is DesktopPaintDraftBackupReadResult.Success -> PaintDraftReadResult.Success(
@@ -35,43 +37,53 @@ class DesktopPaintDraftRepository(
         }
     }
 
-    override fun getDraft(key: String): PaintSessionDraft? = synchronized(storageLock) {
-        DesktopPaintDraftStore.readDraft(key)
-            .takeUnless { draft -> draft.promptText.isBlank() && draft.selectedImages.isEmpty() }
-            ?.toDomainDraft()
+    override suspend fun getDraft(key: String): PaintSessionDraft? = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            DesktopPaintDraftStore.readDraft(key)
+                .takeUnless { draft -> draft.promptText.isBlank() && draft.selectedImages.isEmpty() }
+                ?.toDomainDraft()
+        }
     }
 
-    override fun saveDraft(key: String, draft: PaintSessionDraft, expectedRevision: Long): Boolean =
+    override suspend fun saveDraft(key: String, draft: PaintSessionDraft, expectedRevision: Long): Boolean =
+        withContext(dispatchers.io) {
+            synchronized(storageLock) {
+                if (_draftsRevision.value != expectedRevision) return@synchronized false
+                DesktopPaintDraftStore.writeDraftStrict(key, draft.toDesktopDraft())
+            }
+        }
+
+    override suspend fun removeDraft(key: String, expectedRevision: Long): Boolean = withContext(dispatchers.io) {
         synchronized(storageLock) {
             if (_draftsRevision.value != expectedRevision) return@synchronized false
-            DesktopPaintDraftStore.writeDraftStrict(key, draft.toDesktopDraft())
+            DesktopPaintDraftStore.deleteDraftStrict(key)
         }
-
-    override fun removeDraft(key: String, expectedRevision: Long): Boolean = synchronized(storageLock) {
-        if (_draftsRevision.value != expectedRevision) return@synchronized false
-        DesktopPaintDraftStore.deleteDraftStrict(key)
     }
 
-    override fun mergeDrafts(drafts: Map<String, PaintSessionDraft>) = synchronized(storageLock) {
-        if (drafts.isEmpty()) return@synchronized
-        check(
-            DesktopPaintDraftStore.mergeDraftsStrict(
-                drafts.mapValues { (_, draft) -> draft.toDesktopDraft() },
-            ),
-        ) {
-            "Unable to persist imported desktop painting drafts"
-        }
-        _draftsRevision.value += 1
-    }
-
-    override fun replaceDrafts(drafts: Map<String, PaintSessionDraft>): Boolean = synchronized(storageLock) {
-        val replaced = DesktopPaintDraftStore.replaceDraftsStrict(
-            drafts.mapValues { (_, draft) -> draft.toDesktopDraft() },
-        )
-        if (replaced) {
+    override suspend fun mergeDrafts(drafts: Map<String, PaintSessionDraft>) = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            if (drafts.isEmpty()) return@synchronized
+            check(
+                DesktopPaintDraftStore.mergeDraftsStrict(
+                    drafts.mapValues { (_, draft) -> draft.toDesktopDraft() },
+                ),
+            ) {
+                "Unable to persist imported desktop painting drafts"
+            }
             _draftsRevision.value += 1
         }
-        replaced
+    }
+
+    override suspend fun replaceDrafts(drafts: Map<String, PaintSessionDraft>): Boolean = withContext(dispatchers.io) {
+        synchronized(storageLock) {
+            val replaced = DesktopPaintDraftStore.replaceDraftsStrict(
+                drafts.mapValues { (_, draft) -> draft.toDesktopDraft() },
+            )
+            if (replaced) {
+                _draftsRevision.value += 1
+            }
+            replaced
+        }
     }
 
     private fun DesktopPaintDraft.toDomainDraft(): PaintSessionDraft = PaintSessionDraft(

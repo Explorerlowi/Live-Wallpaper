@@ -122,6 +122,9 @@
     
     <!-- AI绘画 -->
     <string name="paint_title">AI Paint</string>
+    <string name="paint_storage_migrating">Preparing painting history…</string>
+    <string name="paint_storage_legacy_fallback">The database migration failed. Legacy storage is being used temporarily; migration will retry next launch.</string>
+    <string name="paint_storage_recovery_required">Painting storage needs recovery. Editing is disabled to protect your data. Restart the app or restore a backup.</string>
     <string name="paint_empty_title">Start Creating</string>
     <string name="paint_empty_subtitle">Enter a description and let AI paint for you</string>
     <string name="paint_prompt_hint">Describe the image you want...</string>
@@ -448,6 +451,8 @@
     <string name="paint_data_error_unsafe_archive">The backup contains an unsafe file path</string>
     <string name="paint_data_error_missing_image">A referenced image is missing or cannot be read</string>
     <string name="paint_data_error_corrupted_data">The painting data in this backup is incomplete or corrupted</string>
+    <string name="paint_data_error_storage_busy">Wait for the current image generation to finish before importing</string>
+    <string name="paint_data_error_storage_recovery_required">Storage recovery is required. Editing has been disabled to protect your data</string>
     <string name="paint_data_error_unknown">Painting data transfer failed</string>
     <string name="cache_total_size">Total cache: %1$s</string>
     <string name="cache_image_count">%1$d images loaded</string>

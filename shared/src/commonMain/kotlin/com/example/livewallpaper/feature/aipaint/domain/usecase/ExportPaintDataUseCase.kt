@@ -3,24 +3,21 @@ package com.example.livewallpaper.feature.aipaint.domain.usecase
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.domain.model.ExportPaintDataResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveResult
-import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshotReadResult
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStoredDataReadResult
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageRecoveryRequiredException
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
-import com.example.livewallpaper.feature.aipaint.domain.model.PaintDraftReadResult
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataArchiveGateway
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataRepository
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
 import kotlinx.coroutines.CancellationException
 
 /**
  * Exports every painting session, message, and draft plus platform-approved images to one ZIP archive.
  *
  * @param paintDataRepository Source of complete conversation snapshots.
- * @param draftRepository Source of unsent painting drafts.
  * @param archiveGateway Platform ZIP writer.
  */
 class ExportPaintDataUseCase(
     private val paintDataRepository: PaintDataRepository,
-    private val draftRepository: PaintDraftRepository,
     private val archiveGateway: PaintDataArchiveGateway,
 ) {
     /**
@@ -31,18 +28,14 @@ class ExportPaintDataUseCase(
      */
     suspend operator fun invoke(destinationIdentifier: String): ExportPaintDataResult {
         return try {
-            val snapshot = when (val result = paintDataRepository.getPaintDataSnapshot()) {
-                PaintDataSnapshotReadResult.Corrupted -> {
+            val storedData = when (val result = paintDataRepository.getStoredData()) {
+                PaintStoredDataReadResult.Corrupted -> {
                     return ExportPaintDataResult.Failure(PaintDataTransferError.CORRUPTED_DATA)
                 }
-                is PaintDataSnapshotReadResult.Success -> result.snapshot
+                is PaintStoredDataReadResult.Success -> result.data
             }
-            val drafts = when (val result = draftRepository.getAllDrafts()) {
-                PaintDraftReadResult.Corrupted -> {
-                    return ExportPaintDataResult.Failure(PaintDataTransferError.CORRUPTED_DATA)
-                }
-                is PaintDraftReadResult.Success -> result.drafts
-            }
+            val snapshot = storedData.snapshot
+            val drafts = storedData.drafts
             val referencedImageIdentifiers = buildSet {
                 snapshot.messages.forEach { message ->
                     message.images.mapNotNullTo(this) { image -> image.localPath }
@@ -61,7 +54,6 @@ class ExportPaintDataUseCase(
                     exportedAt = TimeProvider.currentTimeMillis(),
                     exportableImageIdentifiers = exportableImageIdentifiers,
                     exportedFromPlatform = archiveGateway.clientPlatform,
-                    includeEmbeddedImageData = archiveGateway.allowEmbeddedImageData,
                 )
             ) {
                 is PaintDataCodecResult.Failure -> return ExportPaintDataResult.Failure(result.error)
@@ -77,6 +69,8 @@ class ExportPaintDataUseCase(
             }
         } catch (error: CancellationException) {
             throw error
+        } catch (_: PaintStorageRecoveryRequiredException) {
+            ExportPaintDataResult.Failure(PaintDataTransferError.STORAGE_RECOVERY_REQUIRED)
         } catch (_: Exception) {
             ExportPaintDataResult.Failure(PaintDataTransferError.UNKNOWN)
         }

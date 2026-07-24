@@ -1,5 +1,6 @@
 package com.example.livewallpaper.feature.aipaint.domain.usecase
 
+import com.example.livewallpaper.feature.aipaint.domain.repository.LegacyPaintImageFileStore
 import com.example.livewallpaper.feature.aipaint.domain.model.ExtractedPaintDataArchive
 import com.example.livewallpaper.feature.aipaint.domain.model.ExportPaintDataResult
 import com.example.livewallpaper.feature.aipaint.domain.model.ImportPaintDataResult
@@ -7,6 +8,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.MessageType
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveWriteRequest
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataImportSummary
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataImportCommitResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataMergeResult
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshot
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshotReadResult
@@ -18,14 +20,15 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSessionDraft
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStoredData
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStoredDataReadResult
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageFailure
+import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageRecoveryRequiredException
 import com.example.livewallpaper.feature.aipaint.domain.model.PreviewPaintDataImportResult
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataArchiveGateway
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDataRepository
-import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageRecoveryController
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -77,11 +80,13 @@ class PaintDataUseCaseTest {
 
     @Test
     fun exportWritesPreparedArchiveAndReturnsStatistics() = runBlocking {
-        val dataRepository = FakePaintDataRepository(sampleSnapshot())
-        val draftRepository = FakePaintDraftRepository(mapOf("session-1" to PaintSessionDraft("Draft")))
+        val dataRepository = FakePaintDataRepository(
+            sampleSnapshot(),
+            drafts = mapOf("session-1" to PaintSessionDraft("Draft")),
+        )
         val archiveGateway = FakePaintDataArchiveGateway(clientPlatform = PaintClientPlatform.ANDROID)
 
-        val result = ExportPaintDataUseCase(dataRepository, draftRepository, archiveGateway)("destination")
+        val result = ExportPaintDataUseCase(dataRepository, archiveGateway)("destination")
 
         val success = assertIs<ExportPaintDataResult.Success>(result)
         assertEquals(1, success.sessionCount)
@@ -99,12 +104,10 @@ class PaintDataUseCaseTest {
     fun exportSilentlyOmitsImagesRejectedByPlatformPolicy() = runBlocking {
         val archiveGateway = FakePaintDataArchiveGateway(
             exportableImageIdentifiers = emptySet(),
-            allowEmbeddedImageData = false,
         )
 
         val result = ExportPaintDataUseCase(
             FakePaintDataRepository(sampleSnapshotWithImage()),
-            FakePaintDraftRepository(emptyMap()),
             archiveGateway,
         )("destination")
 
@@ -121,20 +124,14 @@ class PaintDataUseCaseTest {
             ),
         ).value
         assertEquals(null, decoded.snapshot.messages.single().images.single().localPath)
-        assertEquals(null, decoded.snapshot.messages.single().images.single().base64Data)
+        assertFalse(archiveGateway.writtenRequest?.manifestJson.orEmpty().contains("base64Data"))
     }
 
     @Test
     fun exportFailsInsteadOfSilentlyDroppingCorruptedDrafts() = runBlocking {
         val archiveGateway = FakePaintDataArchiveGateway()
-        val draftRepository = FakePaintDraftRepository(
-            drafts = emptyMap(),
-            corruptedOnRead = true,
-        )
-
         val result = ExportPaintDataUseCase(
-            FakePaintDataRepository(sampleSnapshot()),
-            draftRepository,
+            FakePaintDataRepository(sampleSnapshot(), corruptedOnRead = true),
             archiveGateway,
         )("destination")
 
@@ -153,7 +150,6 @@ class PaintDataUseCaseTest {
 
         val result = ExportPaintDataUseCase(
             dataRepository,
-            FakePaintDraftRepository(emptyMap()),
             archiveGateway,
         )("destination")
 
@@ -163,9 +159,19 @@ class PaintDataUseCaseTest {
     }
 
     @Test
+    fun exportMapsStorageRecoveryToDedicatedError() = runBlocking {
+        val result = ExportPaintDataUseCase(
+            FakePaintDataRepository(sampleSnapshot(), recoveryRequiredOnRead = true),
+            FakePaintDataArchiveGateway(),
+        )("destination")
+
+        val failure = assertIs<ExportPaintDataResult.Failure>(result)
+        assertEquals(PaintDataTransferError.STORAGE_RECOVERY_REQUIRED, failure.error)
+    }
+
+    @Test
     fun importRejectsInvalidManifestBeforeMutationAndDiscardsExtraction() = runBlocking {
         val dataRepository = FakePaintDataRepository(PaintDataSnapshot(emptyList(), emptyList()))
-        val draftRepository = FakePaintDraftRepository(emptyMap())
         val archiveGateway = FakePaintDataArchiveGateway(
             extractedArchive = ExtractedPaintDataArchive(
                 extractionId = "extraction-1",
@@ -174,12 +180,11 @@ class PaintDataUseCaseTest {
             ),
         )
 
-        val result = ImportPaintDataUseCase(dataRepository, draftRepository, archiveGateway)("source")
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, FakeLegacyImageFileStore())("source")
 
         val failure = assertIs<ImportPaintDataResult.Failure>(result)
         assertEquals(PaintDataTransferError.INVALID_ARCHIVE, failure.error)
         assertFalse(dataRepository.wasMerged)
-        assertFalse(draftRepository.wasMerged)
         assertEquals(listOf("extraction-1"), archiveGateway.discardedExtractions)
     }
 
@@ -187,7 +192,6 @@ class PaintDataUseCaseTest {
     fun importKeepsExtractionAfterSuccessfulMerge() = runBlocking {
         val prepared = preparedBackup()
         val dataRepository = FakePaintDataRepository(PaintDataSnapshot(emptyList(), emptyList()))
-        val draftRepository = FakePaintDraftRepository(emptyMap())
         val archiveGateway = FakePaintDataArchiveGateway(
             extractedArchive = ExtractedPaintDataArchive(
                 extractionId = "extraction-ok",
@@ -196,30 +200,61 @@ class PaintDataUseCaseTest {
             ),
         )
 
-        val result = ImportPaintDataUseCase(dataRepository, draftRepository, archiveGateway)("source")
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, FakeLegacyImageFileStore())("source")
 
         assertIs<ImportPaintDataResult.Success>(result)
         assertTrue(dataRepository.wasMerged)
-        assertTrue(draftRepository.wasMerged)
         assertTrue(archiveGateway.discardedExtractions.isEmpty())
         assertEquals(setOf("/restored/image_000001.png"), archiveGateway.lastRetainedIdentifiers)
-        assertEquals(1L, draftRepository.draftsRevision.value)
-        assertFalse(
-            draftRepository.saveDraft(
-                key = "session-1",
-                draft = PaintSessionDraft(promptText = "stale editor value"),
-                expectedRevision = 0L,
+        assertEquals("Draft", dataRepository.currentData.drafts["session-1"]?.promptText)
+    }
+
+    @Test
+    fun importMaterializesHistoricalEmbeddedBase64BeforeMerge() = runBlocking {
+        val dataRepository = FakePaintDataRepository(PaintDataSnapshot(emptyList(), emptyList()))
+        val imageFileStore = FakeLegacyImageFileStore()
+        val archiveGateway = FakePaintDataArchiveGateway(
+            extractedArchive = ExtractedPaintDataArchive(
+                extractionId = "legacy-extraction",
+                manifestJson = legacyEmbeddedManifest("aGVsbG8="),
+                imagePathsByArchivePath = emptyMap(),
             ),
         )
-        assertEquals("Draft", draftRepository.getDraft("session-1")?.promptText)
+
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, imageFileStore)("source")
+
+        assertIs<ImportPaintDataResult.Success>(result)
+        assertEquals(
+            "/legacy/session-1/legacy-extraction_message-1-image-1.png",
+            dataRepository.currentSnapshot.messages.single().images.single().localPath,
+        )
+        assertTrue(imageFileStore.discarded.isEmpty())
+    }
+
+    @Test
+    fun importRejectsInvalidHistoricalBase64WithoutMutation() = runBlocking {
+        val dataRepository = FakePaintDataRepository(PaintDataSnapshot(emptyList(), emptyList()))
+        val archiveGateway = FakePaintDataArchiveGateway(
+            extractedArchive = ExtractedPaintDataArchive(
+                extractionId = "legacy-invalid",
+                manifestJson = legacyEmbeddedManifest("not-base64"),
+                imagePathsByArchivePath = emptyMap(),
+            ),
+        )
+
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, FakeLegacyImageFileStore())("source")
+
+        val failure = assertIs<ImportPaintDataResult.Failure>(result)
+        assertEquals(PaintDataTransferError.CORRUPTED_DATA, failure.error)
+        assertFalse(dataRepository.wasMerged)
+        assertEquals(listOf("legacy-invalid"), archiveGateway.discardedExtractions)
     }
 
     @Test
     fun importRollsBackConversationAndDiscardsExtractionWhenDraftMergeFails() = runBlocking {
         val prepared = preparedBackup()
-        val dataRepository = FakePaintDataRepository(PaintDataSnapshot(emptyList(), emptyList()))
-        val draftRepository = FakePaintDraftRepository(
-            drafts = emptyMap(),
+        val dataRepository = FakePaintDataRepository(
+            PaintDataSnapshot(emptyList(), emptyList()),
             failOnMerge = true,
         )
         val archiveGateway = FakePaintDataArchiveGateway(
@@ -230,15 +265,45 @@ class PaintDataUseCaseTest {
             ),
         )
 
-        val result = ImportPaintDataUseCase(dataRepository, draftRepository, archiveGateway)("source")
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, FakeLegacyImageFileStore())("source")
 
         val failure = assertIs<ImportPaintDataResult.Failure>(result)
         assertEquals(PaintDataTransferError.UNKNOWN, failure.error)
         assertTrue(dataRepository.wasMerged)
         assertTrue(dataRepository.wasReplaced)
-        assertTrue(draftRepository.wasReplaced)
         assertEquals(PaintDataSnapshot(emptyList(), emptyList()), dataRepository.currentSnapshot)
         assertEquals(listOf("extraction-partial"), archiveGateway.discardedExtractions)
+    }
+
+    @Test
+    fun importRollbackFailureRequiresRecoveryAndPreservesMaterializedFiles() = runBlocking {
+        val prepared = preparedBackup()
+        val dataRepository = FakePaintDataRepository(
+            PaintDataSnapshot(emptyList(), emptyList()),
+            failOnMerge = true,
+            failOnReplace = true,
+        )
+        val archiveGateway = FakePaintDataArchiveGateway(
+            extractedArchive = ExtractedPaintDataArchive(
+                extractionId = "extraction-recovery",
+                manifestJson = prepared.request.manifestJson,
+                imagePathsByArchivePath = extractedPaths(prepared),
+            ),
+        )
+        val recoveryController = RecordingRecoveryController()
+
+        val result = ImportPaintDataUseCase(
+            dataRepository,
+            archiveGateway,
+            FakeLegacyImageFileStore(),
+            recoveryController,
+        )("source")
+
+        val failure = assertIs<ImportPaintDataResult.Failure>(result)
+        assertEquals(PaintDataTransferError.STORAGE_RECOVERY_REQUIRED, failure.error)
+        assertEquals(PaintStorageFailure.IMPORT_ROLLBACK_FAILED, recoveryController.reason)
+        assertTrue(archiveGateway.discardedExtractions.isEmpty())
+        assertEquals("session-1", dataRepository.currentSnapshot.sessions.single().id)
     }
 
     @Test
@@ -248,7 +313,6 @@ class PaintDataUseCaseTest {
             snapshot = PaintDataSnapshot(emptyList(), emptyList()),
             corruptedOnMerge = true,
         )
-        val draftRepository = FakePaintDraftRepository(emptyMap())
         val archiveGateway = FakePaintDataArchiveGateway(
             extractedArchive = ExtractedPaintDataArchive(
                 extractionId = "extraction-corrupted-local",
@@ -257,13 +321,54 @@ class PaintDataUseCaseTest {
             ),
         )
 
-        val result = ImportPaintDataUseCase(dataRepository, draftRepository, archiveGateway)("source")
+        val result = ImportPaintDataUseCase(dataRepository, archiveGateway, FakeLegacyImageFileStore())("source")
 
         val failure = assertIs<ImportPaintDataResult.Failure>(result)
         assertEquals(PaintDataTransferError.CORRUPTED_DATA, failure.error)
         assertFalse(dataRepository.wasMerged)
-        assertFalse(draftRepository.wasMerged)
         assertEquals(listOf("extraction-corrupted-local"), archiveGateway.discardedExtractions)
+    }
+
+    @Test
+    fun importMapsStorageRecoveryToDedicatedErrorAndDiscardsExtraction() = runBlocking {
+        val prepared = preparedBackup()
+        val archiveGateway = FakePaintDataArchiveGateway(
+            extractedArchive = ExtractedPaintDataArchive(
+                extractionId = "extraction-storage-recovery",
+                manifestJson = prepared.request.manifestJson,
+                imagePathsByArchivePath = extractedPaths(prepared),
+            ),
+        )
+        val result = ImportPaintDataUseCase(
+            FakePaintDataRepository(sampleSnapshot(), recoveryRequiredOnRead = true),
+            archiveGateway,
+            FakeLegacyImageFileStore(),
+        )("source")
+
+        val failure = assertIs<ImportPaintDataResult.Failure>(result)
+        assertEquals(PaintDataTransferError.STORAGE_RECOVERY_REQUIRED, failure.error)
+        assertEquals(listOf("extraction-storage-recovery"), archiveGateway.discardedExtractions)
+    }
+
+    @Test
+    fun importReportsStorageBusyWhileGenerationIsActive() = runBlocking {
+        val prepared = preparedBackup()
+        val archiveGateway = FakePaintDataArchiveGateway(
+            extractedArchive = ExtractedPaintDataArchive(
+                extractionId = "extraction-storage-busy",
+                manifestJson = prepared.request.manifestJson,
+                imagePathsByArchivePath = extractedPaths(prepared),
+            ),
+        )
+        val result = ImportPaintDataUseCase(
+            FakePaintDataRepository(sampleSnapshot(), busyOnImport = true),
+            archiveGateway,
+            FakeLegacyImageFileStore(),
+        )("source")
+
+        val failure = assertIs<ImportPaintDataResult.Failure>(result)
+        assertEquals(PaintDataTransferError.STORAGE_BUSY, failure.error)
+        assertEquals(listOf("extraction-storage-busy"), archiveGateway.discardedExtractions)
     }
 
     private fun preparedBackup(): PreparedPaintDataBackup =
@@ -291,6 +396,30 @@ class PaintDataUseCaseTest {
             source.archivePath to "/restored/${source.archivePath.substringAfterLast('/')}"
         }
 
+    private fun legacyEmbeddedManifest(base64: String): String = """
+        {
+          "format": "live-wallpaper-paint-data",
+          "version": 1,
+          "exportedAt": 123,
+          "sessions": [{"id": "session-1"}],
+          "messages": [{
+            "id": "message-1",
+            "sessionId": "session-1",
+            "senderIdentity": "USER",
+            "messageContent": "legacy",
+            "messageType": "IMAGE",
+            "images": [{
+              "id": "image-1",
+              "localPath": "/unavailable/legacy-image.png",
+              "base64Data": "$base64",
+              "mimeType": "image/png"
+            }]
+          }],
+          "drafts": {},
+          "images": []
+        }
+    """.trimIndent()
+
     private fun sampleSnapshot(): PaintDataSnapshot = PaintDataSnapshot(
         sessions = listOf(PaintSession(id = "session-1", title = "Sample")),
         messages = listOf(
@@ -317,7 +446,6 @@ class PaintDataUseCaseTest {
                     PaintImage(
                         id = "image-1",
                         localPath = "/local/reference.png",
-                        base64Data = "embedded-image-data",
                         mimeType = "image/png",
                     ),
                 ),
@@ -327,13 +455,75 @@ class PaintDataUseCaseTest {
 
     private class FakePaintDataRepository(
         private var snapshot: PaintDataSnapshot,
+        drafts: Map<String, PaintSessionDraft> = emptyMap(),
         private val corruptedOnRead: Boolean = false,
         private val corruptedOnMerge: Boolean = false,
+        private val failOnMerge: Boolean = false,
+        private val failOnReplace: Boolean = false,
+        private val recoveryRequiredOnRead: Boolean = false,
+        private val busyOnImport: Boolean = false,
     ) : PaintDataRepository {
+        private var drafts = drafts.toMap()
         var wasMerged: Boolean = false
         var wasReplaced: Boolean = false
         val currentSnapshot: PaintDataSnapshot
             get() = snapshot
+        val currentData: PaintStoredData
+            get() = PaintStoredData(snapshot, drafts)
+
+        override suspend fun getStoredData(): PaintStoredDataReadResult {
+            if (recoveryRequiredOnRead) {
+                throw PaintStorageRecoveryRequiredException(PaintStorageFailure.DATABASE_UNAVAILABLE)
+            }
+            return if (corruptedOnRead) {
+                PaintStoredDataReadResult.Corrupted
+            } else {
+                PaintStoredDataReadResult.Success(currentData)
+            }
+        }
+
+        override suspend fun mergeStoredData(data: PaintStoredData): PaintDataMergeResult {
+            if (corruptedOnMerge) return PaintDataMergeResult.CorruptedExistingData
+            wasMerged = true
+            snapshot = data.snapshot
+            drafts = drafts + data.drafts
+            if (failOnMerge) error("transaction failed")
+            return PaintDataMergeResult.Success(
+                PaintDataImportSummary(
+                    importedSessionCount = data.snapshot.sessions.size,
+                    importedMessageCount = data.snapshot.messages.size,
+                    totalSessionCount = snapshot.sessions.size,
+                ),
+            )
+        }
+
+        override suspend fun replaceStoredData(data: PaintStoredData): Boolean {
+            wasReplaced = true
+            if (failOnReplace) return false
+            snapshot = data.snapshot
+            drafts = data.drafts
+            return true
+        }
+
+        override suspend fun importStoredData(data: PaintStoredData): PaintDataImportCommitResult {
+            if (busyOnImport) return PaintDataImportCommitResult.Busy
+            val previous = when (val result = getStoredData()) {
+                PaintStoredDataReadResult.Corrupted -> return PaintDataImportCommitResult.CorruptedExistingData
+                is PaintStoredDataReadResult.Success -> result.data
+            }
+            return try {
+                when (val result = mergeStoredData(data)) {
+                    PaintDataMergeResult.CorruptedExistingData -> PaintDataImportCommitResult.CorruptedExistingData
+                    is PaintDataMergeResult.Success -> PaintDataImportCommitResult.Success(result.summary)
+                }
+            } catch (_: Exception) {
+                if (replaceStoredData(previous)) {
+                    PaintDataImportCommitResult.Failed
+                } else {
+                    PaintDataImportCommitResult.RollbackFailed
+                }
+            }
+        }
 
         override suspend fun getPaintDataSnapshot(): PaintDataSnapshotReadResult = if (corruptedOnRead) {
             PaintDataSnapshotReadResult.Corrupted
@@ -342,72 +532,19 @@ class PaintDataUseCaseTest {
         }
 
         override suspend fun mergePaintDataSnapshot(snapshot: PaintDataSnapshot): PaintDataMergeResult {
-            if (corruptedOnMerge) return PaintDataMergeResult.CorruptedExistingData
-            wasMerged = true
-            this.snapshot = snapshot
-            return PaintDataMergeResult.Success(
-                PaintDataImportSummary(
-                    importedSessionCount = snapshot.sessions.size,
-                    importedMessageCount = snapshot.messages.size,
-                    totalSessionCount = snapshot.sessions.size,
-                ),
-            )
+            return mergeStoredData(PaintStoredData(snapshot, drafts))
         }
 
         override suspend fun replacePaintDataSnapshot(snapshot: PaintDataSnapshot): Boolean {
-            wasReplaced = true
-            this.snapshot = snapshot
-            return true
+            return replaceStoredData(PaintStoredData(snapshot, drafts))
         }
     }
 
-    private class FakePaintDraftRepository(
-        drafts: Map<String, PaintSessionDraft>,
-        private val failOnMerge: Boolean = false,
-        private val corruptedOnRead: Boolean = false,
-    ) : PaintDraftRepository {
-        private val drafts = drafts.toMutableMap()
-        private val _draftsRevision = MutableStateFlow(0L)
-        override val draftsRevision: StateFlow<Long> = _draftsRevision.asStateFlow()
+    private class RecordingRecoveryController : PaintStorageRecoveryController {
+        var reason: PaintStorageFailure? = null
 
-        var wasMerged: Boolean = false
-        var wasReplaced: Boolean = false
-
-        override suspend fun getAllDrafts(): PaintDraftReadResult = if (corruptedOnRead) {
-            PaintDraftReadResult.Corrupted
-        } else {
-            PaintDraftReadResult.Success(drafts)
-        }
-
-        override fun getDraft(key: String): PaintSessionDraft? = drafts[key]
-
-        override fun saveDraft(key: String, draft: PaintSessionDraft, expectedRevision: Long): Boolean {
-            if (_draftsRevision.value != expectedRevision) return false
-            drafts[key] = draft
-            return true
-        }
-
-        override fun removeDraft(key: String, expectedRevision: Long): Boolean {
-            if (_draftsRevision.value != expectedRevision) return false
-            drafts.remove(key)
-            return true
-        }
-
-        override fun mergeDrafts(drafts: Map<String, PaintSessionDraft>) {
-            if (failOnMerge) {
-                throw IllegalStateException("draft merge failed")
-            }
-            wasMerged = true
-            this.drafts.putAll(drafts)
-            _draftsRevision.value = _draftsRevision.value + 1
-        }
-
-        override fun replaceDrafts(drafts: Map<String, PaintSessionDraft>): Boolean {
-            wasReplaced = true
-            this.drafts.clear()
-            this.drafts.putAll(drafts)
-            _draftsRevision.value = _draftsRevision.value + 1
-            return true
+        override fun requireRecovery(reason: PaintStorageFailure) {
+            this.reason = reason
         }
     }
 
@@ -415,7 +552,6 @@ class PaintDataUseCaseTest {
         private val extractedArchive: ExtractedPaintDataArchive? = null,
         private val exportableImageIdentifiers: Set<String>? = null,
         override val clientPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
-        override val allowEmbeddedImageData: Boolean = true,
     ) : PaintDataArchiveGateway {
         var writtenRequest: PaintDataArchiveWriteRequest? = null
         val discardedExtractions = mutableListOf<String>()
@@ -447,6 +583,24 @@ class PaintDataUseCaseTest {
 
         override suspend fun pruneImportedImages(retainedSourceIdentifiers: Set<String>) {
             lastRetainedIdentifiers = retainedSourceIdentifiers
+        }
+    }
+
+    private class FakeLegacyImageFileStore : LegacyPaintImageFileStore {
+        val discarded = mutableListOf<String>()
+
+        override suspend fun isReadable(identifier: String): Boolean = true
+
+        override suspend fun writeLegacyImage(
+            sessionId: String,
+            messageId: String,
+            imageId: String,
+            mimeType: String,
+            bytes: ByteArray,
+        ): String = "/legacy/$sessionId/$messageId-$imageId.png"
+
+        override suspend fun discardCreatedFiles(identifiers: List<String>) {
+            discarded += identifiers
         }
     }
 }

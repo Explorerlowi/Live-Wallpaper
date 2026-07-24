@@ -9,22 +9,38 @@ import com.example.livewallpaper.di.imageModule
 import com.example.livewallpaper.di.paintModule
 import com.example.livewallpaper.di.platformModule
 import com.example.livewallpaper.paint.service.ImageGenerationService
+import com.example.livewallpaper.feature.aipaint.data.local.PaintStorageCoordinator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
 
 class LiveWallpaperApplication : Application(), ImageLoaderFactory {
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
 
-        startKoin {
+        val koinApplication = startKoin {
             androidLogger()
             androidContext(this@LiveWallpaperApplication)
             modules(appModule, platformModule, galleryModule, imageModule, paintModule)
         }
+        applicationScope.launch {
+            koinApplication.koin.get<PaintStorageCoordinator>().initialize()
+        }
 
         ImageGenerationService.ensureNotificationChannel(this)
+    }
+
+    override fun onTerminate() {
+        applicationScope.cancel()
+        super.onTerminate()
     }
     
     /**
@@ -32,4 +48,3 @@ class LiveWallpaperApplication : Application(), ImageLoaderFactory {
      */
     override fun newImageLoader(): ImageLoader = get()
 }
-

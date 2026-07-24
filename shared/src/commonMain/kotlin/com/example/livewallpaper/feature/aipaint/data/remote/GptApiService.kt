@@ -76,7 +76,7 @@ class GptApiService(
     suspend fun editImage(
         profile: ApiProfile,
         prompt: String,
-        images: List<PaintImage>,
+        images: List<ImageRequestPayload>,
         size: GptImageSize,
         quality: GptImageQuality,
         outputFormat: GptOutputFormat = GptOutputFormat.PNG
@@ -94,24 +94,16 @@ class GptApiService(
                     append("output_format", outputFormat.value)
 
                     // 上传参考图片
-                    images.forEachIndexed { index, img ->
-                        val imageBytes = img.base64Data?.let { data ->
-                            try {
-                                decodeBase64(data)
-                            } catch (_: Exception) {
-                                null
-                            }
-                        } ?: return@forEachIndexed
-
+                    images.forEachIndexed { index, image ->
                         val extension = when {
-                            img.mimeType.contains("jpeg") || img.mimeType.contains("jpg") -> "jpg"
-                            img.mimeType.contains("webp") -> "webp"
+                            image.mimeType.contains("jpeg") || image.mimeType.contains("jpg") -> "jpg"
+                            image.mimeType.contains("webp") -> "webp"
                             else -> "png"
                         }
                         val fileName = "image_$index.$extension"
 
-                        append("image", imageBytes, Headers.build {
-                            append(HttpHeaders.ContentType, img.mimeType)
+                        append("image", image.bytes, Headers.build {
+                            append(HttpHeaders.ContentType, image.mimeType)
                             append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
                         })
                     }
@@ -149,38 +141,6 @@ class GptApiService(
             put("quality", quality.value)
             put("output_format", outputFormat.value)
         }
-    }
-
-    /**
-     * 纯 Kotlin base64 解码（commonMain 兼容）
-     */
-    private fun decodeBase64(input: String): ByteArray {
-        val table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        val lookup = IntArray(256) { -1 }
-        for (i in table.indices) lookup[table[i].code] = i
-
-        val clean = input.filter { it != '\n' && it != '\r' && it != ' ' }
-        val padding = clean.count { it == '=' }
-        val outputLen = clean.length * 3 / 4 - padding
-        val output = ByteArray(outputLen)
-
-        var outIdx = 0
-        var i = 0
-        while (i < clean.length) {
-            val a = lookup[clean[i].code and 0xFF]
-            val b = if (i + 1 < clean.length) lookup[clean[i + 1].code and 0xFF] else 0
-            val c = if (i + 2 < clean.length) lookup[clean[i + 2].code and 0xFF] else 0
-            val d = if (i + 3 < clean.length) lookup[clean[i + 3].code and 0xFF] else 0
-
-            val triple = (a shl 18) or (b shl 12) or (c shl 6) or d
-
-            if (outIdx < outputLen) output[outIdx++] = (triple shr 16 and 0xFF).toByte()
-            if (outIdx < outputLen) output[outIdx++] = (triple shr 8 and 0xFF).toByte()
-            if (outIdx < outputLen) output[outIdx++] = (triple and 0xFF).toByte()
-
-            i += 4
-        }
-        return output
     }
 
     private fun mapException(e: Exception): AppResult<Nothing> {

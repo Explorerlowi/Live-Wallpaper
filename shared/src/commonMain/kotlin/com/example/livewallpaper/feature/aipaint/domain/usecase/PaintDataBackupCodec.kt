@@ -1,5 +1,10 @@
 package com.example.livewallpaper.feature.aipaint.domain.usecase
 
+import com.example.livewallpaper.feature.aipaint.domain.model.legacy.LegacyBase64
+import com.example.livewallpaper.feature.aipaint.domain.model.legacy.LegacyPaintImageV1
+import com.example.livewallpaper.feature.aipaint.domain.model.legacy.LegacyPaintMessageV1
+import com.example.livewallpaper.feature.aipaint.domain.model.legacy.toDomain
+import com.example.livewallpaper.feature.aipaint.domain.model.legacy.toLegacyV1
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveSource
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveWriteRequest
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataArchiveLimits
@@ -26,6 +31,7 @@ internal object PaintDataBackupCodec {
         encodeDefaults = true
         ignoreUnknownKeys = true
         prettyPrint = true
+        explicitNulls = false
     }
 
     /**
@@ -37,7 +43,6 @@ internal object PaintDataBackupCodec {
      * @param exportableImageIdentifiers Image identifiers approved by the platform for packaging.
      * Images outside this set remain as message metadata without a local path and are removed from drafts.
      * @param exportedFromPlatform Platform that created this backup archive.
-     * @param includeEmbeddedImageData Whether Base64 image payloads may remain in the manifest.
      * @return Prepared manifest and source image list, or a validation error.
      */
     fun prepare(
@@ -46,7 +51,6 @@ internal object PaintDataBackupCodec {
         exportedAt: Long,
         exportableImageIdentifiers: Set<String>? = null,
         exportedFromPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
-        includeEmbeddedImageData: Boolean = true,
     ): PaintDataCodecResult<PreparedPaintDataBackup> = try {
         validateConversationData(snapshot.sessions, snapshot.messages)
         validateDrafts(drafts)
@@ -64,12 +68,11 @@ internal object PaintDataBackupCodec {
         }
 
         val archivedMessages = snapshot.messages.map { message ->
-            message.copy(
+            message.toLegacyV1(
                 images = message.images.map { image ->
                     archivePaintImage(
                         image = image,
                         exportableImageIdentifiers = exportableImageIdentifiers,
-                        includeEmbeddedImageData = includeEmbeddedImageData,
                         archivePath = ::archivePath,
                     )
                 },
@@ -142,7 +145,10 @@ internal object PaintDataBackupCodec {
                 return PaintDataCodecResult.Failure(PaintDataTransferError.UNSUPPORTED_VERSION)
             }
 
-            validateConversationData(backup.sessions, backup.messages)
+            val messagesForValidation = backup.messages.map { message ->
+                message.toDomain(message.images.map { image -> image.toDomain() })
+            }
+            validateConversationData(backup.sessions, messagesForValidation)
             validateDrafts(backup.drafts)
             val declaredImagePaths = backup.images.map { it.path }
             if (declaredImagePaths.size != declaredImagePaths.distinct().size) {
@@ -154,7 +160,10 @@ internal object PaintDataBackupCodec {
             val declaredImagePathSet = declaredImagePaths.toSet()
             val referencedPaths = buildSet {
                 backup.messages.forEach { message ->
-                    message.images.mapNotNullTo(this) { it.localPath }
+                    message.images.forEach { image ->
+                        val localPath = image.localPath ?: return@forEach
+                        if (localPath in declaredImagePathSet || image.base64Data.isNullOrBlank()) add(localPath)
+                    }
                 }
                 backup.drafts.values.forEach { draft ->
                     draft.selectedImages.mapTo(this) { it.uri }
@@ -171,16 +180,32 @@ internal object PaintDataBackupCodec {
             }
 
             val restoredMessages = backup.messages.map { message ->
-                message.copy(
+                message.toDomain(
                     images = message.images.map { image ->
                         val archivedPath = image.localPath
-                        if (archivedPath == null) {
-                            image
+                        if (archivedPath == null || archivedPath !in declaredImagePathSet) {
+                            image.toDomain(localPath = null)
                         } else {
-                            image.copy(localPath = imagePathsByArchivePath.getValue(archivedPath))
+                            image.toDomain(localPath = imagePathsByArchivePath.getValue(archivedPath))
                         }
                     },
                 )
+            }
+            val embeddedImages = backup.messages.flatMap { message ->
+                message.images.mapNotNull { image ->
+                    if (image.localPath in declaredImagePathSet || image.base64Data.isNullOrBlank()) {
+                        return@mapNotNull null
+                    }
+                    val bytes = LegacyBase64.decode(image.base64Data)
+                        ?: invalid(PaintDataTransferError.CORRUPTED_DATA)
+                    LegacyEmbeddedBackupImage(
+                        sessionId = message.sessionId,
+                        messageId = message.id,
+                        imageId = image.id,
+                        mimeType = image.mimeType,
+                        bytes = bytes,
+                    )
+                }
             }
             val restoredDrafts = backup.drafts.mapValues { (_, draft) ->
                 draft.copy(
@@ -196,8 +221,9 @@ internal object PaintDataBackupCodec {
                         messages = restoredMessages,
                     ),
                     drafts = restoredDrafts,
-                    imageCount = declaredImagePaths.size,
+                    imageCount = declaredImagePaths.size + embeddedImages.size,
                     exportedFromPlatform = backup.exportedFromPlatform,
+                    embeddedImages = embeddedImages,
                 ),
             )
         } catch (error: PaintDataValidationException) {
@@ -210,15 +236,13 @@ internal object PaintDataBackupCodec {
     private fun archivePaintImage(
         image: PaintImage,
         exportableImageIdentifiers: Set<String>?,
-        includeEmbeddedImageData: Boolean,
         archivePath: (String, String) -> String,
-    ): PaintImage {
-        val sanitizedImage = if (includeEmbeddedImageData) image else image.copy(base64Data = null)
-        val localPath = sanitizedImage.localPath ?: return sanitizedImage
+    ): LegacyPaintImageV1 {
+        val localPath = image.localPath ?: return image.toLegacyV1(localPath = null)
         if (exportableImageIdentifiers != null && localPath !in exportableImageIdentifiers) {
-            return sanitizedImage.copy(localPath = null)
+            return image.toLegacyV1(localPath = null)
         }
-        return sanitizedImage.copy(localPath = archivePath(localPath, image.mimeType))
+        return image.toLegacyV1(localPath = archivePath(localPath, image.mimeType))
     }
 
     private fun validateConversationData(
@@ -240,6 +264,10 @@ internal object PaintDataBackupCodec {
         if (messages.any { message -> message.images.any { it.localPath?.isBlank() == true } }) {
             invalid(PaintDataTransferError.CORRUPTED_DATA)
         }
+        val imageIds = messages.flatMap { message -> message.images.map(PaintImage::id) }
+        if (imageIds.any(String::isBlank) || imageIds.size != imageIds.distinct().size) {
+            invalid(PaintDataTransferError.CORRUPTED_DATA)
+        }
     }
 
     private fun validateDrafts(drafts: Map<String, PaintSessionDraft>) {
@@ -247,6 +275,13 @@ internal object PaintDataBackupCodec {
             invalid(PaintDataTransferError.CORRUPTED_DATA)
         }
         if (drafts.values.any { draft -> draft.selectedImages.any { it.uri.isBlank() } }) {
+            invalid(PaintDataTransferError.CORRUPTED_DATA)
+        }
+        if (drafts.values.any { draft ->
+                val imageIds = draft.selectedImages.map(PaintDraftImage::id)
+                imageIds.any(String::isBlank) || imageIds.size != imageIds.distinct().size
+            }
+        ) {
             invalid(PaintDataTransferError.CORRUPTED_DATA)
         }
     }
@@ -270,7 +305,7 @@ internal object PaintDataBackupCodec {
         val exportedAt: Long,
         val exportedFromPlatform: PaintClientPlatform = PaintClientPlatform.UNKNOWN,
         val sessions: List<PaintSession>,
-        val messages: List<PaintMessage>,
+        val messages: List<LegacyPaintMessageV1>,
         val drafts: Map<String, PaintSessionDraft> = emptyMap(),
         val images: List<PaintDataBackupImageEntry> = emptyList(),
     )
@@ -318,6 +353,16 @@ internal data class DecodedPaintDataBackup(
     val drafts: Map<String, PaintSessionDraft>,
     val imageCount: Int,
     val exportedFromPlatform: PaintClientPlatform,
+    val embeddedImages: List<LegacyEmbeddedBackupImage> = emptyList(),
+)
+
+/** Decoded historical v1 payload waiting to be materialized before the database transaction. */
+internal data class LegacyEmbeddedBackupImage(
+    val sessionId: String,
+    val messageId: String,
+    val imageId: String,
+    val mimeType: String,
+    val bytes: ByteArray,
 )
 
 private class PaintDataValidationException(

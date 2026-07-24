@@ -54,7 +54,7 @@ interface PaintRepository {
         profile: ApiProfile,
         model: PaintModel,
         prompt: String,
-        images: List<PaintImage>,
+        images: List<ImageRequestPayload>,
         aspectRatio: AspectRatio,
         resolution: Resolution,
         sessionId: String,
@@ -68,7 +68,7 @@ interface PaintRepository {
     suspend fun generateGptImage(
         profile: ApiProfile,
         prompt: String,
-        images: List<PaintImage>,
+        images: List<ImageRequestPayload>,
         size: GptImageSize,
         quality: GptImageQuality,
         outputFormat: GptOutputFormat,

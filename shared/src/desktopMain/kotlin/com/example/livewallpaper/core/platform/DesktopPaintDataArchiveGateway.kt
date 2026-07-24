@@ -43,8 +43,6 @@ class DesktopPaintDataArchiveGateway(
     },
 ) : PaintDataArchiveGateway {
     override val clientPlatform: PaintClientPlatform = PaintClientPlatform.DESKTOP
-    override val allowEmbeddedImageData: Boolean = false
-
     override suspend fun retainExportableImageIdentifiers(
         sourceIdentifiers: Set<String>,
     ): Set<String> = withContext(Dispatchers.IO) {
