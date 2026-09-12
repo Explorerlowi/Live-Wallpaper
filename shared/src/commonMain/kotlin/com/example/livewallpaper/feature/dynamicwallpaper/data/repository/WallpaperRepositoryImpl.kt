@@ -1,5 +1,6 @@
 package com.example.livewallpaper.feature.dynamicwallpaper.data.repository
 
+import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.AppUpdateService
 import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
@@ -7,6 +8,9 @@ import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperConfig
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperLibraryDocument
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperLibraryNames
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperLibraryOperations
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.repository.WallpaperRepository
 import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.set
@@ -15,129 +19,168 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.random.Random
 
 class WallpaperRepositoryImpl(
     private val settings: ObservableSettings,
     private val appUpdateService: AppUpdateService
 ) : WallpaperRepository {
 
-    private val key = "WALLPAPER_CONFIG"
+    private val configKey = "WALLPAPER_CONFIG"
+    private val librariesKey = "WALLPAPER_LIBRARIES"
     private val json = Json { ignoreUnknownKeys = true }
 
-    override fun getConfig(): Flow<WallpaperConfig> = callbackFlow {
-        val listener = settings.addStringListener(key, "") { jsonString ->
-            trySend(parseConfig(jsonString))
-        }
-        // Send initial value
-        trySend(parseConfig(settings.getString(key, "")))
-        
-        awaitClose {
-            listener.deactivate()
-        }
+    override fun getConfig(): Flow<WallpaperConfig> = observeSettings {
+        projectedConfig()
     }
 
-    private fun parseConfig(jsonString: String): WallpaperConfig {
-        if (jsonString.isBlank()) return WallpaperConfig()
-        return try {
-            json.decodeFromString(jsonString)
-        } catch (e: Exception) {
-            WallpaperConfig()
-        }
+    override fun getLibraryDocument(): Flow<WallpaperLibraryDocument> = observeSettings {
+        loadDocument()
     }
+
+    override fun getConfigSync(): WallpaperConfig = projectedConfig()
+
+    override fun getLibraryDocumentSync(): WallpaperLibraryDocument = loadDocument()
 
     override suspend fun updateConfig(config: WallpaperConfig) {
-        val jsonString = json.encodeToString(config)
-        settings[key] = jsonString
+        persistSettings(WallpaperLibraryOperations.withoutLibraryProjection(config))
     }
 
     override suspend fun addImages(uris: List<String>) {
-        val current = getCurrentConfig()
-        val newImages = current.imageUris + uris
-        updateConfig(current.copy(imageUris = newImages.distinct()))
+        updateDocument { current ->
+            WallpaperLibraryOperations.addImagesToLibrary(
+                document = current,
+                libraryId = current.activeLibraryId,
+                uris = uris,
+                generateId = ::generateId
+            )
+        }
+    }
+
+    override suspend fun addImagesToLibrary(libraryId: String, uris: List<String>) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.addImagesToLibrary(
+                document = current,
+                libraryId = libraryId,
+                uris = uris,
+                generateId = ::generateId
+            )
+        }
     }
 
     override suspend fun removeImage(uri: String) {
-        val current = getCurrentConfig()
-        val newImages = current.imageUris - uri
-        // 同时移除对应的裁剪参数
-        val newCropParams = current.imageCropParams - uri
-        updateConfig(current.copy(imageUris = newImages, imageCropParams = newCropParams))
+        removeImages(listOf(uri))
     }
 
     override suspend fun removeImages(uris: List<String>) {
-        val current = getCurrentConfig()
-        val uriSet = uris.toSet()
-        val newImages = current.imageUris.filterNot { it in uriSet }
-        // 同时移除对应的裁剪参数
-        val newCropParams = current.imageCropParams.filterKeys { it !in uriSet }
-        updateConfig(current.copy(imageUris = newImages, imageCropParams = newCropParams))
+        updateDocument { current ->
+            WallpaperLibraryOperations.removeImagesFromLibrary(
+                document = current,
+                libraryId = current.activeLibraryId,
+                uris = uris
+            )
+        }
+    }
+
+    override suspend fun removeImagesFromLibrary(libraryId: String, uris: List<String>) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.removeImagesFromLibrary(
+                document = current,
+                libraryId = libraryId,
+                uris = uris
+            )
+        }
+    }
+
+    override suspend fun updateLibraryImageOrder(libraryId: String, uris: List<String>) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.updateLibraryImageOrder(
+                document = current,
+                libraryId = libraryId,
+                uris = uris
+            )
+        }
     }
 
     override suspend fun removeAllImages() {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(imageUris = emptyList(), imageCropParams = emptyMap()))
+        updateDocument { current ->
+            WallpaperLibraryOperations.removeAllImagesFromLibrary(
+                document = current,
+                libraryId = current.activeLibraryId
+            )
+        }
     }
 
     override suspend fun updateImageOrder(uris: List<String>) {
-        val current = getCurrentConfig()
-        if (current.imageUris.isEmpty()) return
-
-        val desiredOrder = uris.distinct().filter { it in current.imageUris.toSet() }
-        if (desiredOrder.isEmpty()) return
-
-        val desiredSet = desiredOrder.toSet()
-        val remaining = current.imageUris.filter { it !in desiredSet }
-        val newOrder = desiredOrder + remaining
-
-        if (newOrder != current.imageUris) {
-            updateConfig(current.copy(imageUris = newOrder))
+        updateDocument { current ->
+            WallpaperLibraryOperations.updateLibraryImageOrder(
+                document = current,
+                libraryId = current.activeLibraryId,
+                uris = uris
+            )
         }
     }
 
     override suspend fun setInterval(interval: Long) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(interval = interval))
+        persistSettings(loadSettings().copy(interval = interval))
     }
 
     override suspend fun setScaleMode(mode: ScaleMode) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(scaleMode = mode))
+        persistSettings(loadSettings().copy(scaleMode = mode))
     }
 
     override suspend fun setPlayMode(mode: PlayMode) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(playMode = mode))
+        persistSettings(loadSettings().copy(playMode = mode))
     }
 
     override suspend fun setImageCropParams(uri: String, params: ImageCropParams) {
-        val current = getCurrentConfig()
-        val newCropParams = current.imageCropParams + (uri to params)
-        updateConfig(current.copy(imageCropParams = newCropParams))
+        updateDocument { current ->
+            WallpaperLibraryOperations.setItemCropParams(current, uri, params)
+        }
+    }
+
+    override suspend fun createLibrary(name: String) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.createLibrary(current, name, ::generateId)
+        }
+    }
+
+    override suspend fun renameLibrary(libraryId: String, name: String) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.renameLibrary(current, libraryId, name)
+        }
+    }
+
+    override suspend fun deleteLibrary(libraryId: String) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.deleteLibrary(current, libraryId)
+        }
+    }
+
+    override suspend fun setActiveLibrary(libraryId: String) {
+        updateDocument { current ->
+            WallpaperLibraryOperations.setActiveLibrary(current, libraryId)
+        }
     }
 
     override suspend fun setLanguage(languageTag: String?) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(languageTag = languageTag))
+        persistSettings(loadSettings().copy(languageTag = languageTag))
     }
 
     override suspend fun setThemeMode(mode: ThemeMode) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(themeMode = mode))
+        persistSettings(loadSettings().copy(themeMode = mode))
     }
 
     override suspend fun setLaunchAtStartup(enabled: Boolean) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(launchAtStartup = enabled))
+        persistSettings(loadSettings().copy(launchAtStartup = enabled))
     }
 
     override suspend fun setRestoreSlideshowOnLaunch(enabled: Boolean) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(restoreSlideshowOnLaunch = enabled))
+        persistSettings(loadSettings().copy(restoreSlideshowOnLaunch = enabled))
     }
 
     override suspend fun setPaintGenerationSuccessNotification(enabled: Boolean) {
-        val current = getCurrentConfig()
-        updateConfig(current.copy(paintGenerationSuccessNotification = enabled))
+        persistSettings(loadSettings().copy(paintGenerationSuccessNotification = enabled))
     }
 
     override suspend fun checkAppUpdate(
@@ -149,11 +192,88 @@ class WallpaperRepositoryImpl(
         return appUpdateService.checkUpdate(apiKey, appKey, buildVersion, buildBuildVersion)
     }
 
-    private fun getCurrentConfig(): WallpaperConfig {
-        return parseConfig(settings.getString(key, ""))
+    private fun <T> observeSettings(read: () -> T): Flow<T> = callbackFlow {
+        fun emitCurrent() {
+            trySend(read())
+        }
+        val configListener = settings.addStringListener(configKey, "") { emitCurrent() }
+        val librariesListener = settings.addStringListener(librariesKey, "") { emitCurrent() }
+        emitCurrent()
+        awaitClose {
+            configListener.deactivate()
+            librariesListener.deactivate()
+        }
     }
 
-    override fun getConfigSync(): WallpaperConfig {
-        return getCurrentConfig()
+    private fun projectedConfig(): WallpaperConfig {
+        return WallpaperLibraryOperations.projectConfig(loadSettings(), loadDocument())
     }
+
+    private fun loadSettings(): WallpaperConfig {
+        val jsonString = settings.getString(configKey, "")
+        if (jsonString.isBlank()) return WallpaperConfig()
+        return try {
+            WallpaperLibraryOperations.withoutLibraryProjection(json.decodeFromString(jsonString))
+        } catch (_: Exception) {
+            WallpaperConfig()
+        }
+    }
+
+    private fun loadDocument(): WallpaperLibraryDocument {
+        val stored = settings.getString(librariesKey, "")
+        if (stored.isNotBlank()) {
+            try {
+                val parsed = json.decodeFromString<WallpaperLibraryDocument>(stored)
+                if (parsed.libraries.isNotEmpty()) {
+                    return WallpaperLibraryOperations.sanitize(parsed)
+                }
+            } catch (_: Exception) {
+                // 回退到旧版扁平列表迁移
+            }
+        }
+        return migrateLegacyAndPersist()
+    }
+
+    private fun migrateLegacyAndPersist(): WallpaperLibraryDocument {
+        val legacy = parseLegacyConfig()
+        val document = WallpaperLibraryOperations.migrateFromConfig(
+            config = legacy,
+            defaultLibraryName = WallpaperLibraryNames.defaultName(legacy.languageTag),
+            generateId = ::generateId
+        )
+        persistDocument(document)
+        persistSettings(WallpaperLibraryOperations.withoutLibraryProjection(legacy))
+        return document
+    }
+
+    private fun parseLegacyConfig(): WallpaperConfig {
+        val jsonString = settings.getString(configKey, "")
+        if (jsonString.isBlank()) return WallpaperConfig()
+        return try {
+            json.decodeFromString(jsonString)
+        } catch (_: Exception) {
+            WallpaperConfig()
+        }
+    }
+
+    private fun updateDocument(transform: (WallpaperLibraryDocument) -> WallpaperLibraryDocument) {
+        val current = loadDocument()
+        val next = transform(current)
+        if (next != current) {
+            persistDocument(next)
+        }
+    }
+
+    private fun persistSettings(config: WallpaperConfig) {
+        settings[configKey] = json.encodeToString(
+            WallpaperLibraryOperations.withoutLibraryProjection(config)
+        )
+    }
+
+    private fun persistDocument(document: WallpaperLibraryDocument) {
+        settings[librariesKey] = json.encodeToString(document)
+    }
+
+    private fun generateId(): String =
+        "${TimeProvider.currentTimeMillis()}-${Random.nextInt(10000, 99999)}"
 }

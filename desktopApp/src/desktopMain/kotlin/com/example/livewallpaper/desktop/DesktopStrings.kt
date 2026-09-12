@@ -5,249 +5,294 @@ import java.io.InputStreamReader
 import java.util.Locale
 import java.util.Properties
 
-data class DesktopStrings(
-    val appTitle: String,
-    val appVersion: (String) -> String,
-    val images: String,
-    val wallpapers: String,
-    val aiPaint: String,
-    val settings: String,
-    val close: String,
-    val cancel: String,
-    val confirm: String,
-    val previous: String,
-    val next: String,
-    val zoomIn: String,
-    val zoomOut: String,
-    val fitWindow: String,
-    val addImages: String,
-    val remove: String,
-    val moveUp: String,
-    val moveDown: String,
-    val multiSelect: String,
-    val selectAll: String,
-    val cancelSelectAll: String,
-    val deleteSelected: String,
-    val setCurrentWallpaper: String,
-    val startSlideshow: String,
-    val stopSlideshow: String,
-    val openWindow: String,
-    val quit: String,
-    val emptyTitle: String,
-    val emptySubtitle: String,
-    val dropImagesHint: String,
-    val wallpaperLibrary: String,
-    val selected: String,
-    val dragReorderHint: String,
-    val aiPaintTitle: String,
-    val aiPaintSubtitle: String,
-    val aiPaintComingSoon: String,
-    val paintNewSession: String,
-    val paintSessions: String,
-    val paintNoSessions: String,
-    val paintPromptHint: String,
-    val paintStorageMigrating: String,
-    val paintStorageLegacyFallback: String,
-    val paintStorageRecoveryRequired: String,
-    val paintApiSettings: String,
-    val paintNoApi: String,
-    val paintMissingApi: String,
-    val paintSelectModel: String,
-    val paintSelectRatio: String,
-    val paintSelectResolution: String,
-    val paintSend: String,
-    val paintStop: String,
-    val paintInputModeEnterSend: String,
-    val paintInputModeCtrlEnterSend: String,
-    val paintClear: String,
-    val paintAddReferenceImage: String,
-    val paintPinSession: String,
-    val paintUnpinSession: String,
-    val paintRenameSession: String,
-    val paintDeleteSession: String,
-    val paintRenameSessionTitle: String,
-    val paintDeleteSessionTitle: String,
-    val paintDeleteSessionMessage: String,
-    val paintSessionNameLabel: String,
-    val paintGenerating: String,
-    val paintFailed: String,
-    val paintGenerationFailed: String,
-    val paintCancelled: String,
-    val paintRegenerate: String,
-    val paintDeleteMessage: String,
-    val paintCopyMessage: String,
-    val paintCopied: String,
-    val paintEditMessage: String,
-    val paintEditUndo: String,
-    val paintEditBrush: String,
-    val paintEditMosaic: String,
-    val paintEditText: String,
-    val paintEditCrop: String,
-    val paintEditShapePen: String,
-    val paintEditShapeRect: String,
-    val paintEditShapeOval: String,
-    val paintEditShapeArrow: String,
-    val paintEditAddText: String,
-    val paintEditTextTitle: String,
-    val paintEditTextHint: String,
-    val paintStatusDone: String,
-    val paintStatusPending: String,
-    val paintStatusTime: (String, String) -> String,
-    val paintGeneratingTime: (String) -> String,
-    val paintDeleteMessageTitle: String,
-    val paintDeleteMessageConfirm: String,
-    val paintDeleteVersionHint: String,
-    val paintDeleteCurrentVersion: String,
-    val paintDeleteAllVersions: String,
-    val paintVersionLabel: (Int, Int) -> String,
-    val paintCopyPath: String,
-    val paintCopyImage: String,
-    val paintOpenImageLocation: String,
-    val paintSaveAs: String,
-    val paintAddToWallpaper: String,
-    val paintSetWallpaper: String,
-    val paintImagePreview: String,
-    val paintImageCompare: String,
-    val paintAddToCompare: String,
-    val paintRemoveFromCompare: String,
-    val paintCompareSelectedCount: (Int) -> String,
-    val paintCompareNeedTwoImages: String,
-    val paintCompareHintHold: String,
-    val paintCompareShowingBottom: String,
-    val imagePreviewRotateLeft: String,
-    val imagePreviewRotateRight: String,
-    val imagePreviewFlipHorizontal: String,
-    val imagePreviewFlipVertical: String,
-    val paintApiConfigList: String,
-    val paintApiConfigDetail: String,
-    val paintConfigName: String,
-    val paintApiBaseUrl: String,
-    val paintAccessToken: String,
-    val paintAuthMode: String,
-    val paintAuthBearer: String,
-    val paintAuthOfficial: String,
-    val paintSave: String,
-    val paintAddConfig: String,
-    val paintUpdate: String,
-    val paintDeleteConfig: String,
-    val paintNoConfig: String,
-    val paintImportConfig: String,
-    val paintExportConfig: String,
-    val paintConfigImportExport: String,
-    val paintExportConfigWarning: String,
-    val paintImportConfigSuccess: (Int) -> String,
-    val paintExportConfigSuccess: String,
-    val paintConfigFileError: String,
-    val paintImportFileTooLarge: String,
-    val paintImportInvalidJson: String,
-    val paintImportUnsupportedVersion: String,
-    val paintImportInvalidProfile: String,
-    val paintImportDuplicateProfile: String,
-    val paintImportInvalidActiveProfile: String,
-    val paintJsonFiles: String,
-    val paintGptSizeAuto: String,
-    val paintGptQualityAuto: String,
-    val paintGptQualityLow: String,
-    val paintGptQualityMedium: String,
-    val paintGptQualityHigh: String,
-    val paintGptFormatPng: String,
-    val paintGptFormatJpeg: String,
-    val paintGptFormatWebp: String,
-    val paintEmptyConversationTitle: String,
-    val paintEmptyConversationSubtitle: String,
-    val paintScrollToLatest: String,
-    val paintOriginDesktop: String,
-    val paintOriginAndroid: String,
-    val paintOriginIos: String,
-    val paintOriginUnknown: String,
-    val paintStorageSettings: String,
-    val paintGeneratedImagesDirectory: String,
-    val paintResponseCacheDirectory: String,
-    val paintClipboardCacheDirectory: String,
-    val paintDirectorySize: (String) -> String,
-    val paintOpenDirectory: String,
-    val paintClearCache: String,
-    val paintDataBackupSettings: String,
-    val paintDataExport: String,
-    val paintDataExportDescription: String,
-    val paintDataImport: String,
-    val paintDataImportDescription: String,
-    val paintDataZipFiles: String,
-    val paintDataImportConfirmTitle: String,
-    val paintDataImportConfirmMessage: String,
-    val paintDataImportSelectFile: String,
-    val paintDataImportSelectFileHint: String,
-    val paintDataImportSelectAnotherFile: String,
-    val paintDataImportDropActive: String,
-    val paintDataImportPreviewValidating: String,
-    val paintDataImportPreviewValid: String,
-    val paintDataImportPreviewCounts: (Int, Int, Int, Int) -> String,
-    val paintDataImportPreviewSource: (String) -> String,
-    val paintDataImportConfirmAction: String,
-    val paintDataExporting: String,
-    val paintDataImporting: String,
-    val paintDataExportSuccess: (Int, Int, Int) -> String,
-    val paintDataImportSuccess: (Int, Int, Int) -> String,
-    val paintDataErrorFileAccess: String,
-    val paintDataErrorInvalidArchive: String,
-    val paintDataErrorUnsupportedVersion: String,
-    val paintDataErrorArchiveTooLarge: String,
-    val paintDataErrorUnsafeArchive: String,
-    val paintDataErrorMissingImage: String,
-    val paintDataErrorCorruptedData: String,
-    val paintDataErrorStorageBusy: String,
-    val paintDataErrorStorageRecoveryRequired: String,
-    val paintDataErrorUnknown: String,
-    val paintGenerationTasks: String,
-    val paintGenerationTaskCount: (Int) -> String,
-    val paintTaskJump: String,
-    val paintTaskCancel: String,
-    val paintTaskStartedAt: (String) -> String,
-    val paintTaskClearHistory: String,
-    val paintGenerationSuccessNotification: String,
-    val paintGenerationSuccessNotificationDescription: String,
-    val paintGenerationSuccessTitle: String,
-    val paintGenerationSuccessMessage: (Int) -> String,
-    val chooseFolder: String,
-    val reset: String,
-    val intervalSeconds: String,
-    val wallpaperSettings: String,
-    val appearanceSettings: String,
-    val scaleMode: String,
-    val centerCrop: String,
-    val fitCenter: String,
-    val playMode: String,
-    val sequential: String,
-    val random: String,
-    val theme: String,
-    val system: String,
-    val light: String,
-    val dark: String,
-    val stardust: String,
-    val clear: String,
-    val language: String,
-    val followSystem: String,
-    val english: String,
-    val chinese: String,
-    val statusIdle: String,
-    val statusRunning: String,
-    val statusUnsupported: String,
-    val statusError: String,
-    val missingFile: String,
-    val missingBadge: String,
-    val currentBadge: String,
-    val desktopBehavior: String,
-    val launchAtStartup: String,
-    val launchAtStartupDescription: String,
-    val restoreSlideshowOnLaunch: String,
-    val restoreSlideshowOnLaunchDescription: String,
-    val selectedCount: (Int) -> String,
-    val multiSelectCount: (Int) -> String,
-    val deleteSelectedTitle: String,
-    val deleteSelectedMessage: (Int) -> String,
-    val currentWallpaper: (String) -> String,
-    val intervalValue: (Int) -> String,
-)
+/**
+ * Desktop UI strings loaded from i18n property files.
+ *
+ * Fields are initialized in the class body instead of a primary constructor so the
+ * generated bytecode stays under the JVM 255-parameter method limit.
+ */
+class DesktopStrings internal constructor(
+    private val properties: Properties,
+    private val resourcePath: String,
+) {
+    private fun text(key: String): String = checkNotNull(properties.getProperty(key)) {
+        "Missing desktop i18n key '$key' in $resourcePath"
+    }
+
+    val appTitle: String = text("appTitle")
+    val appVersion: (String) -> String = { text("appVersion").format(it) }
+    val images: String = text("images")
+    val wallpapers: String = text("wallpapers")
+    val aiPaint: String = text("aiPaint")
+    val settings: String = text("settings")
+    val close: String = text("close")
+    val cancel: String = text("cancel")
+    val confirm: String = text("confirm")
+    val previous: String = text("previous")
+    val next: String = text("next")
+    val zoomIn: String = text("zoomIn")
+    val zoomOut: String = text("zoomOut")
+    val fitWindow: String = text("fitWindow")
+    val addImages: String = text("addImages")
+    val remove: String = text("remove")
+    val moveUp: String = text("moveUp")
+    val moveDown: String = text("moveDown")
+    val multiSelect: String = text("multiSelect")
+    val selectAll: String = text("selectAll")
+    val cancelSelectAll: String = text("cancelSelectAll")
+    val deleteSelected: String = text("deleteSelected")
+    val setCurrentWallpaper: String = text("setCurrentWallpaper")
+    val startSlideshow: String = text("startSlideshow")
+    val stopSlideshow: String = text("stopSlideshow")
+    val openWindow: String = text("openWindow")
+    val quit: String = text("quit")
+    val emptyTitle: String = text("emptyTitle")
+    val emptySubtitle: String = text("emptySubtitle")
+    val dropImagesHint: String = text("dropImagesHint")
+    val wallpaperLibrary: String = text("wallpaperLibrary")
+    val createLibrary: String = text("createLibrary")
+    val renameLibrary: String = text("renameLibrary")
+    val deleteLibrary: String = text("deleteLibrary")
+    val deleteLibraryTitle: String = text("deleteLibraryTitle")
+    val deleteLibraryMessage: (String) -> String = { name -> text("deleteLibraryMessage").format(name) }
+    val libraryNameLabel: String = text("libraryNameLabel")
+    val libraryNameHint: String = text("libraryNameHint")
+    val addToOtherLibrary: String = text("addToOtherLibrary")
+    val addToLibraryTitle: String = text("addToLibraryTitle")
+    val noOtherLibraries: String = text("noOtherLibraries")
+    val libraryImageCount: (Int) -> String = { count -> text("libraryImageCount").format(count) }
+    val cannotDeleteLastLibrary: String = text("cannotDeleteLastLibrary")
+    val libraryCount: (Int) -> String = { count -> text("libraryCount").format(count) }
+    val backToLibraries: String = text("backToLibraries")
+    val setActiveLibrary: String = text("setActiveLibrary")
+    val activeLibraryBadge: String = text("activeLibraryBadge")
+    val openLibraryHint: String = text("openLibraryHint")
+    val openLibrary: String = text("openLibrary")
+    val selected: String = text("selected")
+    val dragReorderHint: String = text("dragReorderHint")
+    val aiPaintTitle: String = text("aiPaintTitle")
+    val aiPaintSubtitle: String = text("aiPaintSubtitle")
+    val aiPaintComingSoon: String = text("aiPaintComingSoon")
+    val paintNewSession: String = text("paintNewSession")
+    val paintSessions: String = text("paintSessions")
+    val paintNoSessions: String = text("paintNoSessions")
+    val paintPromptHint: String = text("paintPromptHint")
+    val paintStorageMigrating: String = text("paintStorageMigrating")
+    val paintStorageLegacyFallback: String = text("paintStorageLegacyFallback")
+    val paintStorageRecoveryRequired: String = text("paintStorageRecoveryRequired")
+    val paintApiSettings: String = text("paintApiSettings")
+    val paintNoApi: String = text("paintNoApi")
+    val paintMissingApi: String = text("paintMissingApi")
+    val paintSelectModel: String = text("paintSelectModel")
+    val paintSelectRatio: String = text("paintSelectRatio")
+    val paintSelectResolution: String = text("paintSelectResolution")
+    val paintSend: String = text("paintSend")
+    val paintStop: String = text("paintStop")
+    val paintInputModeEnterSend: String = text("paintInputModeEnterSend")
+    val paintInputModeCtrlEnterSend: String = text("paintInputModeCtrlEnterSend")
+    val paintClear: String = text("paintClear")
+    val paintAddReferenceImage: String = text("paintAddReferenceImage")
+    val paintPinSession: String = text("paintPinSession")
+    val paintUnpinSession: String = text("paintUnpinSession")
+    val paintRenameSession: String = text("paintRenameSession")
+    val paintDeleteSession: String = text("paintDeleteSession")
+    val paintRenameSessionTitle: String = text("paintRenameSessionTitle")
+    val paintDeleteSessionTitle: String = text("paintDeleteSessionTitle")
+    val paintDeleteSessionMessage: String = text("paintDeleteSessionMessage")
+    val paintSessionNameLabel: String = text("paintSessionNameLabel")
+    val paintGenerating: String = text("paintGenerating")
+    val paintFailed: String = text("paintFailed")
+    val paintGenerationFailed: String = text("paintGenerationFailed")
+    val paintCancelled: String = text("paintCancelled")
+    val paintRegenerate: String = text("paintRegenerate")
+    val paintDeleteMessage: String = text("paintDeleteMessage")
+    val paintCopyMessage: String = text("paintCopyMessage")
+    val paintCopied: String = text("paintCopied")
+    val paintEditMessage: String = text("paintEditMessage")
+    val paintEditUndo: String = text("paintEditUndo")
+    val paintEditBrush: String = text("paintEditBrush")
+    val paintEditMosaic: String = text("paintEditMosaic")
+    val paintEditText: String = text("paintEditText")
+    val paintEditCrop: String = text("paintEditCrop")
+    val paintEditShapePen: String = text("paintEditShapePen")
+    val paintEditShapeRect: String = text("paintEditShapeRect")
+    val paintEditShapeOval: String = text("paintEditShapeOval")
+    val paintEditShapeArrow: String = text("paintEditShapeArrow")
+    val paintEditAddText: String = text("paintEditAddText")
+    val paintEditTextTitle: String = text("paintEditTextTitle")
+    val paintEditTextHint: String = text("paintEditTextHint")
+    val paintStatusDone: String = text("paintStatusDone")
+    val paintStatusPending: String = text("paintStatusPending")
+    val paintStatusTime: (String, String) -> String = { status, duration ->
+        text("paintStatusTime").format(status, duration)
+    }
+    val paintGeneratingTime: (String) -> String = { duration -> text("paintGeneratingTime").format(duration) }
+    val paintDeleteMessageTitle: String = text("paintDeleteMessageTitle")
+    val paintDeleteMessageConfirm: String = text("paintDeleteMessageConfirm")
+    val paintDeleteVersionHint: String = text("paintDeleteVersionHint")
+    val paintDeleteCurrentVersion: String = text("paintDeleteCurrentVersion")
+    val paintDeleteAllVersions: String = text("paintDeleteAllVersions")
+    val paintVersionLabel: (Int, Int) -> String = { current, total ->
+        text("paintVersionLabel").format(current, total)
+    }
+    val paintCopyPath: String = text("paintCopyPath")
+    val paintCopyImage: String = text("paintCopyImage")
+    val paintOpenImageLocation: String = text("paintOpenImageLocation")
+    val paintSaveAs: String = text("paintSaveAs")
+    val paintAddToWallpaper: String = text("paintAddToWallpaper")
+    val paintSetWallpaper: String = text("paintSetWallpaper")
+    val paintImagePreview: String = text("paintImagePreview")
+    val paintImageCompare: String = text("paintImageCompare")
+    val paintAddToCompare: String = text("paintAddToCompare")
+    val paintRemoveFromCompare: String = text("paintRemoveFromCompare")
+    val paintCompareSelectedCount: (Int) -> String = { count -> text("paintCompareSelectedCount").format(count) }
+    val paintCompareNeedTwoImages: String = text("paintCompareNeedTwoImages")
+    val paintCompareHintHold: String = text("paintCompareHintHold")
+    val paintCompareShowingBottom: String = text("paintCompareShowingBottom")
+    val imagePreviewRotateLeft: String = text("imagePreviewRotateLeft")
+    val imagePreviewRotateRight: String = text("imagePreviewRotateRight")
+    val imagePreviewFlipHorizontal: String = text("imagePreviewFlipHorizontal")
+    val imagePreviewFlipVertical: String = text("imagePreviewFlipVertical")
+    val paintApiConfigList: String = text("paintApiConfigList")
+    val paintApiConfigDetail: String = text("paintApiConfigDetail")
+    val paintConfigName: String = text("paintConfigName")
+    val paintApiBaseUrl: String = text("paintApiBaseUrl")
+    val paintAccessToken: String = text("paintAccessToken")
+    val paintAuthMode: String = text("paintAuthMode")
+    val paintAuthBearer: String = text("paintAuthBearer")
+    val paintAuthOfficial: String = text("paintAuthOfficial")
+    val paintSave: String = text("paintSave")
+    val paintAddConfig: String = text("paintAddConfig")
+    val paintUpdate: String = text("paintUpdate")
+    val paintDeleteConfig: String = text("paintDeleteConfig")
+    val paintNoConfig: String = text("paintNoConfig")
+    val paintImportConfig: String = text("paintImportConfig")
+    val paintExportConfig: String = text("paintExportConfig")
+    val paintConfigImportExport: String = text("paintConfigImportExport")
+    val paintExportConfigWarning: String = text("paintExportConfigWarning")
+    val paintImportConfigSuccess: (Int) -> String = { count -> text("paintImportConfigSuccess").format(count) }
+    val paintExportConfigSuccess: String = text("paintExportConfigSuccess")
+    val paintConfigFileError: String = text("paintConfigFileError")
+    val paintImportFileTooLarge: String = text("paintImportFileTooLarge")
+    val paintImportInvalidJson: String = text("paintImportInvalidJson")
+    val paintImportUnsupportedVersion: String = text("paintImportUnsupportedVersion")
+    val paintImportInvalidProfile: String = text("paintImportInvalidProfile")
+    val paintImportDuplicateProfile: String = text("paintImportDuplicateProfile")
+    val paintImportInvalidActiveProfile: String = text("paintImportInvalidActiveProfile")
+    val paintJsonFiles: String = text("paintJsonFiles")
+    val paintGptSizeAuto: String = text("paintGptSizeAuto")
+    val paintGptQualityAuto: String = text("paintGptQualityAuto")
+    val paintGptQualityLow: String = text("paintGptQualityLow")
+    val paintGptQualityMedium: String = text("paintGptQualityMedium")
+    val paintGptQualityHigh: String = text("paintGptQualityHigh")
+    val paintGptFormatPng: String = text("paintGptFormatPng")
+    val paintGptFormatJpeg: String = text("paintGptFormatJpeg")
+    val paintGptFormatWebp: String = text("paintGptFormatWebp")
+    val paintEmptyConversationTitle: String = text("paintEmptyConversationTitle")
+    val paintEmptyConversationSubtitle: String = text("paintEmptyConversationSubtitle")
+    val paintScrollToLatest: String = text("paintScrollToLatest")
+    val paintOriginDesktop: String = text("paintOriginDesktop")
+    val paintOriginAndroid: String = text("paintOriginAndroid")
+    val paintOriginIos: String = text("paintOriginIos")
+    val paintOriginUnknown: String = text("paintOriginUnknown")
+    val paintStorageSettings: String = text("paintStorageSettings")
+    val paintGeneratedImagesDirectory: String = text("paintGeneratedImagesDirectory")
+    val paintResponseCacheDirectory: String = text("paintResponseCacheDirectory")
+    val paintClipboardCacheDirectory: String = text("paintClipboardCacheDirectory")
+    val paintDirectorySize: (String) -> String = { size -> text("paintDirectorySize").format(size) }
+    val paintOpenDirectory: String = text("paintOpenDirectory")
+    val paintClearCache: String = text("paintClearCache")
+    val paintDataBackupSettings: String = text("paintDataBackupSettings")
+    val paintDataExport: String = text("paintDataExport")
+    val paintDataExportDescription: String = text("paintDataExportDescription")
+    val paintDataImport: String = text("paintDataImport")
+    val paintDataImportDescription: String = text("paintDataImportDescription")
+    val paintDataZipFiles: String = text("paintDataZipFiles")
+    val paintDataImportConfirmTitle: String = text("paintDataImportConfirmTitle")
+    val paintDataImportConfirmMessage: String = text("paintDataImportConfirmMessage")
+    val paintDataImportSelectFile: String = text("paintDataImportSelectFile")
+    val paintDataImportSelectFileHint: String = text("paintDataImportSelectFileHint")
+    val paintDataImportSelectAnotherFile: String = text("paintDataImportSelectAnotherFile")
+    val paintDataImportDropActive: String = text("paintDataImportDropActive")
+    val paintDataImportPreviewValidating: String = text("paintDataImportPreviewValidating")
+    val paintDataImportPreviewValid: String = text("paintDataImportPreviewValid")
+    val paintDataImportPreviewCounts: (Int, Int, Int, Int) -> String = { sessions, messages, drafts, images ->
+        text("paintDataImportPreviewCounts").format(sessions, messages, drafts, images)
+    }
+    val paintDataImportPreviewSource: (String) -> String = { source ->
+        text("paintDataImportPreviewSource").format(source)
+    }
+    val paintDataImportConfirmAction: String = text("paintDataImportConfirmAction")
+    val paintDataExporting: String = text("paintDataExporting")
+    val paintDataImporting: String = text("paintDataImporting")
+    val paintDataExportSuccess: (Int, Int, Int) -> String = { sessions, messages, images ->
+        text("paintDataExportSuccess").format(sessions, messages, images)
+    }
+    val paintDataImportSuccess: (Int, Int, Int) -> String = { sessions, messages, images ->
+        text("paintDataImportSuccess").format(sessions, messages, images)
+    }
+    val paintDataErrorFileAccess: String = text("paintDataErrorFileAccess")
+    val paintDataErrorInvalidArchive: String = text("paintDataErrorInvalidArchive")
+    val paintDataErrorUnsupportedVersion: String = text("paintDataErrorUnsupportedVersion")
+    val paintDataErrorArchiveTooLarge: String = text("paintDataErrorArchiveTooLarge")
+    val paintDataErrorUnsafeArchive: String = text("paintDataErrorUnsafeArchive")
+    val paintDataErrorMissingImage: String = text("paintDataErrorMissingImage")
+    val paintDataErrorCorruptedData: String = text("paintDataErrorCorruptedData")
+    val paintDataErrorStorageBusy: String = text("paintDataErrorStorageBusy")
+    val paintDataErrorStorageRecoveryRequired: String = text("paintDataErrorStorageRecoveryRequired")
+    val paintDataErrorUnknown: String = text("paintDataErrorUnknown")
+    val paintGenerationTasks: String = text("paintGenerationTasks")
+    val paintGenerationTaskCount: (Int) -> String = { count -> text("paintGenerationTaskCount").format(count) }
+    val paintTaskJump: String = text("paintTaskJump")
+    val paintTaskCancel: String = text("paintTaskCancel")
+    val paintTaskStartedAt: (String) -> String = { time -> text("paintTaskStartedAt").format(time) }
+    val paintTaskClearHistory: String = text("paintTaskClearHistory")
+    val paintGenerationSuccessNotification: String = text("paintGenerationSuccessNotification")
+    val paintGenerationSuccessNotificationDescription: String = text("paintGenerationSuccessNotificationDescription")
+    val paintGenerationSuccessTitle: String = text("paintGenerationSuccessTitle")
+    val paintGenerationSuccessMessage: (Int) -> String = { count ->
+        text("paintGenerationSuccessMessage").format(count)
+    }
+    val chooseFolder: String = text("chooseFolder")
+    val reset: String = text("reset")
+    val intervalSeconds: String = text("intervalSeconds")
+    val wallpaperSettings: String = text("wallpaperSettings")
+    val appearanceSettings: String = text("appearanceSettings")
+    val scaleMode: String = text("scaleMode")
+    val centerCrop: String = text("centerCrop")
+    val fitCenter: String = text("fitCenter")
+    val playMode: String = text("playMode")
+    val sequential: String = text("sequential")
+    val random: String = text("random")
+    val theme: String = text("theme")
+    val system: String = text("system")
+    val light: String = text("light")
+    val dark: String = text("dark")
+    val stardust: String = text("stardust")
+    val clear: String = text("clear")
+    val language: String = text("language")
+    val followSystem: String = text("followSystem")
+    val english: String = text("english")
+    val chinese: String = text("chinese")
+    val statusIdle: String = text("statusIdle")
+    val statusRunning: String = text("statusRunning")
+    val statusUnsupported: String = text("statusUnsupported")
+    val statusError: String = text("statusError")
+    val missingFile: String = text("missingFile")
+    val missingBadge: String = text("missingBadge")
+    val currentBadge: String = text("currentBadge")
+    val desktopBehavior: String = text("desktopBehavior")
+    val launchAtStartup: String = text("launchAtStartup")
+    val launchAtStartupDescription: String = text("launchAtStartupDescription")
+    val restoreSlideshowOnLaunch: String = text("restoreSlideshowOnLaunch")
+    val restoreSlideshowOnLaunchDescription: String = text("restoreSlideshowOnLaunchDescription")
+    val selectedCount: (Int) -> String = { count -> text("selectedCount").format(count) }
+    val multiSelectCount: (Int) -> String = { count -> text("multiSelectCount").format(count) }
+    val deleteSelectedTitle: String = text("deleteSelectedTitle")
+    val deleteSelectedMessage: (Int) -> String = { count -> text("deleteSelectedMessage").format(count) }
+    val currentWallpaper: (String) -> String = { name -> text("currentWallpaper").format(name) }
+    val intervalValue: (Int) -> String = { seconds -> text("intervalValue").format(seconds) }
+}
 
 val LocalDesktopStrings = compositionLocalOf { desktopStringsFor(null) }
 
@@ -283,258 +328,5 @@ private fun loadDesktopStrings(resourcePath: String): DesktopStrings {
     stream.use {
         properties.load(InputStreamReader(it, Charsets.UTF_8))
     }
-
-    fun text(key: String): String = checkNotNull(properties.getProperty(key)) {
-        "Missing desktop i18n key '$key' in $resourcePath"
-    }
-
-    return DesktopStrings(
-        appTitle = text("appTitle"),
-        appVersion = { text("appVersion").format(it) },
-        images = text("images"),
-        wallpapers = text("wallpapers"),
-        aiPaint = text("aiPaint"),
-        settings = text("settings"),
-        close = text("close"),
-        cancel = text("cancel"),
-        confirm = text("confirm"),
-        previous = text("previous"),
-        next = text("next"),
-        zoomIn = text("zoomIn"),
-        zoomOut = text("zoomOut"),
-        fitWindow = text("fitWindow"),
-        addImages = text("addImages"),
-        remove = text("remove"),
-        moveUp = text("moveUp"),
-        moveDown = text("moveDown"),
-        multiSelect = text("multiSelect"),
-        selectAll = text("selectAll"),
-        cancelSelectAll = text("cancelSelectAll"),
-        deleteSelected = text("deleteSelected"),
-        setCurrentWallpaper = text("setCurrentWallpaper"),
-        startSlideshow = text("startSlideshow"),
-        stopSlideshow = text("stopSlideshow"),
-        openWindow = text("openWindow"),
-        quit = text("quit"),
-        emptyTitle = text("emptyTitle"),
-        emptySubtitle = text("emptySubtitle"),
-        dropImagesHint = text("dropImagesHint"),
-        wallpaperLibrary = text("wallpaperLibrary"),
-        selected = text("selected"),
-        dragReorderHint = text("dragReorderHint"),
-        aiPaintTitle = text("aiPaintTitle"),
-        aiPaintSubtitle = text("aiPaintSubtitle"),
-        aiPaintComingSoon = text("aiPaintComingSoon"),
-        paintNewSession = text("paintNewSession"),
-        paintSessions = text("paintSessions"),
-        paintNoSessions = text("paintNoSessions"),
-        paintPromptHint = text("paintPromptHint"),
-        paintStorageMigrating = text("paintStorageMigrating"),
-        paintStorageLegacyFallback = text("paintStorageLegacyFallback"),
-        paintStorageRecoveryRequired = text("paintStorageRecoveryRequired"),
-        paintApiSettings = text("paintApiSettings"),
-        paintNoApi = text("paintNoApi"),
-        paintMissingApi = text("paintMissingApi"),
-        paintSelectModel = text("paintSelectModel"),
-        paintSelectRatio = text("paintSelectRatio"),
-        paintSelectResolution = text("paintSelectResolution"),
-        paintSend = text("paintSend"),
-        paintStop = text("paintStop"),
-        paintInputModeEnterSend = text("paintInputModeEnterSend"),
-        paintInputModeCtrlEnterSend = text("paintInputModeCtrlEnterSend"),
-        paintClear = text("paintClear"),
-        paintAddReferenceImage = text("paintAddReferenceImage"),
-        paintPinSession = text("paintPinSession"),
-        paintUnpinSession = text("paintUnpinSession"),
-        paintRenameSession = text("paintRenameSession"),
-        paintDeleteSession = text("paintDeleteSession"),
-        paintRenameSessionTitle = text("paintRenameSessionTitle"),
-        paintDeleteSessionTitle = text("paintDeleteSessionTitle"),
-        paintDeleteSessionMessage = text("paintDeleteSessionMessage"),
-        paintSessionNameLabel = text("paintSessionNameLabel"),
-        paintGenerating = text("paintGenerating"),
-        paintFailed = text("paintFailed"),
-        paintGenerationFailed = text("paintGenerationFailed"),
-        paintCancelled = text("paintCancelled"),
-        paintRegenerate = text("paintRegenerate"),
-        paintDeleteMessage = text("paintDeleteMessage"),
-        paintCopyMessage = text("paintCopyMessage"),
-        paintCopied = text("paintCopied"),
-        paintEditMessage = text("paintEditMessage"),
-        paintEditUndo = text("paintEditUndo"),
-        paintEditBrush = text("paintEditBrush"),
-        paintEditMosaic = text("paintEditMosaic"),
-        paintEditText = text("paintEditText"),
-        paintEditCrop = text("paintEditCrop"),
-        paintEditShapePen = text("paintEditShapePen"),
-        paintEditShapeRect = text("paintEditShapeRect"),
-        paintEditShapeOval = text("paintEditShapeOval"),
-        paintEditShapeArrow = text("paintEditShapeArrow"),
-        paintEditAddText = text("paintEditAddText"),
-        paintEditTextTitle = text("paintEditTextTitle"),
-        paintEditTextHint = text("paintEditTextHint"),
-        paintStatusDone = text("paintStatusDone"),
-        paintStatusPending = text("paintStatusPending"),
-        paintStatusTime = { status, duration -> text("paintStatusTime").format(status, duration) },
-        paintGeneratingTime = { duration -> text("paintGeneratingTime").format(duration) },
-        paintDeleteMessageTitle = text("paintDeleteMessageTitle"),
-        paintDeleteMessageConfirm = text("paintDeleteMessageConfirm"),
-        paintDeleteVersionHint = text("paintDeleteVersionHint"),
-        paintDeleteCurrentVersion = text("paintDeleteCurrentVersion"),
-        paintDeleteAllVersions = text("paintDeleteAllVersions"),
-        paintVersionLabel = { current, total -> text("paintVersionLabel").format(current, total) },
-        paintCopyPath = text("paintCopyPath"),
-        paintCopyImage = text("paintCopyImage"),
-        paintOpenImageLocation = text("paintOpenImageLocation"),
-        paintSaveAs = text("paintSaveAs"),
-        paintAddToWallpaper = text("paintAddToWallpaper"),
-        paintSetWallpaper = text("paintSetWallpaper"),
-        paintImagePreview = text("paintImagePreview"),
-        paintImageCompare = text("paintImageCompare"),
-        paintAddToCompare = text("paintAddToCompare"),
-        paintRemoveFromCompare = text("paintRemoveFromCompare"),
-        paintCompareSelectedCount = { count -> text("paintCompareSelectedCount").format(count) },
-        paintCompareNeedTwoImages = text("paintCompareNeedTwoImages"),
-        paintCompareHintHold = text("paintCompareHintHold"),
-        paintCompareShowingBottom = text("paintCompareShowingBottom"),
-        imagePreviewRotateLeft = text("imagePreviewRotateLeft"),
-        imagePreviewRotateRight = text("imagePreviewRotateRight"),
-        imagePreviewFlipHorizontal = text("imagePreviewFlipHorizontal"),
-        imagePreviewFlipVertical = text("imagePreviewFlipVertical"),
-        paintApiConfigList = text("paintApiConfigList"),
-        paintApiConfigDetail = text("paintApiConfigDetail"),
-        paintConfigName = text("paintConfigName"),
-        paintApiBaseUrl = text("paintApiBaseUrl"),
-        paintAccessToken = text("paintAccessToken"),
-        paintAuthMode = text("paintAuthMode"),
-        paintAuthBearer = text("paintAuthBearer"),
-        paintAuthOfficial = text("paintAuthOfficial"),
-        paintSave = text("paintSave"),
-        paintAddConfig = text("paintAddConfig"),
-        paintUpdate = text("paintUpdate"),
-        paintDeleteConfig = text("paintDeleteConfig"),
-        paintNoConfig = text("paintNoConfig"),
-        paintImportConfig = text("paintImportConfig"),
-        paintExportConfig = text("paintExportConfig"),
-        paintConfigImportExport = text("paintConfigImportExport"),
-        paintExportConfigWarning = text("paintExportConfigWarning"),
-        paintImportConfigSuccess = { count -> text("paintImportConfigSuccess").format(count) },
-        paintExportConfigSuccess = text("paintExportConfigSuccess"),
-        paintConfigFileError = text("paintConfigFileError"),
-        paintImportFileTooLarge = text("paintImportFileTooLarge"),
-        paintImportInvalidJson = text("paintImportInvalidJson"),
-        paintImportUnsupportedVersion = text("paintImportUnsupportedVersion"),
-        paintImportInvalidProfile = text("paintImportInvalidProfile"),
-        paintImportDuplicateProfile = text("paintImportDuplicateProfile"),
-        paintImportInvalidActiveProfile = text("paintImportInvalidActiveProfile"),
-        paintJsonFiles = text("paintJsonFiles"),
-        paintGptSizeAuto = text("paintGptSizeAuto"),
-        paintGptQualityAuto = text("paintGptQualityAuto"),
-        paintGptQualityLow = text("paintGptQualityLow"),
-        paintGptQualityMedium = text("paintGptQualityMedium"),
-        paintGptQualityHigh = text("paintGptQualityHigh"),
-        paintGptFormatPng = text("paintGptFormatPng"),
-        paintGptFormatJpeg = text("paintGptFormatJpeg"),
-        paintGptFormatWebp = text("paintGptFormatWebp"),
-        paintEmptyConversationTitle = text("paintEmptyConversationTitle"),
-        paintEmptyConversationSubtitle = text("paintEmptyConversationSubtitle"),
-        paintScrollToLatest = text("paintScrollToLatest"),
-        paintOriginDesktop = text("paintOriginDesktop"),
-        paintOriginAndroid = text("paintOriginAndroid"),
-        paintOriginIos = text("paintOriginIos"),
-        paintOriginUnknown = text("paintOriginUnknown"),
-        paintStorageSettings = text("paintStorageSettings"),
-        paintGeneratedImagesDirectory = text("paintGeneratedImagesDirectory"),
-        paintResponseCacheDirectory = text("paintResponseCacheDirectory"),
-        paintClipboardCacheDirectory = text("paintClipboardCacheDirectory"),
-        paintDirectorySize = { size -> text("paintDirectorySize").format(size) },
-        paintOpenDirectory = text("paintOpenDirectory"),
-        paintClearCache = text("paintClearCache"),
-        paintDataBackupSettings = text("paintDataBackupSettings"),
-        paintDataExport = text("paintDataExport"),
-        paintDataExportDescription = text("paintDataExportDescription"),
-        paintDataImport = text("paintDataImport"),
-        paintDataImportDescription = text("paintDataImportDescription"),
-        paintDataZipFiles = text("paintDataZipFiles"),
-        paintDataImportConfirmTitle = text("paintDataImportConfirmTitle"),
-        paintDataImportConfirmMessage = text("paintDataImportConfirmMessage"),
-        paintDataImportSelectFile = text("paintDataImportSelectFile"),
-        paintDataImportSelectFileHint = text("paintDataImportSelectFileHint"),
-        paintDataImportSelectAnotherFile = text("paintDataImportSelectAnotherFile"),
-        paintDataImportDropActive = text("paintDataImportDropActive"),
-        paintDataImportPreviewValidating = text("paintDataImportPreviewValidating"),
-        paintDataImportPreviewValid = text("paintDataImportPreviewValid"),
-        paintDataImportPreviewCounts = { sessions, messages, drafts, images ->
-            text("paintDataImportPreviewCounts").format(sessions, messages, drafts, images)
-        },
-        paintDataImportPreviewSource = { source -> text("paintDataImportPreviewSource").format(source) },
-        paintDataImportConfirmAction = text("paintDataImportConfirmAction"),
-        paintDataExporting = text("paintDataExporting"),
-        paintDataImporting = text("paintDataImporting"),
-        paintDataExportSuccess = { sessions, messages, images ->
-            text("paintDataExportSuccess").format(sessions, messages, images)
-        },
-        paintDataImportSuccess = { sessions, messages, images ->
-            text("paintDataImportSuccess").format(sessions, messages, images)
-        },
-        paintDataErrorFileAccess = text("paintDataErrorFileAccess"),
-        paintDataErrorInvalidArchive = text("paintDataErrorInvalidArchive"),
-        paintDataErrorUnsupportedVersion = text("paintDataErrorUnsupportedVersion"),
-        paintDataErrorArchiveTooLarge = text("paintDataErrorArchiveTooLarge"),
-        paintDataErrorUnsafeArchive = text("paintDataErrorUnsafeArchive"),
-        paintDataErrorMissingImage = text("paintDataErrorMissingImage"),
-        paintDataErrorCorruptedData = text("paintDataErrorCorruptedData"),
-        paintDataErrorStorageBusy = text("paintDataErrorStorageBusy"),
-        paintDataErrorStorageRecoveryRequired = text("paintDataErrorStorageRecoveryRequired"),
-        paintDataErrorUnknown = text("paintDataErrorUnknown"),
-        paintGenerationTasks = text("paintGenerationTasks"),
-        paintGenerationTaskCount = { count -> text("paintGenerationTaskCount").format(count) },
-        paintTaskJump = text("paintTaskJump"),
-        paintTaskCancel = text("paintTaskCancel"),
-        paintTaskStartedAt = { time -> text("paintTaskStartedAt").format(time) },
-        paintTaskClearHistory = text("paintTaskClearHistory"),
-        paintGenerationSuccessNotification = text("paintGenerationSuccessNotification"),
-        paintGenerationSuccessNotificationDescription = text("paintGenerationSuccessNotificationDescription"),
-        paintGenerationSuccessTitle = text("paintGenerationSuccessTitle"),
-        paintGenerationSuccessMessage = { count -> text("paintGenerationSuccessMessage").format(count) },
-        chooseFolder = text("chooseFolder"),
-        reset = text("reset"),
-        intervalSeconds = text("intervalSeconds"),
-        wallpaperSettings = text("wallpaperSettings"),
-        appearanceSettings = text("appearanceSettings"),
-        scaleMode = text("scaleMode"),
-        centerCrop = text("centerCrop"),
-        fitCenter = text("fitCenter"),
-        playMode = text("playMode"),
-        sequential = text("sequential"),
-        random = text("random"),
-        theme = text("theme"),
-        system = text("system"),
-        light = text("light"),
-        dark = text("dark"),
-        stardust = text("stardust"),
-        clear = text("clear"),
-        language = text("language"),
-        followSystem = text("followSystem"),
-        english = text("english"),
-        chinese = text("chinese"),
-        statusIdle = text("statusIdle"),
-        statusRunning = text("statusRunning"),
-        statusUnsupported = text("statusUnsupported"),
-        statusError = text("statusError"),
-        missingFile = text("missingFile"),
-        missingBadge = text("missingBadge"),
-        currentBadge = text("currentBadge"),
-        desktopBehavior = text("desktopBehavior"),
-        launchAtStartup = text("launchAtStartup"),
-        launchAtStartupDescription = text("launchAtStartupDescription"),
-        restoreSlideshowOnLaunch = text("restoreSlideshowOnLaunch"),
-        restoreSlideshowOnLaunchDescription = text("restoreSlideshowOnLaunchDescription"),
-        selectedCount = { count -> text("selectedCount").format(count) },
-        multiSelectCount = { count -> text("multiSelectCount").format(count) },
-        deleteSelectedTitle = text("deleteSelectedTitle"),
-        deleteSelectedMessage = { count -> text("deleteSelectedMessage").format(count) },
-        currentWallpaper = { name -> text("currentWallpaper").format(name) },
-        intervalValue = { seconds -> text("intervalValue").format(seconds) },
-    )
+    return DesktopStrings(properties, resourcePath)
 }

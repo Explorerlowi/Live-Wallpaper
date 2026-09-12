@@ -6,6 +6,22 @@
     <!-- 顶部栏 -->
     <string name="settings">设置</string>
     <string name="draw">AI绘画</string>
+    <string name="library_switch">切换壁纸库</string>
+    <string name="library_create">新建壁纸库</string>
+    <string name="library_rename">重命名壁纸库</string>
+    <string name="library_delete">删除壁纸库</string>
+    <string name="library_delete_title">删除壁纸库</string>
+    <string name="library_delete_message">确定删除壁纸库「%1$s」吗？只属于该库的图片会被移除。</string>
+    <string name="library_name_label">壁纸库名称</string>
+    <string name="library_name_hint">输入壁纸库名称</string>
+    <string name="library_add_to_other">加入其他库</string>
+    <string name="library_add_to_title">加入壁纸库</string>
+    <string name="library_no_other">还没有其他壁纸库</string>
+    <string name="library_image_count">%1$d 张</string>
+    <string name="library_cannot_delete_last">至少保留一个壁纸库</string>
+    <string name="library_back">返回壁纸库列表</string>
+    <string name="library_active">当前轮播库</string>
+    <string name="library_set_active">设为轮播库</string>
     
     <!-- 图片操作 -->
     <string name="add_image">添加图片</string>

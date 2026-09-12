@@ -55,6 +55,9 @@ compose.desktop {
             packageVersion = desktopAppVersion
             // SQLite JDBC depends on java.sql, which is not always inferred when jlink builds the runtime image.
             modules("java.sql")
+            // Compose and native libraries can load JDK modules that static analysis does not discover.
+            // Ship the full runtime so the packaged launcher can always create the JVM.
+            includeAllModules = true
 
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icons/app.ico"))

@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,14 +60,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -102,7 +109,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -129,6 +139,7 @@ import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCrop
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.WallpaperLibrarySummary
 import com.example.livewallpaper.ui.LanguageOption
 import org.koin.androidx.compose.koinViewModel
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
@@ -190,15 +201,40 @@ fun WallpaperHomeScreen(
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showReorderSheet by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
+    var libraryNameDialog by remember { mutableStateOf<LibraryNameDialogState?>(null) }
+    var deleteLibraryTarget by remember { mutableStateOf<WallpaperLibrarySummary?>(null) }
+    var showAddToLibraryDialog by remember { mutableStateOf(false) }
+
+    // 两层结构：外层为壁纸库列表，openedLibraryId 非空时进入库内图片浏览
+    var openedLibraryId by remember { mutableStateOf<String?>(null) }
+    val openedLibrary = state.libraries.firstOrNull { it.id == openedLibraryId }
+    val openedImages = openedLibraryId?.let { state.imagesOf(it) }.orEmpty()
     
     // 多选模式状态
     var isMultiSelectMode by remember { mutableStateOf(false) }
     var selectedUris by remember { mutableStateOf(setOf<String>()) }
+
+    // 库被删除后自动退回列表
+    LaunchedEffect(openedLibraryId, state.libraries) {
+        if (openedLibraryId != null && openedLibrary == null) {
+            openedLibraryId = null
+        }
+    }
+
+    LaunchedEffect(openedLibraryId) {
+        isMultiSelectMode = false
+        selectedUris = emptySet()
+    }
     
     // 多选模式下的返回键处理
     BackHandler(enabled = isMultiSelectMode) {
         isMultiSelectMode = false
         selectedUris = emptySet()
+    }
+
+    // 库内浏览时返回键退回库列表
+    BackHandler(enabled = !isMultiSelectMode && openedLibraryId != null) {
+        openedLibraryId = null
     }
     
     // 图库 ViewModel - 使用 remember 配合 DisposableEffect 管理生命周期
@@ -247,7 +283,12 @@ fun WallpaperHomeScreen(
                     uri.toString()
                 }
             }
-            viewModel.onEvent(SettingsEvent.AddImages(persistedUris))
+            val targetLibraryId = openedLibraryId
+            if (targetLibraryId != null) {
+                viewModel.onEvent(SettingsEvent.AddImagesToLibrary(targetLibraryId, persistedUris))
+            } else {
+                viewModel.onEvent(SettingsEvent.AddImages(persistedUris))
+            }
         }
     }
 
@@ -359,8 +400,10 @@ fun WallpaperHomeScreen(
                 TopBar(
                     isMultiSelectMode = isMultiSelectMode,
                     selectedCount = selectedUris.size,
-                    totalCount = state.config.imageUris.size,
-                    isReorderEnabled = state.config.imageUris.size > 1,
+                    totalCount = openedImages.size,
+                    isReorderEnabled = openedImages.size > 1,
+                    openedLibraryName = openedLibrary?.name,
+                    canAddToOtherLibrary = state.libraries.size > 1,
                     onSettingsClick = { showAppSettings = true },
                     onReorderClick = { showReorderSheet = true },
                     onDrawClick = {
@@ -369,12 +412,18 @@ fun WallpaperHomeScreen(
                         }
                         context.startActivity(intent)
                     },
+                    onBackToLibraries = { openedLibraryId = null },
+                    onRenameLibraryClick = {
+                        openedLibrary?.let { library ->
+                            libraryNameDialog = LibraryNameDialogState.Rename(library.id, library.name)
+                        }
+                    },
                     onExitMultiSelect = {
                         isMultiSelectMode = false
                         selectedUris = emptySet()
                     },
                     onSelectAll = {
-                        selectedUris = state.config.imageUris.toSet()
+                        selectedUris = openedImages.toSet()
                     },
                     onDeselectAll = {
                         selectedUris = emptySet()
@@ -382,29 +431,40 @@ fun WallpaperHomeScreen(
                     onDeleteSelected = {
                         showDeleteSelectedDialog = true
                     },
+                    onAddSelectedToLibrary = { showAddToLibraryDialog = true },
                     modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
                 )
 
-                // 图片瀑布流
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    if (state.config.imageUris.isEmpty()) {
-                        // 空状态
+                    if (openedLibraryId == null) {
+                        // 外层：壁纸库列表
+                        LibraryGrid(
+                            libraries = state.libraries,
+                            libraryImages = state.libraryImages,
+                            canDelete = state.canDeleteLibrary,
+                            onOpenLibrary = { openedLibraryId = it },
+                            onSetActive = { viewModel.onEvent(SettingsEvent.SwitchLibrary(it)) },
+                            onDelete = { library -> deleteLibraryTarget = library },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (openedImages.isEmpty()) {
+                        // 库内空状态
                         EmptyState(
                             modifier = Modifier.align(Alignment.Center)
                         )
                     } else {
-                        // 瀑布流图片墙
+                        // 库内瀑布流图片墙
                         StaggeredPhotoGrid(
-                            imageUris = state.config.imageUris,
-                            imageCropParams = state.config.imageCropParams,
+                            imageUris = openedImages,
+                            imageCropParams = state.allImageCropParams,
                             isMultiSelectMode = isMultiSelectMode,
                             selectedUris = selectedUris,
                             onImageClick = { index -> 
-                                val uri = state.config.imageUris[index]
+                                val uri = openedImages[index]
                                 if (isMultiSelectMode) {
                                     // 多选模式下切换选中状态
                                     selectedUris = if (selectedUris.contains(uri)) {
@@ -430,32 +490,43 @@ fun WallpaperHomeScreen(
                 }
             }
 
-            // 悬浮在底部的操作区域 (添加按钮 + 设置壁纸按钮)
-            // 使用 Box 组合，并放置在底部中间
+            // 悬浮在底部的操作区域：外层新建壁纸库，库内添加图片 / 设置壁纸
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 32.dp)
                     .windowInsetsPadding(WindowInsets.navigationBars)
             ) {
-                 if (state.config.imageUris.isNotEmpty()) {
-                     FloatingBottomBar(
-                         onAddClick = openImagePicker,
-                         onSetWallpaperClick = {
-                            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
-                            intent.putExtra(
-                                WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                                ComponentName(context, LiveWallpaperService::class.java)
-                            )
-                            context.startActivity(intent)
-                         }
-                     )
-                 } else {
-                     // 空状态下只显示添加按钮，大一点
-                     AddImageButton(
-                        onClick = openImagePicker,
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                     )
+                 when {
+                     openedLibraryId == null -> {
+                         AddImageButton(
+                            text = stringResource(R.string.library_create),
+                            onClick = { libraryNameDialog = LibraryNameDialogState.Create },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                         )
+                     }
+                     openedImages.isNotEmpty() -> {
+                         FloatingBottomBar(
+                             onAddClick = openImagePicker,
+                             onSetWallpaperClick = {
+                                // 以当前浏览的库作为轮播库，再打开系统动态壁纸设置
+                                openedLibraryId?.let { viewModel.onEvent(SettingsEvent.SwitchLibrary(it)) }
+                                val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+                                intent.putExtra(
+                                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                                    ComponentName(context, LiveWallpaperService::class.java)
+                                )
+                                context.startActivity(intent)
+                             }
+                         )
+                     }
+                     else -> {
+                         AddImageButton(
+                            text = stringResource(R.string.add_image),
+                            onClick = openImagePicker,
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                         )
+                     }
                  }
             }
         }
@@ -467,7 +538,12 @@ fun WallpaperHomeScreen(
                 onImagesSelected = { selectedUris ->
                     // 处理选中的图片
                     val uriStrings = selectedUris.map { it.toString() }
-                    viewModel.onEvent(SettingsEvent.AddImages(uriStrings))
+                    val targetLibraryId = openedLibraryId
+                    if (targetLibraryId != null) {
+                        viewModel.onEvent(SettingsEvent.AddImagesToLibrary(targetLibraryId, uriStrings))
+                    } else {
+                        viewModel.onEvent(SettingsEvent.AddImages(uriStrings))
+                    }
                     showGallery = false
                 },
                 onDismiss = {
@@ -478,9 +554,11 @@ fun WallpaperHomeScreen(
 
         if (showReorderSheet) {
             ReorderImagesSheet(
-                imageUris = state.config.imageUris,
+                imageUris = openedImages,
                 onConfirm = { newOrder ->
-                    viewModel.onEvent(SettingsEvent.UpdateImageOrder(newOrder))
+                    openedLibraryId?.let { libraryId ->
+                        viewModel.onEvent(SettingsEvent.UpdateLibraryImageOrder(libraryId, newOrder))
+                    }
                     showReorderSheet = false
                 },
                 onDismiss = { showReorderSheet = false }
@@ -542,7 +620,12 @@ fun WallpaperHomeScreen(
             title = stringResource(R.string.delete_confirm_title),
             message = stringResource(R.string.delete_confirm_message),
             onConfirm = {
-                viewModel.onEvent(SettingsEvent.RemoveImage(uri))
+                val libraryId = openedLibraryId
+                if (libraryId != null) {
+                    viewModel.onEvent(SettingsEvent.RemoveImagesFromLibrary(libraryId, listOf(uri)))
+                } else {
+                    viewModel.onEvent(SettingsEvent.RemoveImage(uri))
+                }
                 showDeleteDialog = null
             },
             onDismiss = { showDeleteDialog = null }
@@ -555,7 +638,12 @@ fun WallpaperHomeScreen(
             title = stringResource(R.string.delete_selected_title),
             message = stringResource(R.string.delete_selected_message, selectedUris.size),
             onConfirm = {
-                viewModel.onEvent(SettingsEvent.RemoveImages(selectedUris.toList()))
+                val libraryId = openedLibraryId
+                if (libraryId != null) {
+                    viewModel.onEvent(SettingsEvent.RemoveImagesFromLibrary(libraryId, selectedUris.toList()))
+                } else {
+                    viewModel.onEvent(SettingsEvent.RemoveImages(selectedUris.toList()))
+                }
                 showDeleteSelectedDialog = false
                 isMultiSelectMode = false
                 selectedUris = emptySet()
@@ -567,7 +655,7 @@ fun WallpaperHomeScreen(
     // 图片预览对话框（保留作为备用）
     showPreviewIndex?.let { index ->
         ImagePreviewDialog(
-            imagePaths = state.config.imageUris,
+            imagePaths = openedImages,
             initialIndex = index,
             onDismiss = { showPreviewIndex = null }
         )
@@ -575,7 +663,7 @@ fun WallpaperHomeScreen(
     
     // 图片裁剪调整界面
     showCropUri?.let { uri ->
-        val initialParams = state.config.imageCropParams[uri] ?: ImageCropParams()
+        val initialParams = state.allImageCropParams[uri] ?: ImageCropParams()
         ImageCropScreen(
             imageUri = uri,
             initialParams = initialParams,
@@ -613,6 +701,57 @@ fun WallpaperHomeScreen(
             onDismiss = { showPermissionDialog = false }
         )
     }
+
+    libraryNameDialog?.let { dialogState ->
+        LibraryNameDialog(
+            title = stringResource(
+                if (dialogState is LibraryNameDialogState.Rename) {
+                    R.string.library_rename
+                } else {
+                    R.string.library_create
+                }
+            ),
+            initialName = (dialogState as? LibraryNameDialogState.Rename)?.currentName.orEmpty(),
+            onConfirm = { name ->
+                when (dialogState) {
+                    LibraryNameDialogState.Create -> {
+                        viewModel.onEvent(SettingsEvent.CreateLibrary(name))
+                    }
+                    is LibraryNameDialogState.Rename -> {
+                        viewModel.onEvent(SettingsEvent.RenameLibrary(dialogState.libraryId, name))
+                    }
+                }
+                libraryNameDialog = null
+            },
+            onDismiss = { libraryNameDialog = null }
+        )
+    }
+
+    deleteLibraryTarget?.let { library ->
+        DeleteConfirmDialog(
+            title = stringResource(R.string.library_delete_title),
+            message = stringResource(R.string.library_delete_message, library.name),
+            confirmText = stringResource(R.string.library_delete),
+            onConfirm = {
+                viewModel.onEvent(SettingsEvent.DeleteLibrary(library.id))
+                deleteLibraryTarget = null
+            },
+            onDismiss = { deleteLibraryTarget = null }
+        )
+    }
+
+    if (showAddToLibraryDialog) {
+        AddToLibraryDialog(
+            libraries = state.libraries.filter { it.id != openedLibraryId },
+            onSelect = { libraryId ->
+                viewModel.onEvent(SettingsEvent.AddImagesToLibrary(libraryId, selectedUris.toList()))
+                showAddToLibraryDialog = false
+                isMultiSelectMode = false
+                selectedUris = emptySet()
+            },
+            onDismiss = { showAddToLibraryDialog = false }
+        )
+    }
 }
 
 /**
@@ -624,19 +763,26 @@ private fun TopBar(
     selectedCount: Int,
     totalCount: Int,
     isReorderEnabled: Boolean,
+    openedLibraryName: String?,
+    canAddToOtherLibrary: Boolean,
     onSettingsClick: () -> Unit,
     onReorderClick: () -> Unit,
     onDrawClick: () -> Unit,
+    onBackToLibraries: () -> Unit,
+    onRenameLibraryClick: () -> Unit,
     onExitMultiSelect: () -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
     onDeleteSelected: () -> Unit,
+    onAddSelectedToLibrary: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 固定高度，保证普通 / 库内 / 多选三种模式切换时下方内容不发生位移
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .height(TOP_BAR_CONTENT_HEIGHT),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isMultiSelectMode) {
@@ -682,6 +828,16 @@ private fun TopBar(
             }
             
             IconButton(
+                onClick = onAddSelectedToLibrary,
+                enabled = selectedCount > 0 && canAddToOtherLibrary
+            ) {
+                Icon(
+                    imageVector = AppIcons.collections,
+                    contentDescription = stringResource(R.string.library_add_to_other)
+                )
+            }
+
+            IconButton(
                 onClick = onDeleteSelected,
                 enabled = selectedCount > 0,
                 colors = IconButtonDefaults.iconButtonColors(
@@ -693,9 +849,8 @@ private fun TopBar(
                     contentDescription = stringResource(R.string.delete_selected)
                 )
             }
-        } else {
-            // 普通模式顶部栏 - 极简风格
-            // 左侧：App 标题
+        } else if (openedLibraryName == null) {
+            // 外层：App 标题 + 绘画 / 设置
             Text(
                 text = stringResource(R.string.app_title),
                 fontSize = 28.sp,
@@ -704,31 +859,53 @@ private fun TopBar(
                 modifier = Modifier.weight(1f)
             )
 
-            // 右侧：功能按钮组
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 绘图
                 SmallIconBtn(
                     icon = AppIcons.brush,
                     contentDescription = stringResource(R.string.draw),
                     onClick = onDrawClick
                 )
-
-                // 排序
-                if (isReorderEnabled) {
-                    SmallIconBtn(
-                        icon = AppIcons.reorder,
-                        contentDescription = stringResource(R.string.reorder),
-                        onClick = onReorderClick
-                    )
-                }
-
-                // 设置
                 SmallIconBtn(
                     icon = AppIcons.settings,
                     contentDescription = stringResource(R.string.settings),
                     onClick = onSettingsClick
+                )
+            }
+        } else {
+            // 库内：返回 + 库名（点击重命名）+ 排序
+            SmallIconBtn(
+                icon = AppIcons.arrowBack,
+                contentDescription = stringResource(R.string.library_back),
+                onClick = onBackToLibraries
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Text(
+                text = openedLibraryName,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        onClick = onRenameLibraryClick,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    )
+                    .padding(vertical = 4.dp)
+            )
+
+            if (isReorderEnabled) {
+                SmallIconBtn(
+                    icon = AppIcons.reorder,
+                    contentDescription = stringResource(R.string.reorder),
+                    onClick = onReorderClick
                 )
             }
         }
@@ -760,6 +937,9 @@ private fun SmallIconBtn(
         )
     }
 }
+
+/** 顶部栏内容区固定高度（与 IconButton 默认尺寸一致） */
+private val TOP_BAR_CONTENT_HEIGHT = 48.dp
 
 /** 瀑布流滑动时向后预取的图片数量 */
 private const val PHOTO_PREFETCH_AHEAD_COUNT = 6
@@ -1285,10 +1465,13 @@ private fun FloatingBottomBar(
 }
 
 /**
- * 添加图片大按钮 (空状态用)
+ * 底部大按钮：外层用于新建壁纸库，库内空状态用于添加图片
+ * @param text 按钮文案
+ * @param onClick 点击回调
  */
 @Composable
 private fun AddImageButton(
+    text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1302,10 +1485,210 @@ private fun AddImageButton(
         Icon(AppIcons.add, contentDescription = null)
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = stringResource(R.string.add_image),
+            text = text,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
+    }
+}
+
+/**
+ * 壁纸库列表（外层）
+ * @param libraries 库摘要
+ * @param libraryImages 各库图片，用于取封面
+ * @param canDelete 是否允许删除（至少保留一个库）
+ * @param onOpenLibrary 进入库
+ * @param onSetActive 设为当前轮播库
+ * @param onDelete 删除库
+ */
+@Composable
+private fun LibraryGrid(
+    libraries: List<WallpaperLibrarySummary>,
+    libraryImages: Map<String, List<String>>,
+    canDelete: Boolean,
+    onOpenLibrary: (String) -> Unit,
+    onSetActive: (String) -> Unit,
+    onDelete: (WallpaperLibrarySummary) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyVerticalStaggeredGrid(
+        columns = StaggeredGridCells.Fixed(2),
+        modifier = modifier,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 140.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalItemSpacing = 12.dp
+    ) {
+        items(items = libraries, key = { it.id }) { library ->
+            LibraryCard(
+                library = library,
+                coverUri = libraryImages[library.id]?.firstOrNull(),
+                canDelete = canDelete,
+                onClick = { onOpenLibrary(library.id) },
+                onSetActive = { onSetActive(library.id) },
+                onDelete = { onDelete(library) }
+            )
+        }
+    }
+}
+
+/**
+ * 单个壁纸库卡片：封面 + 名称 + 数量 + 当前轮播标记
+ */
+@Composable
+private fun LibraryCard(
+    library: WallpaperLibrarySummary,
+    coverUri: String?,
+    canDelete: Boolean,
+    onClick: () -> Unit,
+    onSetActive: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    var showMenu by remember { mutableStateOf(false) }
+    // 记录长按位置，让菜单从手指处弹出而不是卡片左上角
+    var menuOffset by remember { mutableStateOf(DpOffset.Zero) }
+    val borderColor = MaterialTheme.colorScheme.primary
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.8f)
+            .pointerInput(library.id) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { offset ->
+                        menuOffset = with(density) { DpOffset(offset.x.toDp(), offset.y.toDp()) }
+                        showMenu = true
+                    }
+                )
+            },
+        shape = RoundedCornerShape(16.dp),
+        border = if (library.isActive) androidx.compose.foundation.BorderStroke(3.dp, borderColor) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (coverUri != null) {
+                Image(
+                    painter = rememberAsyncImagePainter(
+                        remember(coverUri) { buildPhotoThumbnailRequest(context, coverUri) }
+                    ),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = AppIcons.collections,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(48.dp)
+                )
+            }
+
+            // 底部渐变 + 名称 / 数量
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                        )
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = library.name,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.library_image_count, library.imageCount),
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 12.sp
+                )
+            }
+
+            if (library.isActive) {
+                Icon(
+                    imageVector = AppIcons.playCircle,
+                    contentDescription = stringResource(R.string.library_active),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(24.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+
+            Box(modifier = Modifier.align(Alignment.TopStart)) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    offset = menuOffset,
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Text(
+                        text = library.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .widthIn(max = 200.dp)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.library_set_active)) },
+                        enabled = !library.isActive,
+                        onClick = {
+                            showMenu = false
+                            onSetActive()
+                        },
+                        leadingIcon = {
+                            Icon(imageVector = AppIcons.playCircle, contentDescription = null)
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp)
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.library_delete),
+                                color = if (canDelete) MaterialTheme.colorScheme.error else Color.Unspecified
+                            )
+                        },
+                        enabled = canDelete,
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = AppIcons.delete,
+                                contentDescription = null,
+                                tint = if (canDelete) MaterialTheme.colorScheme.error else LocalContentColor.current
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1348,10 +1731,16 @@ private fun EmptyState(
     }
 }
 
+private sealed interface LibraryNameDialogState {
+    data object Create : LibraryNameDialogState
+    data class Rename(val libraryId: String, val currentName: String) : LibraryNameDialogState
+}
+
 /**
  * 删除确认对话框
  * @param title 对话框标题
  * @param message 对话框消息
+ * @param confirmText 确认按钮文案
  * @param onConfirm 确认回调
  * @param onDismiss 取消回调
  */
@@ -1359,6 +1748,7 @@ private fun EmptyState(
 private fun DeleteConfirmDialog(
     title: String,
     message: String,
+    confirmText: String = stringResource(R.string.delete_image),
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1376,12 +1766,93 @@ private fun DeleteConfirmDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = stringResource(R.string.delete_image),
+                    text = confirmText,
                     color = MaterialTheme.colorScheme.error
                 )
             }
         },
         dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.cancel))
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun LibraryNameDialog(
+    title: String,
+    initialName: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = title, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(stringResource(R.string.library_name_label)) },
+                placeholder = { Text(stringResource(R.string.library_name_hint)) },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank()
+            ) {
+                Text(text = stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.cancel))
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun AddToLibraryDialog(
+    libraries: List<WallpaperLibrarySummary>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.library_add_to_title),
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (libraries.isEmpty()) {
+                Text(text = stringResource(R.string.library_no_other))
+            } else {
+                Column {
+                    libraries.forEach { library ->
+                        Text(
+                            text = "${library.name} · ${stringResource(R.string.library_image_count, library.imageCount)}",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(library.id) }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(text = stringResource(R.string.cancel))
             }
