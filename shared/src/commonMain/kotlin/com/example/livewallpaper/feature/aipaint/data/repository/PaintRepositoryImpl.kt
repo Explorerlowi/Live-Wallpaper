@@ -202,7 +202,10 @@ class PaintRepositoryImpl(
             is AppResult.Success -> {
                 try {
                     val files = imageResponseProcessor.processResponse(
-                        responseResult.data, sessionId, messageId
+                        response = responseResult.data,
+                        sessionId = sessionId,
+                        messageId = messageId,
+                        fileNamePrefix = buildGeminiImageFileNamePrefix(model, aspectRatio, resolution)
                     )
                     if (files.isNotEmpty()) {
                         AppResult.Success(files)
@@ -219,6 +222,7 @@ class PaintRepositoryImpl(
     
     override suspend fun generateGptImage(
         profile: ApiProfile,
+        model: PaintModel,
         prompt: String,
         images: List<ImageRequestPayload>,
         size: GptImageSize,
@@ -231,6 +235,7 @@ class PaintRepositoryImpl(
         val responseResult = if (images.isNotEmpty()) {
             gptApiService.editImage(
                 profile = profile,
+                model = model,
                 prompt = prompt,
                 images = images,
                 size = size,
@@ -240,6 +245,7 @@ class PaintRepositoryImpl(
         } else {
             gptApiService.generateImage(
                 profile = profile,
+                model = model,
                 prompt = prompt,
                 size = size,
                 quality = quality,
@@ -250,7 +256,11 @@ class PaintRepositoryImpl(
             is AppResult.Success -> {
                 try {
                     val files = gptImageResponseProcessor.processResponse(
-                        responseResult.data, sessionId, messageId, outputFormat
+                        response = responseResult.data,
+                        sessionId = sessionId,
+                        messageId = messageId,
+                        outputFormat = outputFormat,
+                        fileNamePrefix = buildGptImageFileNamePrefix(model, size, quality, outputFormat)
                     )
                     if (files.isNotEmpty()) {
                         AppResult.Success(files)
@@ -266,6 +276,31 @@ class PaintRepositoryImpl(
     }
     
     // ========== 私有方法 ==========
+
+    /** Builds a readable, filesystem-safe prefix for a Gemini-generated image file. */
+    private fun buildGeminiImageFileNamePrefix(
+        model: PaintModel,
+        aspectRatio: AspectRatio,
+        resolution: Resolution
+    ): String = listOf(
+        model.endpoint,
+        "ratio-${aspectRatio.value.replace(':', 'x')}",
+        "resolution-${resolution.value.lowercase()}",
+        "format-png"
+    ).joinToString("_")
+
+    /** Builds a readable, filesystem-safe prefix for a GPT-generated image file. */
+    private fun buildGptImageFileNamePrefix(
+        model: PaintModel,
+        size: GptImageSize,
+        quality: GptImageQuality,
+        outputFormat: GptOutputFormat
+    ): String = listOf(
+        model.endpoint,
+        "size-${size.value}",
+        "quality-${quality.value}",
+        "format-${outputFormat.value}"
+    ).joinToString("_")
     
     private fun parseProfiles(jsonString: String): List<ApiProfile> {
         if (jsonString.isBlank()) return emptyList()

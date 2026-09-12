@@ -17,11 +17,13 @@ class DesktopImageResponseProcessor : ImageResponseProcessor {
     override suspend fun processResponse(
         response: HttpResponse,
         sessionId: String,
-        messageId: String
+        messageId: String,
+        fileNamePrefix: String
     ): List<GeneratedImageFile> = processImageResponse(
         response = response,
         sessionId = sessionId,
         messageId = messageId,
+        fileNamePrefix = fileNamePrefix,
         tempPrefix = "gemini_resp_",
         extension = "png",
         markers = listOf("\"data\":\"", "\"data\": \"")
@@ -33,7 +35,8 @@ class DesktopGptImageResponseProcessor : GptImageResponseProcessor {
         response: HttpResponse,
         sessionId: String,
         messageId: String,
-        outputFormat: GptOutputFormat
+        outputFormat: GptOutputFormat,
+        fileNamePrefix: String
     ): List<GeneratedImageFile> {
         val extension = when (outputFormat) {
             GptOutputFormat.JPEG -> "jpg"
@@ -44,6 +47,7 @@ class DesktopGptImageResponseProcessor : GptImageResponseProcessor {
             response = response,
             sessionId = sessionId,
             messageId = messageId,
+            fileNamePrefix = fileNamePrefix,
             tempPrefix = "gpt_resp_",
             extension = extension,
             markers = listOf("\"b64_json\":\"", "\"b64_json\": \"")
@@ -55,6 +59,7 @@ private suspend fun processImageResponse(
     response: HttpResponse,
     sessionId: String,
     messageId: String,
+    fileNamePrefix: String,
     tempPrefix: String,
     extension: String,
     markers: List<String>
@@ -63,7 +68,7 @@ private suspend fun processImageResponse(
     val tempFile = File.createTempFile(tempPrefix, ".tmp", desktopAiPaintCacheRoot())
     try {
         streamResponseToFile(response, tempFile)
-        extractAndSaveImages(tempFile, outputDir, messageId, extension, markers)
+        extractAndSaveImages(tempFile, outputDir, messageId, fileNamePrefix, extension, markers)
     } finally {
         tempFile.delete()
     }
@@ -93,6 +98,7 @@ private fun extractAndSaveImages(
     responseFile: File,
     outputDir: File,
     messageId: String,
+    fileNamePrefix: String,
     extension: String,
     markers: List<String>
 ): List<GeneratedImageFile> {
@@ -127,9 +133,9 @@ private fun extractAndSaveImages(
                         if (markerBytes.any { marker -> tailEquals(markerBuffer, markerLength, marker) }) {
                             state = STATE_IN_DATA
                             val fileName = if (imageIndex == 0) {
-                                "$messageId.$extension"
+                                "${fileNamePrefix}_${messageId}.$extension"
                             } else {
-                                "${messageId}_$imageIndex.$extension"
+                                "${fileNamePrefix}_${messageId}_$imageIndex.$extension"
                             }
                             currentFile = File(outputDir, fileName)
                             fileOut = currentFile.outputStream().buffered(BUFFER_SIZE)

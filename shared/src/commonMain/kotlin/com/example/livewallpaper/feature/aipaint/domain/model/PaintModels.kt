@@ -219,12 +219,20 @@ enum class PaintModel(val displayName: String, val endpoint: String, val maxImag
     GEMINI_3_PRO("nano banana pro", "gemini-3-pro-image-preview", 14),
     GEMINI_3_1_FLASH("nano banana 2", "gemini-3.1-flash-image-preview", 14),
     GEMINI_3_1_FLASH_LITE("nano banana 2 lite", "gemini-3.1-flash-lite-image", 14),
-    GPT_IMAGE_2("gpt image 2", "gpt-image-2", 16);
+    GPT_IMAGE_2("gpt image 2", "gpt-image-2", 16),
+    GPT_IMAGE_2_5_SUNBURST("gpt image 2.5 sunburst", "gpt-image-2.5-sunburst", 16),
+    GPT_IMAGE_2_5_SUNBURST_C("gpt image 2.5 sunburst c", "gpt-image-2.5-sunburst-c", 16),
+    GPT_IMAGE_2_5_FLARE("gpt image 2.5 flare", "gpt-image-2.5-flare", 16),
+    GPT_IMAGE_2_5_FLARE_C("gpt image 2.5 flare c", "gpt-image-2.5-flare-c", 16);
 
     /** 模型提供商 */
     val provider: ModelProvider
         get() = when (this) {
-            GPT_IMAGE_2 -> ModelProvider.GPT
+            GPT_IMAGE_2,
+            GPT_IMAGE_2_5_SUNBURST,
+            GPT_IMAGE_2_5_SUNBURST_C,
+            GPT_IMAGE_2_5_FLARE,
+            GPT_IMAGE_2_5_FLARE_C -> ModelProvider.GPT
             else -> ModelProvider.GEMINI
         }
 
@@ -305,7 +313,11 @@ enum class AspectRatio(
                 RATIO_16_9,
                 RATIO_21_9
             )
-            PaintModel.GPT_IMAGE_2 -> listOf(RATIO_1_1, RATIO_3_2, RATIO_2_3)
+            PaintModel.GPT_IMAGE_2,
+            PaintModel.GPT_IMAGE_2_5_SUNBURST,
+            PaintModel.GPT_IMAGE_2_5_SUNBURST_C,
+            PaintModel.GPT_IMAGE_2_5_FLARE,
+            PaintModel.GPT_IMAGE_2_5_FLARE -> listOf(RATIO_1_1, RATIO_3_2, RATIO_2_3)
             else -> entries.filter { !it.isExtreme && !it.isFlashLiteOnly }
         }
 

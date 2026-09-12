@@ -67,6 +67,7 @@ interface PaintRepository {
      */
     suspend fun generateGptImage(
         profile: ApiProfile,
+        model: PaintModel,
         prompt: String,
         images: List<ImageRequestPayload>,
         size: GptImageSize,

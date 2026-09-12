@@ -39,6 +39,7 @@ class GptApiService(
      */
     suspend fun generateImage(
         profile: ApiProfile,
+        model: PaintModel,
         prompt: String,
         size: GptImageSize,
         quality: GptImageQuality,
@@ -46,7 +47,7 @@ class GptApiService(
     ): AppResult<HttpResponse> {
         return try {
             val endpoint = "${profile.baseUrl}/v1/images/generations"
-            val requestBody = buildGenerateRequest(prompt, size, quality, outputFormat)
+            val requestBody = buildGenerateRequest(model, prompt, size, quality, outputFormat)
 
             val response = httpClient.post(endpoint) {
                 header("Authorization", "Bearer ${profile.token}")
@@ -75,6 +76,7 @@ class GptApiService(
      */
     suspend fun editImage(
         profile: ApiProfile,
+        model: PaintModel,
         prompt: String,
         images: List<ImageRequestPayload>,
         size: GptImageSize,
@@ -87,7 +89,7 @@ class GptApiService(
             val response = httpClient.post(endpoint) {
                 header("Authorization", "Bearer ${profile.token}")
                 setBody(MultiPartFormDataContent(formData {
-                    append("model", "gpt-image-2")
+                    append("model", model.endpoint)
                     append("prompt", prompt)
                     append("size", size.value)
                     append("quality", quality.value)
@@ -128,13 +130,14 @@ class GptApiService(
      * 构建图片生成请求体
      */
     private fun buildGenerateRequest(
+        model: PaintModel,
         prompt: String,
         size: GptImageSize,
         quality: GptImageQuality,
         outputFormat: GptOutputFormat
     ): JsonObject {
         return buildJsonObject {
-            put("model", "gpt-image-2")
+            put("model", model.endpoint)
             put("prompt", prompt)
             put("n", 1)
             put("size", size.value)

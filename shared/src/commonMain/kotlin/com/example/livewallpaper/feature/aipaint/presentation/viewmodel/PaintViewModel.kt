@@ -346,6 +346,7 @@ class PaintViewModel(
                     val result = if (state.selectedModel.isGpt) {
                         repository.generateGptImage(
                             profile = state.activeProfile,
+                            model = state.selectedModel,
                             prompt = prompt,
                             images = requestImages,
                             size = state.selectedGptSize,

@@ -18,12 +18,14 @@ interface ImageResponseProcessor {
      *
      * @param response   HTTP 响应（body 仅消费一次）
      * @param sessionId  会话 ID，用于确定输出目录
-     * @param messageId  消息 ID，用于生成文件名
+     * @param messageId  消息 ID，用于保证文件名唯一
+     * @param fileNamePrefix 包含模型与生成参数的文件名前缀
      * @return 保存成功的图片文件信息列表；若未提取到任何图片则返回空列表
      */
     suspend fun processResponse(
         response: HttpResponse,
         sessionId: String,
-        messageId: String
+        messageId: String,
+        fileNamePrefix: String
     ): List<GeneratedImageFile>
 }

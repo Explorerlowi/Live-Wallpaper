@@ -43,7 +43,8 @@ class AndroidGptImageResponseProcessor(
         response: HttpResponse,
         sessionId: String,
         messageId: String,
-        outputFormat: GptOutputFormat
+        outputFormat: GptOutputFormat,
+        fileNamePrefix: String
     ): List<GeneratedImageFile> = withContext(Dispatchers.IO) {
         val outputDir = File(context.filesDir, "aipaint/$sessionId").apply { mkdirs() }
         val tempFile = File.createTempFile("gpt_resp_", ".tmp", context.cacheDir)
@@ -55,7 +56,7 @@ class AndroidGptImageResponseProcessor(
 
         try {
             streamResponseToFile(response, tempFile)
-            extractAndSaveImages(tempFile, outputDir, messageId, extension)
+            extractAndSaveImages(tempFile, outputDir, messageId, fileNamePrefix, extension)
         } finally {
             tempFile.delete()
         }
@@ -87,6 +88,7 @@ class AndroidGptImageResponseProcessor(
         responseFile: File,
         outputDir: File,
         messageId: String,
+        fileNamePrefix: String,
         extension: String
     ): List<GeneratedImageFile> {
         val results = mutableListOf<GeneratedImageFile>()
@@ -122,8 +124,8 @@ class AndroidGptImageResponseProcessor(
                             for (marker in MARKERS) {
                                 if (markerBufLen >= marker.size && tailEquals(markerBuf, markerBufLen, marker)) {
                                     state = STATE_IN_DATA
-                                    val fn = if (imageIndex == 0) "$messageId.$extension"
-                                             else "${messageId}_$imageIndex.$extension"
+                                    val fn = if (imageIndex == 0) "${fileNamePrefix}_${messageId}.$extension"
+                                             else "${fileNamePrefix}_${messageId}_$imageIndex.$extension"
                                     val file = File(outputDir, fn)
                                     currentFile = file
                                     fileOut = file.outputStream().buffered(BUFFER_SIZE)

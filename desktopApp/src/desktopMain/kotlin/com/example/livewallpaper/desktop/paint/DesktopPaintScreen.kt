@@ -71,6 +71,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -136,6 +137,11 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.core.design.icon.AppIcons
+import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
+import com.example.livewallpaper.core.design.util.conversationListHasTargetMessage
+import com.example.livewallpaper.core.design.util.conversationListIsReadyToScroll
+import com.example.livewallpaper.core.design.util.isAtListEnd
+import com.example.livewallpaper.core.design.util.scrollToListEnd
 import com.example.livewallpaper.desktop.DesktopFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
@@ -157,16 +163,22 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageState
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
+import com.example.livewallpaper.feature.aipaint.domain.model.conversationPreviewImagePaths
+import com.example.livewallpaper.feature.aipaint.domain.model.visibleWithActiveVersions
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.awt.Desktop
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -226,6 +238,9 @@ private const val DESKTOP_PREVIEW_MAX_SCALE = 5f
 
 private const val DESKTOP_PREVIEW_DOUBLE_TAP_SCALE = 2.5f
 
+/** 与 Android 一致：最新消息在 index 0，配合 reverseLayout 贴在视觉底部。 */
+private const val CONVERSATION_REVERSE_LAYOUT = true
+
 @Composable
 fun AiPaintWorkspace(
     viewModel: DesktopPaintViewModel,
@@ -242,6 +257,12 @@ fun AiPaintWorkspace(
     val strings = LocalDesktopStrings.current
     val currentSessionId = uiState.currentSession?.id
     val listState = remember(currentSessionId) { LazyListState() }
+    val latestListState by rememberUpdatedState(listState)
+    val displayedMessages = remember(uiState.messages, uiState.activeVersions) {
+        uiState.messages.visibleWithActiveVersions(uiState.activeVersions).asReversed()
+    }
+    val latestDisplayedMessages by rememberUpdatedState(displayedMessages)
+    val suppressScrollUpdates = remember { MutableStateFlow(false) }
     var showApiSettings by remember { mutableStateOf(false) }
     var optionDialog by remember { mutableStateOf<PaintOptionDialog?>(null) }
     var previewState by remember { mutableStateOf<DesktopImagePreviewState?>(null) }
@@ -252,6 +273,7 @@ fun AiPaintWorkspace(
     var comparePreviewRequestId by remember { mutableStateOf(0) }
     var lastRenderedSessionId by remember { mutableStateOf<String?>(null) }
     var lastAutoScrollKey by remember { mutableStateOf<String?>(null) }
+    var lastFollowedMessageId by remember { mutableStateOf<String?>(null) }
     var showCopyFeedback by remember { mutableStateOf(false) }
     var copyFeedbackSerial by remember { mutableStateOf(0) }
     var pendingJumpMessageId by remember { mutableStateOf<String?>(null) }
@@ -302,15 +324,37 @@ fun AiPaintWorkspace(
         }
     }
 
-    LaunchedEffect(listState) {
-        viewModel.scrollToBottomEvent.collect { shouldAnimate ->
-            delay(50)
-            if (listState.layoutInfo.totalItemsCount > 0) {
-                if (shouldAnimate) {
-                    listState.animateScrollToItem(0)
-                } else {
-                    listState.scrollToItem(0)
-                }
+    LaunchedEffect(Unit) {
+        viewModel.scrollToBottomEvent.collectLatest { request ->
+            suppressScrollUpdates.value = true
+            try {
+                awaitReadyAndScrollToListEnd(
+                    listState = { latestListState },
+                    reverseLayout = CONVERSATION_REVERSE_LAYOUT,
+                    animate = request.animate,
+                    forceAnchor = request.messageId != null,
+                    isReady = {
+                        val messages = latestDisplayedMessages
+                        conversationListIsReadyToScroll(
+                            displayedCount = messages.size,
+                            laidOutCount = latestListState.layoutInfo.totalItemsCount,
+                            hasTargetMessage = conversationListHasTargetMessage(
+                                displayedMessageIds = messages.map { it.id },
+                                targetMessageId = request.messageId,
+                            ),
+                        )
+                    },
+                )
+                val state = latestListState
+                viewModel.onEvent(
+                    PaintEvent.UpdateScrollState(state.isAtListEnd(reverseLayout = CONVERSATION_REVERSE_LAYOUT)),
+                )
+                suppressScrollUpdates.value = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                suppressScrollUpdates.value = false
+                throw t
             }
         }
     }
@@ -399,9 +443,7 @@ fun AiPaintWorkspace(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                val messages = remember(uiState.messages, uiState.activeVersions) {
-                    uiState.messages.visibleWithActiveVersions(uiState.activeVersions)
-                }
+                val messages = displayedMessages
                 LaunchedEffect(currentSessionId, uiState.messages, uiState.activeVersions, pendingJumpMessageId) {
                     val messageId = pendingJumpMessageId ?: return@LaunchedEffect
                     val targetMessage = uiState.messages.firstOrNull { it.id == messageId } ?: return@LaunchedEffect
@@ -451,13 +493,24 @@ fun AiPaintWorkspace(
                     ).joinToString(":")
                     snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= messages.size }
                     if (pendingJumpMessageId != null) return@LaunchedEffect
-                    if (lastRenderedSessionId != sessionId) {
-                        listState.scrollToItem(0)
-                    } else if (lastAutoScrollKey != autoScrollKey) {
-                        listState.animateScrollToItem(0)
-                    }
+                    val sessionChanged = lastRenderedSessionId != sessionId
+                    val sameMessageUpdated = lastFollowedMessageId == message.id &&
+                        lastAutoScrollKey != autoScrollKey
                     lastRenderedSessionId = sessionId
+                    lastFollowedMessageId = message.id
                     lastAutoScrollKey = autoScrollKey
+                    if (suppressScrollUpdates.value) return@LaunchedEffect
+                    if (sessionChanged) {
+                        listState.scrollToListEnd(
+                            reverseLayout = CONVERSATION_REVERSE_LAYOUT,
+                            animate = false,
+                        )
+                    } else if (sameMessageUpdated && uiState.isAtBottom) {
+                        listState.scrollToListEnd(
+                            reverseLayout = CONVERSATION_REVERSE_LAYOUT,
+                            animate = true,
+                        )
+                    }
                 }
                 if (messages.isEmpty()) {
                     Column(
@@ -477,18 +530,16 @@ fun AiPaintWorkspace(
                         )
                     }
                 } else {
-                    val conversationPreviewPaths = remember(messages) {
-                        messages.asReversed().flatMap { message ->
-                            message.images.mapNotNull { image ->
-                                image.localPath
-                            }
-                        }
+                    val conversationPreviewPaths = remember(uiState.messages) {
+                        uiState.messages.conversationPreviewImagePaths()
                     }
                     LaunchedEffect(listState) {
                         snapshotFlow {
-                            listState.firstVisibleItemIndex <= 1
+                            listState.isAtListEnd(reverseLayout = CONVERSATION_REVERSE_LAYOUT)
                         }.collect { isAtBottom ->
-                            viewModel.onEvent(PaintEvent.UpdateScrollState(isAtBottom))
+                            if (!suppressScrollUpdates.value) {
+                                viewModel.onEvent(PaintEvent.UpdateScrollState(isAtBottom))
+                            }
                         }
                     }
                     LazyColumn(
@@ -500,7 +551,7 @@ fun AiPaintWorkspace(
                             .fillMaxHeight(),
                         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 22.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.Bottom),
-                        reverseLayout = true,
+                        reverseLayout = CONVERSATION_REVERSE_LAYOUT,
                     ) {
                         items(messages, key = { it.id }) { message ->
                             PaintMessageRow(
@@ -4716,23 +4767,6 @@ private sealed interface ImageLoadState {
     data object Loading : ImageLoadState
     data object Error : ImageLoadState
     data class Success(val bitmap: ImageBitmap) : ImageLoadState
-}
-
-private fun List<PaintMessage>.visibleWithActiveVersions(activeVersions: Map<String, Int>): List<PaintMessage> {
-    val userMessageTimes = filter { it.senderIdentity == SenderIdentity.USER }.associate { it.id to it.createdAt }
-    val versionGroups = filter { it.versionGroup != null }.groupBy { it.versionGroup!! }
-    return filter { message ->
-        val group = message.versionGroup ?: return@filter true
-        val versions = versionGroups[group].orEmpty().sortedBy { it.versionIndex }
-        val activePosition = (activeVersions[group] ?: versions.lastIndex).coerceIn(0, versions.lastIndex)
-        versions.getOrNull(activePosition)?.id == message.id
-    }.sortedBy { message ->
-        if (message.senderIdentity == SenderIdentity.ASSISTANT && message.parentUserMessageId != null) {
-            userMessageTimes[message.parentUserMessageId] ?: message.createdAt
-        } else {
-            message.createdAt
-        }
-    }.asReversed()
 }
 
 private fun selectedImageFromPath(path: String): SelectedImage {

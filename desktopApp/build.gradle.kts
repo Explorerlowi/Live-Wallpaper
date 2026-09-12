@@ -53,6 +53,8 @@ compose.desktop {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
             packageName = "Live Wallpaper"
             packageVersion = desktopAppVersion
+            // SQLite JDBC depends on java.sql, which is not always inferred when jlink builds the runtime image.
+            modules("java.sql")
 
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icons/app.ico"))

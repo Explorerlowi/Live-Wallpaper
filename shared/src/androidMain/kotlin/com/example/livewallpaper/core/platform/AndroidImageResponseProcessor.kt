@@ -31,14 +31,15 @@ class AndroidImageResponseProcessor(
     override suspend fun processResponse(
         response: HttpResponse,
         sessionId: String,
-        messageId: String
+        messageId: String,
+        fileNamePrefix: String
     ): List<GeneratedImageFile> = withContext(Dispatchers.IO) {
         val outputDir = File(context.filesDir, "aipaint/$sessionId").apply { mkdirs() }
         val tempFile = File.createTempFile("gemini_resp_", ".tmp", context.cacheDir)
 
         try {
             streamResponseToFile(response, tempFile)
-            extractAndSaveImages(tempFile, outputDir, messageId)
+            extractAndSaveImages(tempFile, outputDir, messageId, fileNamePrefix)
         } finally {
             tempFile.delete()
         }
@@ -73,7 +74,8 @@ class AndroidImageResponseProcessor(
     private fun extractAndSaveImages(
         responseFile: File,
         outputDir: File,
-        messageId: String
+        messageId: String,
+        fileNamePrefix: String
     ): List<GeneratedImageFile> {
         val results = mutableListOf<GeneratedImageFile>()
         var imageIndex = 0
@@ -109,8 +111,8 @@ class AndroidImageResponseProcessor(
                             for (marker in MARKERS) {
                                 if (markerBufLen >= marker.size && tailEquals(markerBuf, markerBufLen, marker)) {
                                     state = STATE_IN_DATA
-                                    val fn = if (imageIndex == 0) "$messageId.png"
-                                             else "${messageId}_$imageIndex.png"
+                                    val fn = if (imageIndex == 0) "${fileNamePrefix}_${messageId}.png"
+                                             else "${fileNamePrefix}_${messageId}_$imageIndex.png"
                                     val file = File(outputDir, fn)
                                     currentFile = file
                                     fileOut = file.outputStream().buffered(BUFFER_SIZE)

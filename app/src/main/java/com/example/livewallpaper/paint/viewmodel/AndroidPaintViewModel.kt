@@ -12,12 +12,14 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageS
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
+import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToLatestRequest
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import com.example.livewallpaper.paint.service.ImageGenerationService
 import com.example.livewallpaper.paint.service.GenerationTaskManager
 import com.example.livewallpaper.paint.service.GenerationResult
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -92,8 +94,11 @@ class AndroidPaintViewModel(
         }
     }
 
-    private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
-    val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
+    private val _scrollToBottomEvent = MutableSharedFlow<ScrollToLatestRequest>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val scrollToBottomEvent: SharedFlow<ScrollToLatestRequest> = _scrollToBottomEvent.asSharedFlow()
 
     private val _toastEvent = MutableSharedFlow<PaintToastMessage>()
     val toastEvent: SharedFlow<PaintToastMessage> = _toastEvent.asSharedFlow()
@@ -635,13 +640,16 @@ class AndroidPaintViewModel(
                     messages = nextMessages,
                     promptText = "",
                     selectedImages = emptyList(),
-                    newMessageCount = 0
+                    newMessageCount = 0,
+                    isAtBottom = true
                 )
             }
             
             markGenerating(assistantMessage.id, session.id, startTime)
             
-            _scrollToBottomEvent.emit(true) // 发送新消息时使用动画
+            _scrollToBottomEvent.emit(
+                ScrollToLatestRequest(animate = true, messageId = userMessage.id)
+            )
             repository.addMessage(userMessage)
             
             // 延迟后添加 AI 消息，提升体验
@@ -652,7 +660,9 @@ class AndroidPaintViewModel(
                 current.copy(messages = nextMessages)
             }
             
-            _scrollToBottomEvent.emit(true) // 发送新消息时使用动画
+            _scrollToBottomEvent.emit(
+                ScrollToLatestRequest(animate = true, messageId = assistantMessage.id)
+            )
             repository.addMessage(assistantMessage)
             
             // 保存当前生成的会话ID和消息ID，用于后续更新
@@ -670,6 +680,7 @@ class AndroidPaintViewModel(
                     val result = if (state.selectedModel.isGpt) {
                         repository.generateGptImage(
                             profile = profile,
+                            model = state.selectedModel,
                             prompt = prompt,
                             images = userImagesForApi,
                             size = state.selectedGptSize,
@@ -1183,7 +1194,7 @@ class AndroidPaintViewModel(
 
     private fun scrollToBottom() {
         viewModelScope.launch {
-            _scrollToBottomEvent.emit(false) // 用户点击按钮时瞬间到达
+            _scrollToBottomEvent.emit(ScrollToLatestRequest(animate = false))
             _uiState.update { it.copy(newMessageCount = 0, isAtBottom = true) }
         }
     }
@@ -1322,6 +1333,7 @@ class AndroidPaintViewModel(
                     val result = if (currentModel.isGpt) {
                         repository.generateGptImage(
                             profile = profile,
+                            model = currentModel,
                             prompt = userMessage.messageContent,
                             images = userImagesForApi,
                             size = currentGptSize,

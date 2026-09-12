@@ -56,6 +56,10 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.livewallpaper.core.design.icon.AppIcons
+import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
+import com.example.livewallpaper.core.design.util.conversationListHasTargetMessage
+import com.example.livewallpaper.core.design.util.conversationListIsReadyToScroll
+import com.example.livewallpaper.core.design.util.isAtListEnd
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.*
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
@@ -74,7 +78,9 @@ import com.example.livewallpaper.ui.components.ImageComparePreviewDialog
 import com.example.livewallpaper.ui.components.ImagePreviewConfig
 import com.example.livewallpaper.ui.components.ImagePreviewDialog
 import com.example.livewallpaper.ui.components.ImageSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -86,6 +92,7 @@ private enum class Screen {
     Conversation,
     SessionStats
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,7 +118,17 @@ fun PaintScreen(
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val currentSessionId = uiState.currentSession?.id
+    val listState = remember(currentSessionId) { LazyListState() }
+    val latestListState by rememberUpdatedState(listState)
+    val displayedMessages = remember(uiState.messages, uiState.activeVersions) {
+        uiState.messages.visibleWithActiveVersions(uiState.activeVersions).asReversed()
+    }
+    val conversationPreviewImages = remember(uiState.messages) {
+        uiState.messages.conversationPreviewImagePaths().map(ImageSource::StringSource)
+    }
+    val latestDisplayedMessages by rememberUpdatedState(displayedMessages)
+    val suppressScrollUpdates = remember { MutableStateFlow(false) }
     val focusManager = LocalFocusManager.current
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Conversation) }
     
@@ -371,19 +388,36 @@ fun PaintScreen(
         }
     }
 
-    // 监听滚动到底部事件（reverseLayout=true 时，index 0 是底部）
+    // reverseLayout=true：index 0 是视觉底部。等目标消息完成布局后再滚，避免抢跑到旧的最后一项。
     LaunchedEffect(Unit) {
-        viewModel.scrollToBottomEvent.collectLatest { shouldAnimate ->
-            // 等待 Compose 完成重组和布局
-            delay(50)
-            if (listState.layoutInfo.totalItemsCount > 0) {
-                if (shouldAnimate) {
-                    // 发送新消息时使用动画
-                    listState.animateScrollToItem(0)
-                } else {
-                    // 点击按钮时瞬间到达
-                    listState.scrollToItem(0)
-                }
+        viewModel.scrollToBottomEvent.collectLatest { request ->
+            suppressScrollUpdates.value = true
+            try {
+                awaitReadyAndScrollToListEnd(
+                    listState = { latestListState },
+                    reverseLayout = true,
+                    animate = request.animate,
+                    forceAnchor = request.messageId != null,
+                    isReady = {
+                        val messages = latestDisplayedMessages
+                        conversationListIsReadyToScroll(
+                            displayedCount = messages.size,
+                            laidOutCount = latestListState.layoutInfo.totalItemsCount,
+                            hasTargetMessage = conversationListHasTargetMessage(
+                                displayedMessageIds = messages.map { it.id },
+                                targetMessageId = request.messageId,
+                            ),
+                        )
+                    },
+                )
+                val state = latestListState
+                viewModel.onEvent(PaintEvent.UpdateScrollState(state.isAtListEnd(reverseLayout = true)))
+                suppressScrollUpdates.value = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                suppressScrollUpdates.value = false
+                throw t
             }
         }
     }
@@ -409,12 +443,14 @@ fun PaintScreen(
         }
     }
 
-    // 监听滚动状态（reverseLayout=true 时，firstVisibleItemIndex 接近 0 表示在底部）
+    // reverseLayout=true：只有真正贴在最新消息底部时才视为 isAtBottom。
     LaunchedEffect(listState) {
-        snapshotFlow { 
-            listState.firstVisibleItemIndex <= 1
+        snapshotFlow {
+            listState.isAtListEnd(reverseLayout = true)
         }.collect { isAtBottom ->
-            viewModel.onEvent(PaintEvent.UpdateScrollState(isAtBottom))
+            if (!suppressScrollUpdates.value) {
+                viewModel.onEvent(PaintEvent.UpdateScrollState(isAtBottom))
+            }
         }
     }
 
@@ -581,44 +617,6 @@ fun PaintScreen(
                     // 空状态
                     EmptyState()
                 } else {
-                    // 预先过滤消息列表：只保留应该显示的消息
-                    // 对于版本组，使用关联的用户消息的 createdAt 来保持位置稳定
-                    val filteredMessages = remember(uiState.messages, uiState.activeVersions) {
-                        // 构建用户消息 ID -> createdAt 的映射
-                        val userMessageTimes = uiState.messages
-                            .filter { it.senderIdentity == SenderIdentity.USER }
-                            .associate { it.id to it.createdAt }
-                        
-                        uiState.messages.filter { message ->
-                            if (message.senderIdentity == SenderIdentity.USER) {
-                                true
-                            } else {
-                                val versionGroup = message.versionGroup
-                                if (versionGroup == null) {
-                                    true // 旧消息没有版本组，始终显示
-                                } else {
-                                    // 获取该版本组的所有消息，按 versionIndex 排序
-                                    val versionsInGroup = uiState.messages
-                                        .filter { it.versionGroup == versionGroup }
-                                        .sortedBy { it.versionIndex }
-                                    // activeVersions 存储的是列表位置
-                                    val activePosition = uiState.activeVersions[versionGroup] 
-                                        ?: (versionsInGroup.size - 1)
-                                    val safePosition = activePosition.coerceIn(0, (versionsInGroup.size - 1).coerceAtLeast(0))
-                                    // 检查当前消息是否是应该显示的那个
-                                    versionsInGroup.getOrNull(safePosition)?.id == message.id
-                                }
-                            }
-                        }.sortedBy { msg ->
-                            // 对于 AI 消息，使用关联的用户消息时间排序，保持位置稳定
-                            if (msg.senderIdentity == SenderIdentity.ASSISTANT && msg.parentUserMessageId != null) {
-                                userMessageTimes[msg.parentUserMessageId] ?: msg.createdAt
-                            } else {
-                                msg.createdAt
-                            }
-                        }.asReversed()
-                    }
-                    
                     // 用于清除文本选中状态的 key，递增时强制 SelectionContainer 重组
                     var selectionVersion by remember { mutableIntStateOf(0) }
                     
@@ -638,13 +636,14 @@ fun PaintScreen(
                         reverseLayout = true
                     ) {
                         items(
-                            items = filteredMessages,
+                            items = displayedMessages,
                             key = { it.id },
                             contentType = { it.messageType }
                         ) { message ->
                             MessageItem(
                                 message = message,
                                 allMessages = uiState.messages,
+                                conversationPreviewImages = conversationPreviewImages,
                                 activeVersions = uiState.activeVersions,
                                 selectedAspectRatio = uiState.selectedAspectRatio,
                                 selectionVersion = selectionVersion,
@@ -1228,6 +1227,7 @@ private fun GenerationParamsBadge(
 private fun MessageItem(
     message: PaintMessage,
     allMessages: List<PaintMessage> = emptyList(),
+    conversationPreviewImages: List<ImageSource> = emptyList(),
     activeVersions: Map<String, Int> = emptyMap(),
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     selectionVersion: Int = 0,
@@ -1400,7 +1400,16 @@ private fun MessageItem(
                                 path = path,
                                 width = image.width,
                                 height = image.height,
-                                onClick = { onImageClick(imageSources, index) },
+                                onClick = {
+                                    val previewIndex = conversationPreviewImages.indexOfFirst { source ->
+                                        source is ImageSource.StringSource && source.path == path
+                                    }
+                                    if (previewIndex >= 0) {
+                                        onImageClick(conversationPreviewImages, previewIndex)
+                                    } else {
+                                        onImageClick(imageSources, index)
+                                    }
+                                },
                                 onLongClick = {
                                     if (imageSource != null) onImageLongClick(imageSource)
                                 },

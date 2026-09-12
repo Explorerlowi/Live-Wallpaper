@@ -31,12 +31,14 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenc
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
+import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToLatestRequest
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,8 +84,11 @@ class DesktopPaintViewModel(
     private val _uiState = MutableStateFlow(PaintUiState())
     val uiState: StateFlow<PaintUiState> = _uiState.asStateFlow()
 
-    private val _scrollToBottomEvent = MutableSharedFlow<Boolean>()
-    val scrollToBottomEvent: SharedFlow<Boolean> = _scrollToBottomEvent.asSharedFlow()
+    private val _scrollToBottomEvent = MutableSharedFlow<ScrollToLatestRequest>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val scrollToBottomEvent: SharedFlow<ScrollToLatestRequest> = _scrollToBottomEvent.asSharedFlow()
 
     private val _generationSuccessEvent = MutableSharedFlow<DesktopPaintGenerationSuccess>()
     val generationSuccessEvent: SharedFlow<DesktopPaintGenerationSuccess> = _generationSuccessEvent.asSharedFlow()
@@ -437,12 +442,32 @@ class DesktopPaintViewModel(
             }
             clearDraft(session.id)
             _uiState.update {
-                it.copy(promptText = "", selectedImages = emptyList(), error = null)
+                val nextMessages = (it.messages + userMessage)
+                    .distinctBy { message -> message.id }
+                    .sortedBy { message -> message.createdAt }
+                it.copy(
+                    messages = nextMessages,
+                    promptText = "",
+                    selectedImages = emptyList(),
+                    error = null,
+                    newMessageCount = 0,
+                    isAtBottom = true,
+                )
             }
-            _scrollToBottomEvent.emit(true)
+            _scrollToBottomEvent.emit(
+                ScrollToLatestRequest(animate = true, messageId = userMessage.id)
+            )
             delay(650)
             repository.addMessage(assistantMessage)
-            _scrollToBottomEvent.emit(true)
+            _uiState.update {
+                val nextMessages = (it.messages + assistantMessage)
+                    .distinctBy { message -> message.id }
+                    .sortedBy { message -> message.createdAt }
+                it.copy(messages = nextMessages)
+            }
+            _scrollToBottomEvent.emit(
+                ScrollToLatestRequest(animate = true, messageId = assistantMessage.id)
+            )
             launchGeneration(profile, assistantMessage, prompt, userImagesForApi)
         }
     }
@@ -477,6 +502,7 @@ class DesktopPaintViewModel(
                 val result = if (assistantMessage.generationModel?.isGpt == true) {
                     repository.generateGptImage(
                         profile = profile,
+                        model = assistantMessage.generationModel ?: PaintModel.GPT_IMAGE_2,
                         prompt = prompt,
                         images = images,
                         size = assistantMessage.generationGptSize ?: GptImageSize.AUTO,
@@ -846,7 +872,7 @@ class DesktopPaintViewModel(
 
     private fun scrollToBottom() {
         viewModelScope.launch {
-            _scrollToBottomEvent.emit(false)
+            _scrollToBottomEvent.emit(ScrollToLatestRequest(animate = false))
             _uiState.update { it.copy(newMessageCount = 0, isAtBottom = true) }
         }
     }
