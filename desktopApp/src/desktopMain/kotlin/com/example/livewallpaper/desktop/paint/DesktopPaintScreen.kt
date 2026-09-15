@@ -3,13 +3,18 @@
 package com.example.livewallpaper.desktop.paint
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -104,6 +109,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -135,6 +141,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
@@ -145,6 +152,7 @@ import com.example.livewallpaper.core.design.util.scrollToListEnd
 import com.example.livewallpaper.desktop.DesktopFilePicker
 import com.example.livewallpaper.desktop.DesktopStrings
 import com.example.livewallpaper.desktop.LocalDesktopStrings
+import com.example.livewallpaper.desktop.desktopThemedScrollbarStyle
 import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfile
 import com.example.livewallpaper.feature.aipaint.domain.model.ApiProfileImportError
@@ -264,6 +272,7 @@ fun AiPaintWorkspace(
     val latestDisplayedMessages by rememberUpdatedState(displayedMessages)
     val suppressScrollUpdates = remember { MutableStateFlow(false) }
     var showApiSettings by remember { mutableStateOf(false) }
+    var showSessionStats by remember { mutableStateOf(false) }
     var optionDialog by remember { mutableStateOf<PaintOptionDialog?>(null) }
     var previewState by remember { mutableStateOf<DesktopImagePreviewState?>(null) }
     var previewRequestId by remember { mutableStateOf(0) }
@@ -432,6 +441,7 @@ fun AiPaintWorkspace(
                 uiState = uiState,
                 isSidebarCollapsed = isSidebarCollapsed,
                 onToggleSidebar = onToggleSidebar,
+                onTitleClick = { showSessionStats = true },
                 onEvent = viewModel::onEvent,
                 onJumpToTask = { task ->
                     pendingJumpMessageId = task.messageId
@@ -583,6 +593,16 @@ fun AiPaintWorkspace(
                             )
                         }
                     }
+                    // 消息列表右侧滚动条，颜色跟随当前主题；列表为 reverseLayout，滚动条需同步反向
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(listState),
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .padding(vertical = 10.dp, horizontal = 3.dp),
+                        reverseLayout = CONVERSATION_REVERSE_LAYOUT,
+                        style = desktopThemedScrollbarStyle(),
+                    )
                     Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = !uiState.isAtBottom,
@@ -630,6 +650,23 @@ fun AiPaintWorkspace(
                     }
                 }
             }
+        }
+        // 会话统计以全屏覆盖层形式盖在会话区上方，从右侧滑入，与 Android 端保持一致
+        AnimatedVisibility(
+            visible = showSessionStats,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(300),
+            ) + fadeIn(animationSpec = tween(300)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(300),
+            ) + fadeOut(animationSpec = tween(300)),
+        ) {
+            DesktopPaintSessionStatsScreen(
+                uiState = uiState,
+                onBack = { showSessionStats = false },
+            )
         }
         if (storageWaiting) {
             Surface(
@@ -1036,6 +1073,7 @@ private fun PaintTopBar(
     uiState: PaintUiState,
     isSidebarCollapsed: Boolean,
     onToggleSidebar: () -> Unit,
+    onTitleClick: () -> Unit,
     onEvent: (PaintEvent) -> Unit,
     onJumpToTask: (PaintGenerationTaskUiState) -> Unit,
 ) {
@@ -1061,17 +1099,32 @@ private fun PaintTopBar(
                 )
             }
         }
-        Box(
+        // 标题可点击打开会话统计，与 Android 端点击顶栏标题的交互保持一致
+        Surface(
+            onClick = onTitleClick,
             modifier = Modifier.align(Alignment.Center).widthIn(max = 520.dp),
-            contentAlignment = Alignment.Center,
+            shape = RoundedCornerShape(10.dp),
+            color = Color.Transparent,
         ) {
-            Text(
-                text = uiState.currentSession?.title ?: strings.aiPaintTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = uiState.currentSession?.title ?: strings.aiPaintTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = AppIcons.analytics,
+                    contentDescription = strings.paintStatsOpenHint,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (uiState.generationTasks.isNotEmpty()) {
             Box(modifier = Modifier.align(Alignment.CenterEnd)) {
@@ -2229,7 +2282,10 @@ private fun PaintInputBar(
                             .onPreviewKeyEvent { event ->
                                 when {
                                     event.type == KeyEventType.KeyDown && event.key == Key.Enter -> {
-                                        val shouldSend = if (enterKeySends) !event.isCtrlPressed else event.isCtrlPressed
+                                        // Shift+Enter 在两种模式下始终换行；Enter 模式下 Ctrl+Enter 也换行，
+                                        // Ctrl+Enter 模式下只有不带 Shift 的 Ctrl+Enter 才发送
+                                        val shouldSend = !event.isShiftPressed &&
+                                            if (enterKeySends) !event.isCtrlPressed else event.isCtrlPressed
                                         if (shouldSend) {
                                             submitPromptShortcut()
                                             true
@@ -3112,7 +3168,9 @@ private fun PaintImagePreviewDialog(
     val initialWindowSize = remember(paths, initialIndex) {
         previewWindowSizeForPath(paths.getOrNull(initialIndex.coerceIn(0, paths.lastIndex)))
     }
+    // 预览窗口居中显示，避免 Windows 默认把新窗口放在屏幕左上角
     val previewWindowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
         width = initialWindowSize.first.dp,
         height = initialWindowSize.second.dp,
     )
@@ -3423,7 +3481,11 @@ private fun DesktopImageEditorWindow(
     }
 
     val windowSize = remember(path) { previewWindowSizeForPath(path) }
-    val editorWindowState = rememberWindowState(width = windowSize.first.dp, height = windowSize.second.dp)
+    val editorWindowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
+        width = windowSize.first.dp,
+        height = windowSize.second.dp,
+    )
 
     Window(
         onCloseRequest = onDismiss,
@@ -4422,7 +4484,11 @@ private fun PaintImageCompareDialog(
         }
     }
 
-    val compareWindowState = rememberWindowState(width = 1120.dp, height = 780.dp)
+    val compareWindowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
+        width = 1120.dp,
+        height = 780.dp,
+    )
 
     Window(
         onCloseRequest = onDismiss,

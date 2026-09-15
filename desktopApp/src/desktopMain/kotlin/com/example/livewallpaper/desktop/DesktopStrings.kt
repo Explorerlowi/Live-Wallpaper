@@ -292,6 +292,55 @@ class DesktopStrings internal constructor(
     val deleteSelectedMessage: (Int) -> String = { count -> text("deleteSelectedMessage").format(count) }
     val currentWallpaper: (String) -> String = { name -> text("currentWallpaper").format(name) }
     val intervalValue: (Int) -> String = { seconds -> text("intervalValue").format(seconds) }
+    val paintStatsTitle: String = text("paintStatsTitle")
+    val paintStatsSubtitle: String = text("paintStatsSubtitle")
+    val paintStatsOpenHint: String = text("paintStatsOpenHint")
+    val paintStatsBack: String = text("paintStatsBack")
+    val paintStatsTotalPrompts: String = text("paintStatsTotalPrompts")
+    val paintStatsTotalAttempts: String = text("paintStatsTotalAttempts")
+    val paintStatsTotalOutputs: String = text("paintStatsTotalOutputs")
+    val paintStatsRetryCount: String = text("paintStatsRetryCount")
+    val paintStatsSessionConfig: String = text("paintStatsSessionConfig")
+    val paintStatsModel: String = text("paintStatsModel")
+    val paintStatsRatio: String = text("paintStatsRatio")
+    val paintStatsResolution: String = text("paintStatsResolution")
+    val paintStatsCreatedAt: String = text("paintStatsCreatedAt")
+    val paintStatsUpdatedAt: String = text("paintStatsUpdatedAt")
+    val paintStatsAvgDuration: String = text("paintStatsAvgDuration")
+    val paintStatsAvgOutput: String = text("paintStatsAvgOutput")
+    val paintStatsAvgPromptChars: String = text("paintStatsAvgPromptChars")
+    val paintStatsExecutionBreakdown: String = text("paintStatsExecutionBreakdown")
+    val paintStatsSuccessRate: String = text("paintStatsSuccessRate")
+    val paintStatsSuccessCount: String = text("paintStatsSuccessCount")
+    val paintStatsFailedCount: String = text("paintStatsFailedCount")
+    val paintStatsPendingCount: String = text("paintStatsPendingCount")
+    val paintStatsReferenceTotal: String = text("paintStatsReferenceTotal")
+    val paintStatsVisibleThreads: String = text("paintStatsVisibleThreads")
+    val paintStatsDraftTitle: String = text("paintStatsDraftTitle")
+    val paintStatsDraftPromptChars: String = text("paintStatsDraftPromptChars")
+    val paintStatsDraftImages: String = text("paintStatsDraftImages")
+    val paintStatsDraftImageUsage: (Int, Int) -> String = { used, limit ->
+        text("paintStatsDraftImageUsage").format(used, limit)
+    }
+    val paintStatsDraftEmpty: String = text("paintStatsDraftEmpty")
+    val paintStatsDraftLimit: String = text("paintStatsDraftLimit")
+    val paintStatsDraftTextReady: String = text("paintStatsDraftTextReady")
+    val paintStatsDraftReady: String = text("paintStatsDraftReady")
+    val paintStatsRecentPrompts: String = text("paintStatsRecentPrompts")
+    val paintStatsNoPrompts: String = text("paintStatsNoPrompts")
+    val paintStatsPromptReferenceCount: (Int) -> String = { count ->
+        text("paintStatsPromptReferenceCount").format(count)
+    }
+    val paintStatsLastGeneratedInline: (String) -> String = { time ->
+        text("paintStatsLastGeneratedInline").format(time)
+    }
+    val paintStatsGeneratingCount: (Int) -> String = { count -> text("paintStatsGeneratingCount").format(count) }
+    val paintStatsAuto: String = text("paintStatsAuto")
+    val paintStatsPlaceholder: String = text("paintStatsPlaceholder")
+    val paintTimeFormatSeconds: (Int) -> String = { seconds -> text("paintTimeFormatSeconds").format(seconds) }
+    val paintTimeFormatMinutes: (Int, Int) -> String = { minutes, seconds ->
+        text("paintTimeFormatMinutes").format(minutes, seconds)
+    }
 }
 
 val LocalDesktopStrings = compositionLocalOf { desktopStringsFor(null) }

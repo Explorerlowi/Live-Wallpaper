@@ -21,6 +21,20 @@ internal class DesktopRuntimeSettings {
         preferences.putBoolean(KEY_AI_PAINT_SIDEBAR_COLLAPSED, collapsed)
     }
 
+    /**
+     * 读取用户拖动后保存的侧边栏宽度（dp），越界值会被收敛到允许范围内。
+     */
+    fun sidebarWidthDp(): Float =
+        preferences.getFloat(KEY_SIDEBAR_WIDTH_DP, DEFAULT_SIDEBAR_WIDTH_DP)
+            .coerceIn(MIN_SIDEBAR_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP)
+
+    /**
+     * 保存侧边栏宽度（dp），写入前同样收敛到允许范围内。
+     */
+    fun setSidebarWidthDp(widthDp: Float) {
+        preferences.putFloat(KEY_SIDEBAR_WIDTH_DP, widthDp.coerceIn(MIN_SIDEBAR_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP))
+    }
+
     fun applyLaunchAtStartup(enabled: Boolean): Boolean {
         if (!isWindows) return false
         return runCatching {
@@ -60,10 +74,20 @@ internal class DesktopRuntimeSettings {
 
     private fun String.quoted(): String = "\"$this\""
 
-    private companion object {
+    companion object {
+        /** 侧边栏默认宽度（dp）。 */
+        const val DEFAULT_SIDEBAR_WIDTH_DP = 220f
+
+        /** 侧边栏可拖动的最小宽度（dp），保证导航项与状态文案仍可完整显示。 */
+        const val MIN_SIDEBAR_WIDTH_DP = 180f
+
+        /** 侧边栏可拖动的最大宽度（dp），避免过度挤压右侧工作区。 */
+        const val MAX_SIDEBAR_WIDTH_DP = 400f
+
         private const val PREFERENCES_NODE = "com.example.livewallpaper.desktop"
         private const val KEY_SLIDESHOW_RUNNING = "slideshow_running"
         private const val KEY_AI_PAINT_SIDEBAR_COLLAPSED = "aipaint_sidebar_collapsed"
+        private const val KEY_SIDEBAR_WIDTH_DP = "sidebar_width_dp"
         private const val RUN_REGISTRY_PATH = "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
         private const val RUN_VALUE_NAME = "Live Wallpaper"
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -80,9 +81,12 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -535,6 +539,7 @@ private fun DesktopShell(
     val paintUiState by paintViewModel.uiState.collectAsState()
     var selectedSection by remember { mutableStateOf(DesktopSection.WALLPAPERS) }
     var sidebarCollapsed by remember { mutableStateOf(runtimeSettings.isAiPaintSidebarCollapsed()) }
+    var sidebarWidth by remember { mutableStateOf(runtimeSettings.sidebarWidthDp().dp) }
     var showSettings by remember { mutableStateOf(false) }
     // 两层结构：openedLibraryId 为空时显示壁纸库列表，非空时显示库内图片；跨分区切换时保留
     var openedLibraryId by remember { mutableStateOf<String?>(null) }
@@ -564,24 +569,26 @@ private fun DesktopShell(
         )
     }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        if (!sidebarCollapsed) {
-            DesktopSidebar(
-                selectedSection = selectedSection,
-                status = status,
-                paintUiState = paintUiState,
-                onPaintEvent = paintViewModel::onEvent,
-                onSectionSelected = { selectedSection = it },
-                onOpenSettings = { showSettings = true },
-            )
-        }
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (!sidebarCollapsed) {
+                DesktopSidebar(
+                    width = sidebarWidth,
+                    selectedSection = selectedSection,
+                    status = status,
+                    paintUiState = paintUiState,
+                    onPaintEvent = paintViewModel::onEvent,
+                    onSectionSelected = { selectedSection = it },
+                    onOpenSettings = { showSettings = true },
+                )
+            }
 
-        when (selectedSection) {
-            DesktopSection.WALLPAPERS -> WallpaperWorkspace(
+            DesktopWorkspaceContent(
+                selectedSection = selectedSection,
                 config = config,
                 libraries = libraries,
                 activeLibraryId = activeLibraryId,
@@ -591,28 +598,126 @@ private fun DesktopShell(
                 status = status,
                 selectedPath = effectiveSelectedPath,
                 onSelectedPathChange = { selectedPath = it },
-                onEvent = onEvent,
-                onStartSlideshow = onStartSlideshow,
-                onStopSlideshow = onStopSlideshow,
-                onSetWallpaperPath = onSetCurrentWallpaper,
-            )
-
-            DesktopSection.AI_PAINT -> AiPaintWorkspace(
-                viewModel = paintViewModel,
-                isSidebarCollapsed = sidebarCollapsed,
+                paintViewModel = paintViewModel,
+                sidebarCollapsed = sidebarCollapsed,
                 onToggleSidebar = {
                     sidebarCollapsed = !sidebarCollapsed
                     runtimeSettings.setAiPaintSidebarCollapsed(sidebarCollapsed)
                 },
-                onAddImagesToWallpapers = { paths -> onEvent(SettingsEvent.AddImages(paths)) },
-                onSetWallpaperPath = onSetCurrentWallpaper,
+                onEvent = onEvent,
+                onStartSlideshow = onStartSlideshow,
+                onStopSlideshow = onStopSlideshow,
+                onSetCurrentWallpaper = onSetCurrentWallpaper,
+            )
+        }
+
+        // 拖动手柄以覆盖层形式跨在分界线两侧，不占用布局宽度，也不绘制任何可见线条
+        if (!sidebarCollapsed) {
+            SidebarResizeHandle(
+                modifier = Modifier.offset(x = sidebarWidth - SIDEBAR_RESIZE_HANDLE_WIDTH / 2),
+                onDrag = { deltaDp ->
+                    sidebarWidth = (sidebarWidth.value + deltaDp)
+                        .coerceIn(
+                            DesktopRuntimeSettings.MIN_SIDEBAR_WIDTH_DP,
+                            DesktopRuntimeSettings.MAX_SIDEBAR_WIDTH_DP,
+                        )
+                        .dp
+                },
+                onDragEnd = { runtimeSettings.setSidebarWidthDp(sidebarWidth.value) },
             )
         }
     }
 }
 
 @Composable
+private fun DesktopWorkspaceContent(
+    selectedSection: DesktopSection,
+    config: WallpaperConfig,
+    libraries: List<WallpaperLibrarySummary>,
+    activeLibraryId: String,
+    libraryImages: Map<String, List<String>>,
+    openedLibraryId: String?,
+    onOpenedLibraryChange: (String?) -> Unit,
+    status: DesktopWallpaperStatus,
+    selectedPath: String?,
+    onSelectedPathChange: (String?) -> Unit,
+    paintViewModel: DesktopPaintViewModel,
+    sidebarCollapsed: Boolean,
+    onToggleSidebar: () -> Unit,
+    onEvent: (SettingsEvent) -> Unit,
+    onStartSlideshow: () -> Unit,
+    onStopSlideshow: () -> Unit,
+    onSetCurrentWallpaper: (String) -> Unit,
+) {
+    when (selectedSection) {
+        DesktopSection.WALLPAPERS -> WallpaperWorkspace(
+            config = config,
+            libraries = libraries,
+            activeLibraryId = activeLibraryId,
+            libraryImages = libraryImages,
+            openedLibraryId = openedLibraryId,
+            onOpenedLibraryChange = onOpenedLibraryChange,
+            status = status,
+            selectedPath = selectedPath,
+            onSelectedPathChange = onSelectedPathChange,
+            onEvent = onEvent,
+            onStartSlideshow = onStartSlideshow,
+            onStopSlideshow = onStopSlideshow,
+            onSetWallpaperPath = onSetCurrentWallpaper,
+        )
+
+        DesktopSection.AI_PAINT -> AiPaintWorkspace(
+            viewModel = paintViewModel,
+            isSidebarCollapsed = sidebarCollapsed,
+            onToggleSidebar = onToggleSidebar,
+            onAddImagesToWallpapers = { paths -> onEvent(SettingsEvent.AddImages(paths)) },
+            onSetWallpaperPath = onSetCurrentWallpaper,
+        )
+    }
+}
+
+/** 侧边栏拖动手柄的热区宽度，左右各一半跨在分界线两侧。 */
+private val SIDEBAR_RESIZE_HANDLE_WIDTH = 8.dp
+
+/**
+ * 侧边栏与右侧工作区之间的隐形拖动手柄。
+ *
+ * 参考浏览器侧栏的做法：分界线本身不绘制任何线条，仅靠两侧背景色区分；
+ * 手柄是一个透明的热区，鼠标移入时切换为左右调整光标，作为可拖动的唯一提示。
+ *
+ * @param modifier 用于把手柄定位到分界线上的修饰符。
+ * @param onDrag 每次拖动回调，参数为本次水平位移（dp，向右为正）。
+ * @param onDragEnd 拖动结束（或取消）时回调，用于持久化最终宽度。
+ */
+@Composable
+private fun SidebarResizeHandle(
+    modifier: Modifier = Modifier,
+    onDrag: (deltaDp: Float) -> Unit,
+    onDragEnd: () -> Unit,
+) {
+    val density = LocalDensity.current
+
+    Box(
+        modifier = modifier
+            .width(SIDEBAR_RESIZE_HANDLE_WIDTH)
+            .fillMaxHeight()
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+            .pointerInput(density) {
+                detectHorizontalDragGestures(
+                    onDragEnd = onDragEnd,
+                    onDragCancel = onDragEnd,
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        onDrag(with(density) { dragAmount.toDp().value })
+                    },
+                )
+            },
+    )
+}
+
+@Composable
 private fun DesktopSidebar(
+    width: Dp,
     selectedSection: DesktopSection,
     status: DesktopWallpaperStatus,
     paintUiState: com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState,
@@ -624,7 +729,7 @@ private fun DesktopSidebar(
 
     Surface(
         modifier = Modifier
-            .width(220.dp)
+            .width(width)
             .fillMaxHeight(),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
