@@ -30,10 +30,14 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageS
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
+import com.example.livewallpaper.feature.aipaint.presentation.state.PaintMessageSearchUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToLatestRequest
+import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToMessageRequest
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
+import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -89,6 +93,13 @@ class DesktopPaintViewModel(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val scrollToBottomEvent: SharedFlow<ScrollToLatestRequest> = _scrollToBottomEvent.asSharedFlow()
+
+    // 搜索结果跳转：通知 UI 滚动到指定消息并居中
+    private val _scrollToMessageEvent = MutableSharedFlow<ScrollToMessageRequest>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val scrollToMessageEvent: SharedFlow<ScrollToMessageRequest> = _scrollToMessageEvent.asSharedFlow()
 
     private val _generationSuccessEvent = MutableSharedFlow<DesktopPaintGenerationSuccess>()
     val generationSuccessEvent: SharedFlow<DesktopPaintGenerationSuccess> = _generationSuccessEvent.asSharedFlow()
@@ -167,6 +178,12 @@ class DesktopPaintViewModel(
             is PaintEvent.UpdateScrollState -> updateScrollState(event.isAtBottom)
             PaintEvent.ScrollToBottom -> scrollToBottom()
             PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
+            PaintEvent.OpenMessageSearch,
+            PaintEvent.CloseMessageSearch,
+            is PaintEvent.UpdateMessageSearchQuery,
+            is PaintEvent.StepMessageSearch,
+            is PaintEvent.JumpToMessage,
+            -> handleMessageSearch(event)
             PaintEvent.ClearError -> clearError()
         }
     }
@@ -259,7 +276,7 @@ class DesktopPaintViewModel(
                         messages = sortedMessages,
                         activeVersions = mergedVersions,
                         newMessageCount = newCount
-                    )
+                    ).recomputeMessageSearch()
                 }
             }
         }
@@ -305,7 +322,8 @@ class DesktopPaintViewModel(
                         hasMoreMessages = true,
                         newMessageCount = 0,
                         isAtBottom = true,
-                        isLoading = true
+                        isLoading = true,
+                        messageSearch = PaintMessageSearchUiState(),
                     )
                 }
                 delay(80)
@@ -335,6 +353,7 @@ class DesktopPaintViewModel(
                         messages = emptyList(),
                         promptText = "",
                         selectedImages = emptyList(),
+                        messageSearch = PaintMessageSearchUiState(),
                     )
                 }
             }
@@ -883,6 +902,14 @@ class DesktopPaintViewModel(
 
     private fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * 处理会话内搜索事件：状态更新由 shared 复用逻辑完成，需要定位时通知 UI 滚动到目标消息。
+     */
+    private fun handleMessageSearch(event: PaintEvent) {
+        val target = _uiState.handleMessageSearchEvent(event) ?: return
+        _scrollToMessageEvent.tryEmit(ScrollToMessageRequest(target.messageId))
     }
 
     private fun switchMessageVersion(versionGroup: String, targetIndex: Int) {

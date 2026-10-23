@@ -145,6 +145,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
+import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToMessage
 import com.example.livewallpaper.core.design.util.conversationListHasTargetMessage
 import com.example.livewallpaper.core.design.util.conversationListIsReadyToScroll
 import com.example.livewallpaper.core.design.util.isAtListEnd
@@ -286,6 +287,12 @@ fun AiPaintWorkspace(
     var showCopyFeedback by remember { mutableStateOf(false) }
     var copyFeedbackSerial by remember { mutableStateOf(0) }
     var pendingJumpMessageId by remember { mutableStateOf<String?>(null) }
+    // 会话内搜索：结果面板是否展开（输入时展开，点击结果或步进后收起）
+    val messageSearch = uiState.messageSearch
+    var showSearchResults by remember { mutableStateOf(true) }
+    LaunchedEffect(messageSearch.isActive) {
+        if (messageSearch.isActive) showSearchResults = true
+    }
 
     fun copyWithFeedback(text: String) {
         copyToClipboard(text)
@@ -357,6 +364,41 @@ fun AiPaintWorkspace(
                 val state = latestListState
                 viewModel.onEvent(
                     PaintEvent.UpdateScrollState(state.isAtListEnd(reverseLayout = CONVERSATION_REVERSE_LAYOUT)),
+                )
+                suppressScrollUpdates.value = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                suppressScrollUpdates.value = false
+                throw t
+            }
+        }
+    }
+    // 搜索结果跳转：等目标消息进入当前展示列表并完成布局后，把它滚动到视口中央。
+    LaunchedEffect(Unit) {
+        viewModel.scrollToMessageEvent.collectLatest { request ->
+            suppressScrollUpdates.value = true
+            try {
+                awaitReadyAndScrollToMessage(
+                    listState = { latestListState },
+                    targetIndex = { latestDisplayedMessages.indexOfFirst { it.id == request.messageId } },
+                    animate = request.animate,
+                    isReady = {
+                        val messages = latestDisplayedMessages
+                        conversationListIsReadyToScroll(
+                            displayedCount = messages.size,
+                            laidOutCount = latestListState.layoutInfo.totalItemsCount,
+                            hasTargetMessage = conversationListHasTargetMessage(
+                                displayedMessageIds = messages.map { it.id },
+                                targetMessageId = request.messageId,
+                            ),
+                        )
+                    },
+                )
+                viewModel.onEvent(
+                    PaintEvent.UpdateScrollState(
+                        latestListState.isAtListEnd(reverseLayout = CONVERSATION_REVERSE_LAYOUT),
+                    ),
                 )
                 suppressScrollUpdates.value = false
             } catch (cancelled: CancellationException) {
@@ -443,6 +485,7 @@ fun AiPaintWorkspace(
                 onToggleSidebar = onToggleSidebar,
                 onTitleClick = { showSessionStats = true },
                 onEvent = viewModel::onEvent,
+                onSearchClick = { viewModel.onEvent(PaintEvent.OpenMessageSearch) },
                 onJumpToTask = { task ->
                     pendingJumpMessageId = task.messageId
                     viewModel.onEvent(PaintEvent.DismissGenerationTask(task.messageId))
@@ -452,6 +495,22 @@ fun AiPaintWorkspace(
                 },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            if (messageSearch.isActive) {
+                DesktopPaintMessageSearchBar(
+                    state = messageSearch,
+                    onQueryChange = {
+                        showSearchResults = true
+                        viewModel.onEvent(PaintEvent.UpdateMessageSearchQuery(it))
+                    },
+                    onStep = { forward ->
+                        showSearchResults = false
+                        viewModel.onEvent(PaintEvent.StepMessageSearch(forward))
+                    },
+                    onClose = { viewModel.onEvent(PaintEvent.CloseMessageSearch) },
+                    onFieldFocused = { showSearchResults = true },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val messages = displayedMessages
                 LaunchedEffect(currentSessionId, uiState.messages, uiState.activeVersions, pendingJumpMessageId) {
@@ -567,6 +626,7 @@ fun AiPaintWorkspace(
                             PaintMessageRow(
                                 message = message,
                                 uiState = uiState,
+                                isSearchHighlighted = message.id == messageSearch.highlightedMessageId,
                                 conversationPreviewPaths = conversationPreviewPaths,
                                 compareSelectedPaths = compareSelectedPaths,
                                 imageSelectionMode = compareSelectedPaths.isNotEmpty(),
@@ -603,6 +663,19 @@ fun AiPaintWorkspace(
                         reverseLayout = CONVERSATION_REVERSE_LAYOUT,
                         style = desktopThemedScrollbarStyle(),
                     )
+                    // 搜索结果面板：覆盖在消息列表顶部，点击命中后跳转并收起
+                    if (messageSearch.isActive && showSearchResults && messageSearch.query.isNotBlank()) {
+                        DesktopPaintMessageSearchResultsPanel(
+                            state = messageSearch,
+                            onHitClick = { messageId ->
+                                showSearchResults = false
+                                viewModel.onEvent(PaintEvent.JumpToMessage(messageId))
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(horizontal = 28.dp, vertical = 10.dp),
+                        )
+                    }
                     Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = !uiState.isAtBottom,
@@ -1075,11 +1148,12 @@ private fun PaintTopBar(
     onToggleSidebar: () -> Unit,
     onTitleClick: () -> Unit,
     onEvent: (PaintEvent) -> Unit,
+    onSearchClick: () -> Unit,
     onJumpToTask: (PaintGenerationTaskUiState) -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
-    var showTasks by remember { mutableStateOf(false) }
     val activeTaskCount = uiState.generationTasks.count { it.status == MessageStatus.GENERATING }
+    val canSearch = uiState.currentSession != null && uiState.messages.isNotEmpty()
     Box(
         modifier = Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 24.dp),
     ) {
@@ -1126,84 +1200,133 @@ private fun PaintTopBar(
                 )
             }
         }
-        if (uiState.generationTasks.isNotEmpty()) {
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                Surface(
-                    onClick = { showTasks = true },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (canSearch) {
+                PaintTopBarSearchButton(onClick = onSearchClick)
+            }
+            if (uiState.generationTasks.isNotEmpty()) {
+                GenerationTasksChip(
+                    tasks = uiState.generationTasks,
+                    activeTaskCount = activeTaskCount,
+                    onEvent = onEvent,
+                    onJumpToTask = onJumpToTask,
+                )
+            }
+        }
+    }
+}
+
+/** 顶栏右侧的圆形搜索按钮，样式与左侧侧栏开关一致。 */
+@Composable
+private fun PaintTopBarSearchButton(onClick: () -> Unit) {
+    val strings = LocalDesktopStrings.current
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(34.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = AppIcons.search,
+                contentDescription = strings.paintSearchMessages,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+/** 顶栏右侧的生成任务芯片，点击展开任务列表菜单。 */
+@Composable
+private fun GenerationTasksChip(
+    tasks: List<PaintGenerationTaskUiState>,
+    activeTaskCount: Int,
+    onEvent: (PaintEvent) -> Unit,
+    onJumpToTask: (PaintGenerationTaskUiState) -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    var showTasks by remember { mutableStateOf(false) }
+    Box {
+        Surface(
+            onClick = { showTasks = true },
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (activeTaskCount > 0) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    Icon(
+                        imageVector = AppIcons.check,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Text(
+                    text = strings.paintGenerationTaskCount(tasks.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = showTasks,
+            onDismissRequest = { showTasks = false },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            shadowElevation = 12.dp,
+        ) {
+            Row(
+                modifier = Modifier.widthIn(min = 360.dp).padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = strings.paintGenerationTasks,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (tasks.any { it.status != MessageStatus.GENERATING }) {
+                    TextButton(
+                        onClick = {
+                            showTasks = false
+                            onEvent(PaintEvent.ClearGenerationTaskHistory)
+                        },
                     ) {
-                        if (activeTaskCount > 0) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = AppIcons.check,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        Text(
-                            text = strings.paintGenerationTaskCount(uiState.generationTasks.size),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Text(strings.paintTaskClearHistory)
                     }
                 }
-                DropdownMenu(
-                    expanded = showTasks,
-                    onDismissRequest = { showTasks = false },
-                    shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 12.dp,
-                ) {
-                    Row(
-                        modifier = Modifier.widthIn(min = 360.dp).padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = strings.paintGenerationTasks,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        if (uiState.generationTasks.any { it.status != MessageStatus.GENERATING }) {
-                            TextButton(
-                                onClick = {
-                                    showTasks = false
-                                    onEvent(PaintEvent.ClearGenerationTaskHistory)
-                                },
-                            ) {
-                                Text(strings.paintTaskClearHistory)
-                            }
-                        }
-                    }
-                    uiState.generationTasks.forEach { task ->
-                        GenerationTaskMenuItem(
-                            task = task,
-                            onJump = {
-                                showTasks = false
-                                onJumpToTask(task)
-                            },
-                            onCancel = {
-                                showTasks = false
-                                onEvent(PaintEvent.CancelGeneration(task.messageId))
-                            },
-                        )
-                    }
-                }
+            }
+            tasks.forEach { task ->
+                GenerationTaskMenuItem(
+                    task = task,
+                    onJump = {
+                        showTasks = false
+                        onJumpToTask(task)
+                    },
+                    onCancel = {
+                        showTasks = false
+                        onEvent(PaintEvent.CancelGeneration(task.messageId))
+                    },
+                )
             }
         }
     }
@@ -1257,6 +1380,7 @@ private fun GenerationTaskMenuItem(
 private fun PaintMessageRow(
     message: PaintMessage,
     uiState: PaintUiState,
+    isSearchHighlighted: Boolean,
     conversationPreviewPaths: List<String>,
     compareSelectedPaths: List<String>,
     imageSelectionMode: Boolean,
@@ -1336,14 +1460,16 @@ private fun PaintMessageRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
         )
+        // 搜索定位到的消息用主题色描边 + 淡色底突出显示
         Surface(
             modifier = Modifier.widthIn(max = if (isUser) 520.dp else 760.dp),
             shape = bubbleShape,
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+            color = when {
+                isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
+                isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
             },
+            border = if (isSearchHighlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),

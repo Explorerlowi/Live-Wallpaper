@@ -43,7 +43,10 @@ data class PaintUiState(
     val isAtBottom: Boolean = true,
     
     // 版本管理：当前显示的版本映射 (versionGroup -> 当前显示的versionIndex)
-    val activeVersions: Map<String, Int> = emptyMap()
+    val activeVersions: Map<String, Int> = emptyMap(),
+
+    // 当前会话内关键字搜索
+    val messageSearch: PaintMessageSearchUiState = PaintMessageSearchUiState()
 )
 
 /**

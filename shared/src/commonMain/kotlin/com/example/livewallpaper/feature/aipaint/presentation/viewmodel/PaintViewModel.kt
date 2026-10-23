@@ -11,8 +11,11 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenc
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
+import com.example.livewallpaper.feature.aipaint.presentation.state.PaintMessageSearchUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
+import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToMessageRequest
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
+import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -35,6 +38,10 @@ class PaintViewModel(
     // 用于通知UI滚动到底部
     private val _scrollToBottomEvent = MutableSharedFlow<Unit>()
     val scrollToBottomEvent: SharedFlow<Unit> = _scrollToBottomEvent.asSharedFlow()
+
+    // 搜索结果跳转：通知 UI 滚动到指定消息
+    private val _scrollToMessageEvent = MutableSharedFlow<ScrollToMessageRequest>()
+    val scrollToMessageEvent: SharedFlow<ScrollToMessageRequest> = _scrollToMessageEvent.asSharedFlow()
 
     init {
         loadApiProfiles()
@@ -102,7 +109,7 @@ class PaintViewModel(
                         messages = sortedMessages,
                         newMessageCount = newCount,
                         activeVersions = mergedVersions
-                    ) 
+                    ).recomputeMessageSearch()
                 }
             }
         }
@@ -145,6 +152,12 @@ class PaintViewModel(
             is PaintEvent.UpdateScrollState -> updateScrollState(event.isAtBottom)
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
+            PaintEvent.OpenMessageSearch,
+            PaintEvent.CloseMessageSearch,
+            is PaintEvent.UpdateMessageSearchQuery,
+            is PaintEvent.StepMessageSearch,
+            is PaintEvent.JumpToMessage,
+            -> handleMessageSearch(event)
             is PaintEvent.ClearError -> clearError()
             is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
             is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
@@ -185,7 +198,8 @@ class PaintViewModel(
                         currentPage = 0,
                         hasMoreMessages = true,
                         newMessageCount = 0,
-                        isAtBottom = true
+                        isAtBottom = true,
+                        messageSearch = PaintMessageSearchUiState()
                     ) 
                 }
                 loadMessages(sessionId)
@@ -200,7 +214,8 @@ class PaintViewModel(
                 _uiState.update { 
                     it.copy(
                         currentSession = null,
-                        messages = emptyList()
+                        messages = emptyList(),
+                        messageSearch = PaintMessageSearchUiState()
                     ) 
                 }
                 currentSessionId = null
@@ -682,6 +697,13 @@ class PaintViewModel(
 
     private fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    private fun handleMessageSearch(event: PaintEvent) {
+        val target = _uiState.handleMessageSearchEvent(event) ?: return
+        viewModelScope.launch {
+            _scrollToMessageEvent.emit(ScrollToMessageRequest(target.messageId))
+        }
     }
 
     private fun regenerateMessage(messageId: String) {

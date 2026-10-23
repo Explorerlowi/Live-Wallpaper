@@ -75,6 +75,7 @@ object AppIcons {
     val rotateClockwise: ImageVector get() = CustomAppIcons.rotateClockwise
     val save: ImageVector get() = EvaIcons.Outline.Save
     val scissors: ImageVector get() = EvaIcons.Outline.Scissors
+    val search: ImageVector get() = EvaIcons.Outline.Search
     val schedule: ImageVector get() = EvaIcons.Outline.Calendar
     val settings: ImageVector get() = EvaIcons.Outline.Settings2
     val share: ImageVector get() = EvaIcons.Outline.Share

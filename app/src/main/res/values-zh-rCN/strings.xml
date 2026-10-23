@@ -164,6 +164,15 @@
     <string name="paint_expand_input">展开输入</string>
     <string name="paint_image">图片</string>
     <string name="paint_sessions">会话列表</string>
+    <string name="paint_search_messages">搜索消息</string>
+    <string name="paint_search_hint">在当前会话中搜索</string>
+    <string name="paint_search_no_results">没有匹配的消息</string>
+    <string name="paint_search_result_count">%1$d/%2$d</string>
+    <string name="paint_search_previous">上一条</string>
+    <string name="paint_search_next">下一条</string>
+    <string name="paint_search_close">关闭搜索</string>
+    <string name="paint_search_sender_user">我</string>
+    <string name="paint_search_sender_assistant">助手</string>
     <string name="paint_new_session">新建会话</string>
     <string name="paint_no_sessions">暂无会话</string>
     <string name="paint_no_sessions_hint">点击右上角创建新会话</string>

@@ -11,10 +11,14 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReposito
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
+import com.example.livewallpaper.feature.aipaint.presentation.state.PaintMessageSearchUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToLatestRequest
+import com.example.livewallpaper.feature.aipaint.presentation.state.ScrollToMessageRequest
 import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImage
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
+import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
 import com.example.livewallpaper.paint.service.ImageGenerationService
 import com.example.livewallpaper.paint.service.GenerationTaskManager
 import com.example.livewallpaper.paint.service.GenerationResult
@@ -99,6 +103,13 @@ class AndroidPaintViewModel(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val scrollToBottomEvent: SharedFlow<ScrollToLatestRequest> = _scrollToBottomEvent.asSharedFlow()
+
+    // 搜索结果跳转：通知 UI 滚动到指定消息并居中
+    private val _scrollToMessageEvent = MutableSharedFlow<ScrollToMessageRequest>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val scrollToMessageEvent: SharedFlow<ScrollToMessageRequest> = _scrollToMessageEvent.asSharedFlow()
 
     private val _toastEvent = MutableSharedFlow<PaintToastMessage>()
     val toastEvent: SharedFlow<PaintToastMessage> = _toastEvent.asSharedFlow()
@@ -310,7 +321,7 @@ class AndroidPaintViewModel(
                         messages = sortedMessages,
                         newMessageCount = newCount,
                         activeVersions = mergedVersions
-                    ) 
+                    ).recomputeMessageSearch()
                 }
             }
         }
@@ -354,6 +365,12 @@ class AndroidPaintViewModel(
             is PaintEvent.UpdateScrollState -> updateScrollState(event.isAtBottom)
             is PaintEvent.ScrollToBottom -> scrollToBottom()
             is PaintEvent.ClearNewMessageCount -> clearNewMessageCount()
+            PaintEvent.OpenMessageSearch,
+            PaintEvent.CloseMessageSearch,
+            is PaintEvent.UpdateMessageSearchQuery,
+            is PaintEvent.StepMessageSearch,
+            is PaintEvent.JumpToMessage,
+            -> handleMessageSearch(event)
             is PaintEvent.ClearError -> clearError()
             is PaintEvent.RegenerateMessage -> regenerateMessage(event.messageId)
             is PaintEvent.SwitchMessageVersion -> switchMessageVersion(event.versionGroup, event.targetIndex)
@@ -484,7 +501,8 @@ class AndroidPaintViewModel(
                         hasMoreMessages = true,
                         newMessageCount = 0,
                         isAtBottom = true,
-                        isLoading = true
+                        isLoading = true,
+                        messageSearch = PaintMessageSearchUiState()
                     ) 
                 }
                 // 短暂延迟，让空屏过渡更自然
@@ -506,7 +524,8 @@ class AndroidPaintViewModel(
                         currentSession = null,
                         messages = emptyList(),
                         promptText = draft.promptText,
-                        selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() }
+                        selectedImages = draft.selectedImages.map { img -> img.toSelectedImage() },
+                        messageSearch = PaintMessageSearchUiState()
                     ) 
                 }
                 currentSessionId = null
@@ -1205,6 +1224,14 @@ class AndroidPaintViewModel(
 
     private fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * 处理会话内搜索事件：状态更新由 shared 复用逻辑完成，需要定位时通知 UI 滚动到目标消息。
+     */
+    private fun handleMessageSearch(event: PaintEvent) {
+        val target = _uiState.handleMessageSearchEvent(event) ?: return
+        _scrollToMessageEvent.tryEmit(ScrollToMessageRequest(target.messageId))
     }
 
     /**

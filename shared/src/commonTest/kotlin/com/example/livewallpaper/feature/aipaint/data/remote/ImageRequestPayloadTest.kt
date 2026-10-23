@@ -69,6 +69,7 @@ class ImageRequestPayloadTest {
 
         val result = GptApiService(client).editImage(
             profile = profile(),
+            model = PaintModel.GPT_IMAGE_2,
             prompt = "test",
             images = listOf(ImageRequestPayload(expected, "image/png")),
             size = GptImageSize.AUTO,

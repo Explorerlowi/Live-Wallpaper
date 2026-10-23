@@ -57,6 +57,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
+import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToMessage
 import com.example.livewallpaper.core.design.util.conversationListHasTargetMessage
 import com.example.livewallpaper.core.design.util.conversationListIsReadyToScroll
 import com.example.livewallpaper.core.design.util.isAtListEnd
@@ -246,11 +247,20 @@ fun PaintScreen(
     var editFromPreview by remember { mutableStateOf(false) }
     var editOriginalPath by remember { mutableStateOf<String?>(null) }
 
+    // 会话内搜索：结果面板是否展开（输入时展开，点击结果或步进后收起）
+    val messageSearch = uiState.messageSearch
+    var showSearchResults by remember { mutableStateOf(true) }
+    LaunchedEffect(messageSearch.isActive) {
+        if (messageSearch.isActive) showSearchResults = true
+    }
+
     // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
     val handleBack: () -> Unit = {
         if (imageSelectionMode) {
             imageSelectionMode = false
             selectedImageSources = emptyList()
+        } else if (messageSearch.isActive) {
+            viewModel.onEvent(PaintEvent.CloseMessageSearch)
         } else if (drawerState.currentValue == DrawerValue.Open || isDrawerTargetOpen) {
             scope.launch { drawerState.close() }
         } else if (currentScreen == Screen.SessionStats) {
@@ -422,6 +432,38 @@ fun PaintScreen(
         }
     }
 
+    // 搜索结果跳转：等目标消息进入当前展示列表并完成布局后，把它滚动到视口中央。
+    LaunchedEffect(Unit) {
+        viewModel.scrollToMessageEvent.collectLatest { request ->
+            suppressScrollUpdates.value = true
+            try {
+                awaitReadyAndScrollToMessage(
+                    listState = { latestListState },
+                    targetIndex = { latestDisplayedMessages.indexOfFirst { it.id == request.messageId } },
+                    animate = request.animate,
+                    isReady = {
+                        val messages = latestDisplayedMessages
+                        conversationListIsReadyToScroll(
+                            displayedCount = messages.size,
+                            laidOutCount = latestListState.layoutInfo.totalItemsCount,
+                            hasTargetMessage = conversationListHasTargetMessage(
+                                displayedMessageIds = messages.map { it.id },
+                                targetMessageId = request.messageId,
+                            ),
+                        )
+                    },
+                )
+                viewModel.onEvent(PaintEvent.UpdateScrollState(latestListState.isAtListEnd(reverseLayout = true)))
+                suppressScrollUpdates.value = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                suppressScrollUpdates.value = false
+                throw t
+            }
+        }
+    }
+
     // 监听Toast事件
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collectLatest { message ->
@@ -513,10 +555,26 @@ fun PaintScreen(
                             selectedImageSources = emptyList()
                         }
                     )
+                } else if (messageSearch.isActive) {
+                    PaintMessageSearchTopBar(
+                        state = messageSearch,
+                        onQueryChange = {
+                            showSearchResults = true
+                            viewModel.onEvent(PaintEvent.UpdateMessageSearchQuery(it))
+                        },
+                        onStep = { forward ->
+                            showSearchResults = false
+                            focusManager.clearFocus()
+                            viewModel.onEvent(PaintEvent.StepMessageSearch(forward))
+                        },
+                        onClose = { viewModel.onEvent(PaintEvent.CloseMessageSearch) },
+                        onFieldFocused = { showSearchResults = true },
+                    )
                 } else {
                     PaintTopBar(
                         currentSession = uiState.currentSession,
                         selectedModel = uiState.selectedModel,
+                        canSearch = uiState.currentSession != null && uiState.messages.isNotEmpty(),
                         onSessionClick = {
                             scope.launch { drawerState.open() }
                         },
@@ -524,6 +582,7 @@ fun PaintScreen(
                             currentScreen = Screen.SessionStats
                         },
                         onModelClick = { showModelSelector = true },
+                        onSearchClick = { viewModel.onEvent(PaintEvent.OpenMessageSearch) },
                         onClose = handleBack
                     )
                 }
@@ -647,6 +706,7 @@ fun PaintScreen(
                                 activeVersions = uiState.activeVersions,
                                 selectedAspectRatio = uiState.selectedAspectRatio,
                                 selectionVersion = selectionVersion,
+                                isSearchHighlighted = message.id == messageSearch.highlightedMessageId,
                                 imageSelectionMode = imageSelectionMode,
                                 selectedImageSources = selectedImageSources,
                                 onImageClick = { images, index ->
@@ -738,6 +798,21 @@ fun PaintScreen(
                             )
                         }
                     }
+                }
+
+                // 搜索结果面板：覆盖在消息列表顶部，点击命中后跳转并收起
+                if (messageSearch.isActive && showSearchResults && messageSearch.query.isNotBlank()) {
+                    PaintMessageSearchResults(
+                        state = messageSearch,
+                        onHitClick = { messageId ->
+                            showSearchResults = false
+                            focusManager.clearFocus()
+                            viewModel.onEvent(PaintEvent.JumpToMessage(messageId))
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
+                    )
                 }
 
                 // 滚动到底部按钮
@@ -1025,9 +1100,11 @@ fun PaintScreen(
 private fun PaintTopBar(
     currentSession: PaintSession?,
     selectedModel: PaintModel,
+    canSearch: Boolean,
     onSessionClick: () -> Unit,
     onTitleClick: () -> Unit,
     onModelClick: () -> Unit,
+    onSearchClick: () -> Unit,
     onClose: () -> Unit
 ) {
     TopAppBar(
@@ -1067,8 +1144,13 @@ private fun PaintTopBar(
             }
         },
         actions = {
+            if (canSearch) {
+                IconButton(onClick = onSearchClick) {
+                    Icon(AppIcons.search, contentDescription = stringResource(R.string.paint_search_messages))
+                }
+            }
             IconButton(onClick = onClose) {
-                Icon(AppIcons.close, contentDescription = "关闭")
+                Icon(AppIcons.close, contentDescription = stringResource(R.string.close))
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -1231,6 +1313,7 @@ private fun MessageItem(
     activeVersions: Map<String, Int> = emptyMap(),
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     selectionVersion: Int = 0,
+    isSearchHighlighted: Boolean = false,
     imageSelectionMode: Boolean = false,
     selectedImageSources: List<ImageSource> = emptyList(),
     onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
@@ -1359,10 +1442,16 @@ private fun MessageItem(
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
         )
 
-        // 消息气泡
+        // 消息气泡；搜索定位到的消息用主题色描边 + 淡色底突出显示
+        val bubbleColor = when {
+            isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
+            isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        }
         Surface(
             shape = bubbleShape,
-            color = if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
+            color = bubbleColor,
+            border = if (isSearchHighlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {

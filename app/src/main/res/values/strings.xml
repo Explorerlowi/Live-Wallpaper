@@ -162,6 +162,15 @@
     <string name="paint_expand_input">Expand input</string>
     <string name="paint_image">Image</string>
     <string name="paint_sessions">Sessions</string>
+    <string name="paint_search_messages">Search messages</string>
+    <string name="paint_search_hint">Search in this session</string>
+    <string name="paint_search_no_results">No matching messages</string>
+    <string name="paint_search_result_count">%1$d/%2$d</string>
+    <string name="paint_search_previous">Previous match</string>
+    <string name="paint_search_next">Next match</string>
+    <string name="paint_search_close">Close search</string>
+    <string name="paint_search_sender_user">You</string>
+    <string name="paint_search_sender_assistant">Assistant</string>
     <string name="paint_new_session">New Session</string>
     <string name="paint_no_sessions">No sessions</string>
     <string name="paint_no_sessions_hint">Tap top right to create a new session</string>

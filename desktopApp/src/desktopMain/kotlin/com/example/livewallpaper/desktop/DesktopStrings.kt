@@ -191,6 +191,17 @@ class DesktopStrings internal constructor(
     val paintEmptyConversationTitle: String = text("paintEmptyConversationTitle")
     val paintEmptyConversationSubtitle: String = text("paintEmptyConversationSubtitle")
     val paintScrollToLatest: String = text("paintScrollToLatest")
+    val paintSearchMessages: String = text("paintSearchMessages")
+    val paintSearchHint: String = text("paintSearchHint")
+    val paintSearchNoResults: String = text("paintSearchNoResults")
+    val paintSearchResultCount: (Int, Int) -> String = { current, total ->
+        text("paintSearchResultCount").format(current, total)
+    }
+    val paintSearchPrevious: String = text("paintSearchPrevious")
+    val paintSearchNext: String = text("paintSearchNext")
+    val paintSearchClose: String = text("paintSearchClose")
+    val paintSearchSenderUser: String = text("paintSearchSenderUser")
+    val paintSearchSenderAssistant: String = text("paintSearchSenderAssistant")
     val paintOriginDesktop: String = text("paintOriginDesktop")
     val paintOriginAndroid: String = text("paintOriginAndroid")
     val paintOriginIos: String = text("paintOriginIos")

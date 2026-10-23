@@ -57,6 +57,13 @@ sealed class PaintEvent {
     data class UpdateScrollState(val isAtBottom: Boolean) : PaintEvent()
     data object ScrollToBottom : PaintEvent()
     data object ClearNewMessageCount : PaintEvent()
+
+    // 当前会话内关键字搜索
+    data object OpenMessageSearch : PaintEvent()
+    data object CloseMessageSearch : PaintEvent()
+    data class UpdateMessageSearchQuery(val query: String) : PaintEvent()
+    data class StepMessageSearch(val forward: Boolean) : PaintEvent()  // forward=true 走向更新的命中
+    data class JumpToMessage(val messageId: String) : PaintEvent()
     
     // 错误处理
     data object ClearError : PaintEvent()
@@ -74,6 +81,11 @@ fun PaintEvent.isAllowedWhenStorageReadOnly(): Boolean = when (this) {
     is PaintEvent.UpdateScrollState,
     PaintEvent.ScrollToBottom,
     PaintEvent.ClearNewMessageCount,
+    PaintEvent.OpenMessageSearch,
+    PaintEvent.CloseMessageSearch,
+    is PaintEvent.UpdateMessageSearchQuery,
+    is PaintEvent.StepMessageSearch,
+    is PaintEvent.JumpToMessage,
     PaintEvent.ClearError,
     -> true
     else -> false

@@ -1,6 +1,7 @@
 package com.example.livewallpaper.core.design.util
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -197,6 +198,70 @@ internal class LazyListScrollTest {
                 lastVisibleIndex = null,
                 lastItemEnd = 0,
                 viewportEndOffset = 900,
+            )
+        )
+    }
+
+    @Test
+    fun centeringDeltaMovesItemCenterOntoViewportCenter() {
+        // 视口 0..1000，中心 500；item 位于 100..300，中心 200 → 需向后滚 -300
+        assertEquals(
+            -300f,
+            centeringScrollDelta(
+                itemOffset = 100,
+                itemSize = 200,
+                viewportStartOffset = 0,
+                viewportEndOffset = 1000,
+            )
+        )
+        // item 位于 700..900，中心 800 → 需向前滚 300
+        assertEquals(
+            300f,
+            centeringScrollDelta(
+                itemOffset = 700,
+                itemSize = 200,
+                viewportStartOffset = 0,
+                viewportEndOffset = 1000,
+            )
+        )
+    }
+
+    @Test
+    fun centeringDeltaIsZeroWhenAlreadyCentered() {
+        assertEquals(
+            0f,
+            centeringScrollDelta(
+                itemOffset = 400,
+                itemSize = 200,
+                viewportStartOffset = 0,
+                viewportEndOffset = 1000,
+            )
+        )
+    }
+
+    @Test
+    fun centeringDeltaRespectsViewportStartPadding() {
+        // 视口 100..1100，中心 600；item 中心 600 → 0
+        assertEquals(
+            0f,
+            centeringScrollDelta(
+                itemOffset = 500,
+                itemSize = 200,
+                viewportStartOffset = 100,
+                viewportEndOffset = 1100,
+            )
+        )
+    }
+
+    @Test
+    fun oversizedItemAlignsToViewportStart() {
+        assertEquals(
+            250f,
+            centeringScrollDelta(
+                itemOffset = 250,
+                itemSize = 1600,
+                viewportStartOffset = 0,
+                viewportEndOffset = 1000,
             )
         )
     }

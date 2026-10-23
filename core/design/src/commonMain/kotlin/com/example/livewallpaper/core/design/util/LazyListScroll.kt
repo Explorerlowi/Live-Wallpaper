@@ -132,6 +132,85 @@ suspend fun awaitReadyAndScrollToListEnd(
 }
 
 /**
+ * Waits until [isReady] is true, then scrolls so the item at [targetIndex] is centered in the viewport.
+ *
+ * Used for search-result jumps. Works for both layout directions because item offsets and the
+ * viewport bounds share the same main-axis coordinate space, so no `reverseLayout` branch is needed.
+ *
+ * @param listState Snapshot-readable provider; read after waiting so a session switch picks up the
+ * list currently on screen.
+ * @param targetIndex Snapshot-readable provider of the item index; a negative value aborts the scroll.
+ * @param animate Whether the final centering pass may animate.
+ * @param isReady Snapshot-readable predicate; typically checks that the target message is composed.
+ */
+suspend fun awaitReadyAndScrollToMessage(
+    listState: () -> LazyListState,
+    targetIndex: () -> Int,
+    animate: Boolean,
+    isReady: () -> Boolean,
+) {
+    withTimeoutOrNull(SCROLL_READY_TIMEOUT_MS) {
+        snapshotFlow(isReady).first { it }
+    }
+    withFrameNanos { }
+    withFrameNanos { }
+    val state = listState()
+    val index = targetIndex()
+    if (index < 0 || index >= state.layoutInfo.totalItemsCount) return
+    state.scrollToItemCentered(index = index, animate = animate)
+}
+
+/**
+ * Scrolls so [index] sits in the middle of the viewport.
+ *
+ * The item is first snapped into view with [LazyListState.scrollToItem] so its size is known, then
+ * a short adjustment moves it to the center. Items taller than the viewport are aligned to the
+ * viewport start instead so their beginning is visible.
+ *
+ * @param index Item index to center.
+ * @param animate Whether the centering adjustment animates.
+ */
+suspend fun LazyListState.scrollToItemCentered(index: Int, animate: Boolean) {
+    if (index < 0 || index >= layoutInfo.totalItemsCount) return
+    val alreadyVisible = layoutInfo.visibleItemsInfo.any { it.index == index }
+    if (!alreadyVisible) {
+        scrollToItem(index)
+    }
+    awaitItemLaidOut(index)
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val delta = centeringScrollDelta(
+        itemOffset = item.offset,
+        itemSize = item.size,
+        viewportStartOffset = info.viewportStartOffset,
+        viewportEndOffset = info.viewportEndOffset,
+    )
+    if (abs(delta) <= LIST_END_TOLERANCE_PX) return
+    if (animate && alreadyVisible) animateScrollBy(delta) else scrollBy(delta)
+}
+
+/**
+ * Main-axis scroll amount that moves an item's center onto the viewport center.
+ *
+ * Positive values scroll forward. Items larger than the viewport align their start to the viewport
+ * start so the beginning of a long message is what the user sees.
+ */
+internal fun centeringScrollDelta(
+    itemOffset: Int,
+    itemSize: Int,
+    viewportStartOffset: Int,
+    viewportEndOffset: Int,
+): Float {
+    val viewportSize = viewportEndOffset - viewportStartOffset
+    if (itemSize >= viewportSize) {
+        return (itemOffset - viewportStartOffset).toFloat()
+    }
+    val itemCenter = itemOffset + itemSize / 2f
+    val viewportCenter = viewportStartOffset + viewportSize / 2f
+    return itemCenter - viewportCenter
+}
+
+/**
  * Scrolls a message list so the newest content sits at the visual bottom.
  *
  * Long-distance movement always snaps. Only a short remaining alignment may animate, so sending a
