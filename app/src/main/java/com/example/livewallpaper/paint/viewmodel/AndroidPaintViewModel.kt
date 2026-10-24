@@ -25,6 +25,8 @@ import com.example.livewallpaper.paint.service.GenerationResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.random.Random
@@ -50,6 +52,8 @@ class AndroidPaintViewModel(
     // 内存中的草稿缓存
     private val sessionDrafts = mutableMapOf<String, PaintSessionDraft>()
     private val tempDraftKey = "__temp_draft__"  // 临时缓存区的 key
+    private val draftMutex = Mutex()
+    private var draftGeneration = 0
 
     // 使用全局任务管理器，生命周期独立于 ViewModel
     private val taskManager = GenerationTaskManager
@@ -190,26 +194,68 @@ class AndroidPaintViewModel(
     private suspend fun loadDraft(key: String): PaintSessionDraft? = draftRepository.getDraft(key)
     
     /**
-     * 保存草稿到 SharedPreferences
+     * 保存草稿。
+     *
+     * 新的保存会取消尚未落盘的防抖任务。发送时递增 [draftGeneration]，
+     * 让更早排队的保存失效，避免把已经发出的参考图又写回草稿。
      */
     private fun saveDraft(key: String, draft: PaintSessionDraft) {
-        val expectedRevision = draftRepository.draftsRevision.value
+        promptDraftSaveJob?.cancel()
+        promptDraftSaveJob = null
+        val generation = draftGeneration
         viewModelScope.launch {
-            if (draftRepository.saveDraft(key, draft, expectedRevision)) {
-                sessionDrafts[key] = draft
+            draftMutex.withLock {
+                if (generation != draftGeneration) return@withLock
+                writeDraft(key, draft)
             }
         }
     }
-    
+
     /**
-     * 删除草稿
+     * 删除草稿。世代不匹配时放弃，避免和发送时的清空互相覆盖。
      */
     private fun removeDraft(key: String) {
-        val expectedRevision = draftRepository.draftsRevision.value
+        promptDraftSaveJob?.cancel()
+        promptDraftSaveJob = null
+        val generation = draftGeneration
         viewModelScope.launch {
-            if (draftRepository.removeDraft(key, expectedRevision)) {
-                sessionDrafts.remove(key)
+            draftMutex.withLock {
+                if (generation != draftGeneration) return@withLock
+                deleteDraft(key)
             }
+        }
+    }
+
+    /**
+     * 先把用户消息入库，再清空草稿。
+     *
+     * 清空草稿会删除不再被引用的图片。这两步必须放在同一把锁里，
+     * 否则消息和草稿共用的文件会在入库前被当成孤儿删除。
+     */
+    private suspend fun commitUserMessage(sessionId: String, message: PaintMessage) {
+        promptDraftSaveJob?.cancel()
+        promptDraftSaveJob = null
+        draftMutex.withLock {
+            draftGeneration += 1
+            sessionDrafts[sessionId] = PaintSessionDraft()
+            sessionDrafts.remove(tempDraftKey)
+            repository.addMessage(message)
+            writeDraft(sessionId, PaintSessionDraft())
+            deleteDraft(tempDraftKey)
+        }
+    }
+
+    private suspend fun writeDraft(key: String, draft: PaintSessionDraft) {
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.saveDraft(key, draft, expectedRevision)) {
+            sessionDrafts[key] = draft
+        }
+    }
+
+    private suspend fun deleteDraft(key: String) {
+        val expectedRevision = draftRepository.draftsRevision.value
+        if (draftRepository.removeDraft(key, expectedRevision)) {
+            sessionDrafts.remove(key)
         }
     }
 
@@ -441,12 +487,13 @@ class AndroidPaintViewModel(
 
     private fun schedulePromptDraftSave(key: String, draft: PaintSessionDraft) {
         sessionDrafts[key] = draft
-        val expectedRevision = draftRepository.draftsRevision.value
+        val generation = draftGeneration
         promptDraftSaveJob?.cancel()
         promptDraftSaveJob = viewModelScope.launch {
             delay(350)
-            withContext(Dispatchers.IO) {
-                draftRepository.saveDraft(key, draft, expectedRevision)
+            draftMutex.withLock {
+                if (generation != draftGeneration) return@withLock
+                writeDraft(key, draft)
             }
         }
     }
@@ -648,13 +695,11 @@ class AndroidPaintViewModel(
             )
             
             val startTime = System.currentTimeMillis()
-            // 发送消息后清空该会话的草稿
-            saveDraft(session.id, PaintSessionDraft())
-            removeDraft(tempDraftKey)
-            
-            // 先只显示用户消息
+            // 先清掉输入区，避免入库期间的自动保存把已发送图片重新写回草稿
             _uiState.update { current ->
-                val nextMessages = (current.messages + userMessage).sortedBy { it.createdAt }
+                val nextMessages = (current.messages + userMessage)
+                    .distinctBy { it.id }
+                    .sortedBy { it.createdAt }
                 current.copy(
                     messages = nextMessages,
                     promptText = "",
@@ -663,13 +708,13 @@ class AndroidPaintViewModel(
                     isAtBottom = true
                 )
             }
+            commitUserMessage(session.id, userMessage)
             
             markGenerating(assistantMessage.id, session.id, startTime)
             
             _scrollToBottomEvent.emit(
                 ScrollToLatestRequest(animate = true, messageId = userMessage.id)
             )
-            repository.addMessage(userMessage)
             
             // 延迟后添加 AI 消息，提升体验
             delay(500)
