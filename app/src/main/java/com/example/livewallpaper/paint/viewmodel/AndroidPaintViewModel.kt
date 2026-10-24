@@ -19,6 +19,9 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImag
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
 import com.example.livewallpaper.paint.service.ImageGenerationService
 import com.example.livewallpaper.paint.service.GenerationTaskManager
 import com.example.livewallpaper.paint.service.GenerationResult
@@ -393,6 +396,15 @@ class AndroidPaintViewModel(
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteMessages -> viewModelScope.launch {
+                _uiState.deleteSelectedMessages(repository, event.messageIds)
+            }
+            is PaintEvent.MoveMessages -> viewModelScope.launch {
+                _uiState.moveSelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
+            is PaintEvent.CopyMessages -> viewModelScope.launch {
+                _uiState.copySelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
             is PaintEvent.EditUserMessage -> editUserMessage(event.messageId)
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)
@@ -935,14 +947,9 @@ class AndroidPaintViewModel(
     private fun deleteMessage(messageId: String) {
         viewModelScope.launch {
             val state = _uiState.value
-            val message = state.messages.find { it.id == messageId }
-            val versionGroup = message?.versionGroup
-            
-            // 如果删除的是正在生成的消息，先取消生成任务
-            if (message?.status == MessageStatus.GENERATING) {
-                taskManager.cancel(messageId)
-                syncGeneratingState()
-            }
+            val message = state.messages.find { it.id == messageId } ?: return@launch
+            if (message.status == MessageStatus.GENERATING) return@launch
+            val versionGroup = message.versionGroup
             
             // 如果是有版本组的消息，删除后需要切换到其他版本
             if (versionGroup != null) {
@@ -980,12 +987,20 @@ class AndroidPaintViewModel(
     private fun deleteMessageVersion(versionGroup: String) {
         viewModelScope.launch {
             val messages = _uiState.value.messages.filter { it.versionGroup == versionGroup }
-            messages.forEach { message ->
-                repository.deleteMessage(message.id)
-            }
-            // 清理 activeVersions 中的记录
+            val removing = messages.filter { it.status != MessageStatus.GENERATING }
+            if (removing.isEmpty()) return@launch
+            val removedIds = removing.map { it.id }.toSet()
             _uiState.update { state ->
-                state.copy(activeVersions = state.activeVersions - versionGroup)
+                state.copy(
+                    activeVersions = activeVersionsAfterRemoving(
+                        messages = state.messages,
+                        activeVersions = state.activeVersions,
+                        removedIds = removedIds,
+                    ),
+                )
+            }
+            removing.forEach { message ->
+                repository.deleteMessage(message.id)
             }
             _toastEvent.emit(PaintToastMessage.Deleted)
         }
@@ -1317,19 +1332,19 @@ class AndroidPaintViewModel(
             
             // 计算新版本索引
             val versionGroup = currentMessage.versionGroup ?: generateId()
-            val existingVersions = if (currentMessage.versionGroup != null) {
-                repository.getVersionCount(sessionId, versionGroup)
+            val existingVersionIndexes = if (currentMessage.versionGroup != null) {
+                repository.getMessagesByVersionGroup(sessionId, versionGroup).map { it.versionIndex }
             } else {
-                // 旧消息没有版本组，需要先为其创建版本组
-                val updatedOldMessage = currentMessage.copy(
-                    versionGroup = versionGroup,
-                    versionIndex = 0,
-                    parentUserMessageId = userMessage.id
+                repository.updateMessage(
+                    currentMessage.copy(
+                        versionGroup = versionGroup,
+                        versionIndex = 0,
+                        parentUserMessageId = userMessage.id,
+                    ),
                 )
-                repository.updateMessage(updatedOldMessage)
-                1
+                listOf(0)
             }
-            val newVersionIndex = existingVersions
+            val (newVersionIndex, activePosition) = nextPaintVersion(existingVersionIndexes)
             
             // 创建新的AI消息（占位符）- 使用当前 UI 选择的参数
             val newAssistantMessage = PaintMessage(
@@ -1357,7 +1372,7 @@ class AndroidPaintViewModel(
             // 新消息添加后，它在列表中的位置就是 existingVersions（0-based）
             _uiState.update { 
                 it.copy(
-                    activeVersions = it.activeVersions + (versionGroup to existingVersions)
+                    activeVersions = it.activeVersions + (versionGroup to activePosition)
                 )
             }
             

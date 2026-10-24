@@ -20,6 +20,41 @@ sealed class PaintEvent {
     data object LoadMoreMessages : PaintEvent()
     data class DeleteMessage(val messageId: String) : PaintEvent()
     data class DeleteMessageVersion(val versionGroup: String) : PaintEvent()  // 删除整个版本组
+
+    /**
+     * 删除当前会话中选中的消息。
+     *
+     * 正在生成的消息不会删除。选中某个已完成版本时，同一版本组里其余已完成的版本会一起删除。
+     *
+     * @property messageIds 要删除的消息 ID。
+     */
+    data class DeleteMessages(val messageIds: List<String>) : PaintEvent()
+
+    /**
+     * 把选中的消息移动到另一个会话。
+     *
+     * 正在生成的消息会被忽略。图片文件保留原路径。
+     *
+     * @property messageIds 要移动的消息 ID。
+     * @property targetSessionId 目标会话 ID。
+     */
+    data class MoveMessages(
+        val messageIds: List<String>,
+        val targetSessionId: String,
+    ) : PaintEvent()
+
+    /**
+     * 把选中的消息复制到另一个会话，当前会话中的原消息保留。
+     *
+     * 正在生成的消息会被忽略。副本使用新的消息 ID，图片仍指向原文件。
+     *
+     * @property messageIds 要复制的消息 ID。
+     * @property targetSessionId 目标会话 ID。
+     */
+    data class CopyMessages(
+        val messageIds: List<String>,
+        val targetSessionId: String,
+    ) : PaintEvent()
     data class EditUserMessage(val messageId: String) : PaintEvent()  // 编辑用户消息（回填到输入框）
     data class UpdateImageDimensions(
         val messageId: String,

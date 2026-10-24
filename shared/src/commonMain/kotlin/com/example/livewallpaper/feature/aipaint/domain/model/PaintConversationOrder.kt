@@ -32,6 +32,20 @@ fun List<PaintMessage>.visibleWithActiveVersions(activeVersions: Map<String, Int
 }
 
 /**
+ * 计算重新生成时的下一个版本号，以及它加入后的列表位置。
+ *
+ * 版本号取现有最大版本号再加一，不用剩余条数。
+ * 删掉更早的版本后，新版本仍排在留下来的版本后面。
+ *
+ * @param existingVersionIndexes 版本组里已经存在的版本号。
+ * @return 新版本号，以及它在按版本号排序的列表中的位置。
+ */
+fun nextPaintVersion(existingVersionIndexes: List<Int>): Pair<Int, Int> {
+    val nextIndex = (existingVersionIndexes.maxOrNull() ?: -1) + 1
+    return nextIndex to existingVersionIndexes.size
+}
+
+/**
  * 会话预览图左右切换使用的路径列表。
  *
  * 顺序为消息顺序优先，其次同一消息的版本顺序，最后是该条消息内的图片顺序。

@@ -13,6 +13,8 @@ import com.example.livewallpaper.feature.aipaint.domain.model.GptImageSize
 import com.example.livewallpaper.feature.aipaint.domain.model.GptOutputFormat
 import com.example.livewallpaper.feature.aipaint.domain.model.ImageRequestPayload
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
+import com.example.livewallpaper.feature.aipaint.domain.model.activeVersionsAfterRemoving
+import com.example.livewallpaper.feature.aipaint.domain.model.nextPaintVersion
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageType
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
@@ -38,6 +40,9 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.SelectedImag
 import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhenStorageReadOnly
 import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -151,6 +156,15 @@ class DesktopPaintViewModel(
             PaintEvent.LoadMoreMessages -> Unit
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteMessages -> viewModelScope.launch {
+                _uiState.deleteSelectedMessages(repository, event.messageIds)
+            }
+            is PaintEvent.MoveMessages -> viewModelScope.launch {
+                _uiState.moveSelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
+            is PaintEvent.CopyMessages -> viewModelScope.launch {
+                _uiState.copySelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
             is PaintEvent.EditUserMessage -> editUserMessage(event.messageId)
             is PaintEvent.UpdateImageDimensions -> updateImageDimensions(
                 event.messageId,
@@ -671,12 +685,13 @@ class DesktopPaintViewModel(
             if (currentMessage.senderIdentity != SenderIdentity.ASSISTANT) return@launch
             val userMessage = findParentUserMessage(currentMessage) ?: return@launch
             val versionGroup = currentMessage.versionGroup ?: generateId()
-            val existingVersions = if (currentMessage.versionGroup != null) {
-                repository.getVersionCount(currentMessage.sessionId, versionGroup)
+            val existingVersionIndexes = if (currentMessage.versionGroup != null) {
+                repository.getMessagesByVersionGroup(currentMessage.sessionId, versionGroup).map { it.versionIndex }
             } else {
                 repository.updateMessage(currentMessage.copy(versionGroup = versionGroup, versionIndex = 0))
-                1
+                listOf(0)
             }
+            val (newVersionIndex, activePosition) = nextPaintVersion(existingVersionIndexes)
             val model = state.selectedModel
             val newAssistantMessage = PaintMessage(
                 id = generateId(),
@@ -688,7 +703,7 @@ class DesktopPaintViewModel(
                 status = MessageStatus.GENERATING,
                 parentUserMessageId = userMessage.id,
                 versionGroup = versionGroup,
-                versionIndex = existingVersions,
+                versionIndex = newVersionIndex,
                 generationModel = model,
                 generationAspectRatio = state.selectedAspectRatio,
                 generationResolution = if (model.supportsResolution) state.selectedResolution else null,
@@ -697,7 +712,7 @@ class DesktopPaintViewModel(
                 generationGptFormat = if (model.isGpt) state.selectedGptFormat else null
             )
             repository.addMessage(newAssistantMessage)
-            _uiState.update { it.copy(activeVersions = it.activeVersions + (versionGroup to existingVersions)) }
+            _uiState.update { it.copy(activeVersions = it.activeVersions + (versionGroup to activePosition)) }
             val apiImages = withContext(Dispatchers.IO) {
                 userMessage.images.filter { it.isReference }.mapNotNull { it.asApiReferenceImage() }
             }
@@ -716,6 +731,8 @@ class DesktopPaintViewModel(
     }
 
     private fun deleteMessage(messageId: String) {
+        val message = _uiState.value.messages.find { it.id == messageId } ?: return
+        if (message.status == MessageStatus.GENERATING) return
         viewModelScope.launch {
             repository.deleteMessage(messageId)
         }
@@ -723,10 +740,20 @@ class DesktopPaintViewModel(
 
     private fun deleteMessageVersion(versionGroup: String) {
         viewModelScope.launch {
-            _uiState.value.messages
-                .filter { it.versionGroup == versionGroup }
-                .forEach { repository.deleteMessage(it.id) }
-            _uiState.update { it.copy(activeVersions = it.activeVersions - versionGroup) }
+            val messages = _uiState.value.messages.filter { it.versionGroup == versionGroup }
+            val removing = messages.filter { it.status != MessageStatus.GENERATING }
+            if (removing.isEmpty()) return@launch
+            val removedIds = removing.map { it.id }.toSet()
+            _uiState.update { state ->
+                state.copy(
+                    activeVersions = activeVersionsAfterRemoving(
+                        messages = state.messages,
+                        activeVersions = state.activeVersions,
+                        removedIds = removedIds,
+                    ),
+                )
+            }
+            removing.forEach { repository.deleteMessage(it.id) }
         }
     }
 

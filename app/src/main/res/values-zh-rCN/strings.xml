@@ -71,6 +71,9 @@
     <string name="compare_remove_from_compare">移出对比</string>
     <string name="compare_button_label">对比</string>
     <string name="compare_hint_long_press">长按隐藏上层图片</string>
+    <string name="compare_pick_hint">点序号打开预览，再选择作为上层或下层</string>
+    <string name="compare_set_bottom">作为下层</string>
+    <string name="compare_set_top">作为上层</string>
     <string name="compare_image_top">上层</string>
     <string name="compare_image_bottom">下层</string>
     <string name="compare_swap">交换</string>
@@ -80,6 +83,7 @@
     <string name="compare_added">已加入对比（%1$d/2）</string>
     <string name="compare_list_full">对比列表已满，请先移除一张</string>
     <string name="compare_selected_count">已选择 %1$d 张图片</string>
+    <string name="message_selected_count">已选择 %1$d 条消息</string>
     
     <!-- 空状态 -->
     <string name="no_images">还没有图片</string>
@@ -232,6 +236,7 @@
     <string name="paint_status_failed">生成失败</string>
     <string name="paint_status_cancelled">已取消</string>
     <string name="paint_status_time">%1$s · %2$s</string>
+    <string name="paint_status_time_size">%1$s · %2$s · %3$s</string>
     <string name="paint_time_format_seconds">%1$d秒</string>
     <string name="paint_time_format_minutes">%1$d分%2$d秒</string>
     
@@ -241,10 +246,22 @@
     <string name="message_delete">删除</string>
     <string name="message_delete_title">删除消息</string>
     <string name="message_delete_confirm">确定要删除这条消息吗？</string>
+    <string name="message_delete_selected_confirm">确定删除选中的 %1$d 条消息吗？同一条回复的全部版本会一起删除。</string>
+    <string name="message_copy_to_session_hint">选中的消息会复制到下面的会话，当前会话仍保留原文。同一条回复的全部版本会一起复制，并按原来的时间顺序插入。</string>
+    <string name="message_transfer_hint">选中的消息会移到下面的会话，并从当前会话移除。同一条回复的全部版本会一起转移，并按原来的时间顺序插入。</string>
+    <string name="message_generating_cannot_copy">同一条回复正在生成，不能复制</string>
+    <string name="message_generating_cannot_transfer">同一条回复正在生成，不能转移</string>
+    <string name="message_generating_cannot_delete">同一条回复正在生成，不能删除</string>
     <string name="message_delete_version_hint">此消息有多个版本，请选择删除方式</string>
     <string name="message_delete_current_version">删除当前版本</string>
     <string name="message_delete_all_versions">删除全部版本</string>
     <string name="message_copied">已复制到剪贴板</string>
+    <string name="message_transfer">转移</string>
+    <string name="message_copy_to_session_title">复制到会话</string>
+    <string name="message_copied_to_session">已复制到所选会话</string>
+    <string name="message_transfer_title">转移到会话</string>
+    <string name="message_transfer_empty">没有其他会话</string>
+    <string name="message_transferred">已转移到所选会话</string>
     <string name="message_regenerate">重新生成</string>
     <string name="message_download">下载</string>
     <string name="message_version_previous">上一版本</string>

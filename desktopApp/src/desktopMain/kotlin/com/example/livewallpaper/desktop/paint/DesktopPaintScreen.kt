@@ -136,6 +136,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
@@ -165,6 +166,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.GptImageSize
 import com.example.livewallpaper.feature.aipaint.domain.model.GptOutputFormat
 import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintImage
+import com.example.livewallpaper.feature.aipaint.domain.model.paintImageSizeSummary
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintModel
@@ -173,6 +175,9 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageState
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
 import com.example.livewallpaper.feature.aipaint.domain.model.conversationPreviewImagePaths
+import com.example.livewallpaper.feature.aipaint.domain.model.movableSelectedMessages
+import com.example.livewallpaper.feature.aipaint.domain.model.selectedComparePlan
+import com.example.livewallpaper.feature.aipaint.domain.model.selectionTouchesGenerating
 import com.example.livewallpaper.feature.aipaint.domain.model.visibleWithActiveVersions
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
@@ -278,14 +283,16 @@ fun AiPaintWorkspace(
     var previewState by remember { mutableStateOf<DesktopImagePreviewState?>(null) }
     var previewRequestId by remember { mutableStateOf(0) }
     var editImagePath by remember { mutableStateOf<String?>(null) }
-    var compareSelectedPaths by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedMessageIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var showComparePreview by remember { mutableStateOf(false) }
     var comparePreviewRequestId by remember { mutableStateOf(0) }
+    var messagePlacement by remember { mutableStateOf<DesktopMessagePlacement?>(null) }
+    var showDeleteSelection by remember { mutableStateOf(false) }
+    var feedbackMessage by remember { mutableStateOf<String?>(null) }
+    var feedbackSerial by remember { mutableStateOf(0) }
     var lastRenderedSessionId by remember { mutableStateOf<String?>(null) }
     var lastAutoScrollKey by remember { mutableStateOf<String?>(null) }
     var lastFollowedMessageId by remember { mutableStateOf<String?>(null) }
-    var showCopyFeedback by remember { mutableStateOf(false) }
-    var copyFeedbackSerial by remember { mutableStateOf(0) }
     var pendingJumpMessageId by remember { mutableStateOf<String?>(null) }
     // 会话内搜索：结果面板是否展开（输入时展开，点击结果或步进后收起）
     val messageSearch = uiState.messageSearch
@@ -294,16 +301,50 @@ fun AiPaintWorkspace(
         if (messageSearch.isActive) showSearchResults = true
     }
 
+    val comparePlan = remember(uiState.messages, selectedMessageIds) {
+        selectedComparePlan(uiState.messages, selectedMessageIds)
+    }
+    val selectionBlockedByGenerating = remember(
+        uiState.messages,
+        currentSessionId,
+        selectedMessageIds,
+    ) {
+        currentSessionId != null &&
+            uiState.messages.selectionTouchesGenerating(selectedMessageIds, currentSessionId)
+    }
+    val canPlaceMessages = remember(
+        uiState.messages,
+        uiState.sessions,
+        currentSessionId,
+        selectedMessageIds,
+    ) {
+        currentSessionId != null &&
+            uiState.sessions.any { session -> session.id != currentSessionId } &&
+            uiState.messages.movableSelectedMessages(selectedMessageIds, currentSessionId).isNotEmpty()
+    }
+
+    fun showFeedback(text: String) {
+        feedbackMessage = text
+        feedbackSerial += 1
+    }
+
     fun copyWithFeedback(text: String) {
         copyToClipboard(text)
-        showCopyFeedback = true
-        copyFeedbackSerial += 1
+        showFeedback(strings.paintCopied)
     }
 
     fun copyImageWithFeedback(path: String) {
         if (copyImageToClipboard(path)) {
-            showCopyFeedback = true
-            copyFeedbackSerial += 1
+            showFeedback(strings.paintCopied)
+        }
+    }
+
+    fun toggleMessageSelection(messageId: String) {
+        if (uiState.messages.none { it.id == messageId }) return
+        selectedMessageIds = if (messageId in selectedMessageIds) {
+            selectedMessageIds - messageId
+        } else {
+            selectedMessageIds + messageId
         }
     }
 
@@ -328,16 +369,6 @@ fun AiPaintWorkspace(
 
     fun showReferenceImagePreview(paths: List<String>, initialIndex: Int) {
         showImagePreview(paths, initialIndex, DesktopImagePreviewSource.Reference)
-    }
-
-    fun toggleComparePath(path: String) {
-        val file = localImageFile(path)?.takeIf { it.isFile } ?: return
-        val normalizedPath = file.absolutePath
-        compareSelectedPaths = if (compareSelectedPaths.contains(normalizedPath)) {
-            compareSelectedPaths - normalizedPath
-        } else {
-            compareSelectedPaths + normalizedPath
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -409,14 +440,20 @@ fun AiPaintWorkspace(
             }
         }
     }
-    LaunchedEffect(copyFeedbackSerial) {
-        if (copyFeedbackSerial > 0) {
+    LaunchedEffect(feedbackSerial) {
+        if (feedbackSerial > 0) {
             delay(1400)
-            showCopyFeedback = false
+            feedbackMessage = null
         }
     }
-    LaunchedEffect(compareSelectedPaths.size) {
-        if (compareSelectedPaths.size != 2) {
+    LaunchedEffect(currentSessionId) {
+        selectedMessageIds = emptyList()
+        showComparePreview = false
+        messagePlacement = null
+        showDeleteSelection = false
+    }
+    LaunchedEffect(comparePlan) {
+        if (comparePlan == null) {
             showComparePreview = false
         }
     }
@@ -465,11 +502,60 @@ fun AiPaintWorkspace(
             },
         )
     }
-    if (showComparePreview && compareSelectedPaths.size == 2) {
-        PaintImageCompareDialog(
-            paths = compareSelectedPaths,
-            requestId = comparePreviewRequestId,
-            onDismiss = { showComparePreview = false },
+    comparePlan?.let { plan ->
+        if (showComparePreview) {
+            PaintImageCompareDialog(
+                paths = plan.paths,
+                initialBottomIndex = plan.bottomIndex,
+                initialTopIndex = plan.topIndex,
+                requestId = comparePreviewRequestId,
+                onDismiss = { showComparePreview = false },
+            )
+        }
+    }
+    messagePlacement?.let { placement ->
+        val copying = placement == DesktopMessagePlacement.Copy
+        TransferMessagesDialog(
+            title = if (copying) strings.paintCopyMessagesTitle else strings.paintTransferMessagesTitle,
+            description = if (copying) strings.paintCopyMessagesHint else strings.paintTransferMessagesHint,
+            sessions = uiState.sessions,
+            currentSessionId = currentSessionId,
+            onDismiss = { messagePlacement = null },
+            onSelect = { sessionId ->
+                val event = if (copying) {
+                    PaintEvent.CopyMessages(selectedMessageIds, sessionId)
+                } else {
+                    PaintEvent.MoveMessages(selectedMessageIds, sessionId)
+                }
+                viewModel.onEvent(event)
+                selectedMessageIds = emptyList()
+                messagePlacement = null
+                showDeleteSelection = false
+                showFeedback(if (copying) strings.paintMessagesCopied else strings.paintMessagesTransferred)
+            },
+        )
+    }
+    if (showDeleteSelection) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelection = false },
+            title = { Text(strings.paintDeleteMessageTitle) },
+            text = { Text(strings.paintDeleteSelectedMessages(selectedMessageIds.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.onEvent(PaintEvent.DeleteMessages(selectedMessageIds))
+                        selectedMessageIds = emptyList()
+                        showDeleteSelection = false
+                    },
+                ) {
+                    Text(strings.paintDeleteMessage, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelection = false }) {
+                    Text(strings.cancel)
+                }
+            },
         )
     }
 
@@ -628,10 +714,11 @@ fun AiPaintWorkspace(
                                 uiState = uiState,
                                 isSearchHighlighted = message.id == messageSearch.highlightedMessageId,
                                 conversationPreviewPaths = conversationPreviewPaths,
-                                compareSelectedPaths = compareSelectedPaths,
-                                imageSelectionMode = compareSelectedPaths.isNotEmpty(),
+                                messageSelectionMode = selectedMessageIds.isNotEmpty(),
+                                messageSelected = message.id in selectedMessageIds,
+                                selectionIndex = selectedMessageIds.indexOf(message.id),
+                                onToggleMessageSelection = { toggleMessageSelection(message.id) },
                                 onPreviewImage = ::showConversationImagePreview,
-                                onToggleCompare = ::toggleComparePath,
                                 onAddToWallpapers = { path -> onAddImagesToWallpapers(listOf(path)) },
                                 onAddImages = { images ->
                                     val remaining = uiState.selectedModel.maxImages - uiState.selectedImages.size
@@ -788,31 +875,54 @@ fun AiPaintWorkspace(
                 )
             }
         }
-        if (showCopyFeedback) {
+        if (feedbackMessage != null) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 116.dp),
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f),
             ) {
                 Text(
-                    text = strings.paintCopied,
+                    text = feedbackMessage.orEmpty(),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.inverseOnSurface,
                 )
             }
         }
-        if (compareSelectedPaths.isNotEmpty()) {
-            CompareSelectionBar(
-                selectedCount = compareSelectedPaths.size,
+        if (selectedMessageIds.isNotEmpty()) {
+            MessageSelectionBar(
+                selectedCount = selectedMessageIds.size,
+                canCompare = comparePlan != null,
+                canPlace = canPlaceMessages || selectionBlockedByGenerating,
                 onClear = {
-                    compareSelectedPaths = emptyList()
+                    selectedMessageIds = emptyList()
                     showComparePreview = false
+                    messagePlacement = null
+                    showDeleteSelection = false
                 },
                 onCompare = {
-                    if (compareSelectedPaths.size == 2) {
-                        comparePreviewRequestId += 1
-                        showComparePreview = true
+                    comparePreviewRequestId += 1
+                    showComparePreview = true
+                },
+                onCopy = {
+                    if (selectionBlockedByGenerating) {
+                        showFeedback(strings.paintGeneratingCannotCopy)
+                    } else {
+                        messagePlacement = DesktopMessagePlacement.Copy
+                    }
+                },
+                onTransfer = {
+                    if (selectionBlockedByGenerating) {
+                        showFeedback(strings.paintGeneratingCannotTransfer)
+                    } else {
+                        messagePlacement = DesktopMessagePlacement.Move
+                    }
+                },
+                onDelete = {
+                    if (selectionBlockedByGenerating) {
+                        showFeedback(strings.paintGeneratingCannotDelete)
+                    } else {
+                        showDeleteSelection = true
                     }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 118.dp),
@@ -856,10 +966,15 @@ private fun ScrollToLatestButton(
 }
 
 @Composable
-private fun CompareSelectionBar(
+private fun MessageSelectionBar(
     selectedCount: Int,
+    canCompare: Boolean,
+    canPlace: Boolean,
     onClear: () -> Unit,
     onCompare: () -> Unit,
+    onCopy: () -> Unit,
+    onTransfer: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalDesktopStrings.current
@@ -874,16 +989,10 @@ private fun CompareSelectionBar(
         Row(
             modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = AppIcons.visibility,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
             Text(
-                text = strings.paintCompareSelectedCount(selectedCount),
+                text = strings.paintMessageSelectedCount(selectedCount),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -892,13 +1001,146 @@ private fun CompareSelectionBar(
             }
             Button(
                 onClick = onCompare,
-                enabled = selectedCount == 2,
+                enabled = canCompare,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text(strings.paintImageCompare)
             }
+            Button(
+                onClick = onCopy,
+                enabled = canPlace,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(strings.paintCopyMessage)
+            }
+            Button(
+                onClick = onTransfer,
+                enabled = canPlace,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(strings.paintTransferMessages)
+            }
+            TextButton(onClick = onDelete) {
+                Text(strings.paintDeleteMessage, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
+}
+
+private enum class DesktopMessagePlacement {
+    Copy,
+    Move,
+}
+
+/**
+ * 消息多选的序号标记。
+ */
+@Composable
+private fun DesktopMessageSelectionMark(
+    selected: Boolean,
+    order: Int,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                CircleShape,
+            )
+            .border(
+                width = 1.5.dp,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                },
+                shape = CircleShape,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected && order >= 0) {
+            Text(
+                text = (order + 1).toString(),
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+/**
+ * 选择要把消息复制或转移到的其他会话。
+ *
+ * @param title 对话框标题，区分复制和转移。
+ * @param description 操作说明，展示在会话列表上方。
+ * @param sessions 全部会话，当前会话会被排除。
+ * @param currentSessionId 当前会话 ID。
+ * @param onDismiss 关闭对话框。
+ * @param onSelect 选中目标会话。
+ */
+@Composable
+private fun TransferMessagesDialog(
+    title: String,
+    description: String,
+    sessions: List<PaintSession>,
+    currentSessionId: String?,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val strings = LocalDesktopStrings.current
+    val targets = sessions.filter { it.id != currentSessionId }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (targets.isEmpty()) {
+                    Text(strings.paintTransferNoSession)
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 280.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        targets.forEach { session ->
+                            Text(
+                                text = session.title.ifBlank { strings.paintNewSession },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onSelect(session.id) },
+                                    )
+                                    .padding(vertical = 12.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.cancel)
+            }
+        },
+    )
 }
 
 @Composable
@@ -1377,15 +1619,17 @@ private fun GenerationTaskMenuItem(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun PaintMessageRow(
     message: PaintMessage,
     uiState: PaintUiState,
     isSearchHighlighted: Boolean,
     conversationPreviewPaths: List<String>,
-    compareSelectedPaths: List<String>,
-    imageSelectionMode: Boolean,
+    messageSelectionMode: Boolean,
+    messageSelected: Boolean,
+    selectionIndex: Int,
     onPreviewImage: (List<String>, Int) -> Unit,
-    onToggleCompare: (String) -> Unit,
+    onToggleMessageSelection: () -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onAddImages: (List<PaintImage>) -> Unit,
     onSetWallpaper: (String) -> Unit,
@@ -1416,6 +1660,13 @@ private fun PaintMessageRow(
     }
     val durationMillis = messageDurationMillis(message)
     val durationText = formatDuration(durationMillis)
+    val imageSizeSummary = rememberPaintImageSizeSummary(
+        images = if (!isUser && message.status != MessageStatus.GENERATING) {
+            message.images
+        } else {
+            emptyList()
+        },
+    )
     val timeText = remember(message.createdAt) { formatMessageTime(message.createdAt) }
     val bubbleShape = RoundedCornerShape(
         topStart = 16.dp,
@@ -1450,6 +1701,19 @@ private fun PaintMessageRow(
         )
     }
 
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (messageSelectionMode) {
+            DesktopMessageSelectionMark(
+                selected = messageSelected,
+                order = selectionIndex,
+                onClick = onToggleMessageSelection,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+        }
+        Box(modifier = Modifier.weight(1f)) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
@@ -1462,15 +1726,26 @@ private fun PaintMessageRow(
         )
         // 搜索定位到的消息用主题色描边 + 淡色底突出显示
         Surface(
-            modifier = Modifier.widthIn(max = if (isUser) 520.dp else 760.dp),
+            modifier = Modifier
+                .widthIn(max = if (isUser) 520.dp else 760.dp)
+                .onPointerEvent(PointerEventType.Press) { event ->
+                    if (event.button != PointerButton.Secondary) return@onPointerEvent
+                    if (event.changes.any { it.isConsumed }) return@onPointerEvent
+                    onToggleMessageSelection()
+                },
             shape = bubbleShape,
             color = when {
-                isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
+                messageSelected || isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
                 isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                 else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
             },
-            border = if (isSearchHighlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            border = if (messageSelected || isSearchHighlighted) {
+                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            } else {
+                null
+            },
         ) {
+            Box {
             Column(
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1508,13 +1783,10 @@ private fun PaintMessageRow(
                                 image = image,
                                 previewPaths = conversationPreviewPaths,
                                 previewIndex = previewIndex,
-                                compareSelected = image.localPath
-                                    ?.let(::localImageFile)
-                                    ?.absolutePath
-                                    ?.let(compareSelectedPaths::contains) == true,
-                                imageSelectionMode = imageSelectionMode,
+                                messageSelected = messageSelected,
+                                messageSelectionMode = messageSelectionMode,
                                 onPreviewImage = onPreviewImage,
-                                onToggleCompare = onToggleCompare,
+                                onToggleMessageSelection = onToggleMessageSelection,
                                 onAddToWallpapers = onAddToWallpapers,
                                 onSetWallpaper = onSetWallpaper,
                                 onCopyText = onCopyText,
@@ -1531,8 +1803,14 @@ private fun PaintMessageRow(
                     )
                 }
                 if (!isUser && message.status != MessageStatus.GENERATING) {
+                    val statusLabel = message.status.localizedStatus(strings)
+                    val statusText = if (imageSizeSummary.isNullOrEmpty()) {
+                        strings.paintStatusTime(statusLabel, durationText)
+                    } else {
+                        strings.paintStatusTimeSize(statusLabel, durationText, imageSizeSummary)
+                    }
                     StatusText(
-                        text = strings.paintStatusTime(message.status.localizedStatus(strings), durationText),
+                        text = statusText,
                         color = if (message.status == MessageStatus.ERROR) {
                             MaterialTheme.colorScheme.error
                         } else {
@@ -1544,16 +1822,28 @@ private fun PaintMessageRow(
                     GenerationParamsBadge(message)
                 }
             }
+            if (messageSelectionMode) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onToggleMessageSelection,
+                        ),
+                )
+            }
+            }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        if (isUser) {
+        if (!messageSelectionMode && isUser) {
             UserMessageActions(
                 message = message,
                 onCopy = { onCopyText(message.messageContent) },
                 onEdit = onEdit,
                 onDelete = { showDeleteConfirm = true },
             )
-        } else {
+        } else if (!messageSelectionMode) {
             AssistantMessageActions(
                 message = message,
                 versions = versions,
@@ -1564,10 +1854,14 @@ private fun PaintMessageRow(
                 onRegenerate = onRegenerate,
                 onDownload = { message.images.firstOrNull()?.localPath?.let { saveImageAs(it, strings.paintSaveAs) } },
                 onDelete = {
-                    if (versions.size > 1) showDeleteOptions = true else showDeleteConfirm = true
+                    if (message.status != MessageStatus.GENERATING) {
+                        if (versions.size > 1) showDeleteOptions = true else showDeleteConfirm = true
+                    }
                 },
                 onSwitchVersion = onSwitchVersion,
             )
+        }
+    }
         }
     }
 }
@@ -1617,6 +1911,7 @@ private fun AssistantMessageActions(
         MessageIconButton(
             icon = AppIcons.delete,
             label = strings.paintDeleteMessage,
+            enabled = message.status != MessageStatus.GENERATING,
             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
             onClick = onDelete,
         )
@@ -1839,10 +2134,10 @@ private fun PaintImageThumb(
     image: PaintImage,
     previewPaths: List<String>,
     previewIndex: Int,
-    compareSelected: Boolean,
-    imageSelectionMode: Boolean,
+    messageSelected: Boolean,
+    messageSelectionMode: Boolean,
     onPreviewImage: (List<String>, Int) -> Unit,
-    onToggleCompare: (String) -> Unit,
+    onToggleMessageSelection: () -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
@@ -1865,30 +2160,9 @@ private fun PaintImageThumb(
                 },
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-            border = if (compareSelected) {
-                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-            } else {
-                null
-            },
         ) {
             if (path != null) {
                 FileImage(path, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-            }
-        }
-        if (compareSelected) {
-            Surface(
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = AppIcons.check,
-                        contentDescription = LocalDesktopStrings.current.selected,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                    )
-                }
             }
         }
         if (path != null) {
@@ -1901,6 +2175,7 @@ private fun PaintImageThumb(
                     }
                     .onPointerEvent(PointerEventType.Press) { event ->
                         if (event.button == PointerButton.Secondary) {
+                            event.changes.forEach { it.consume() }
                             val pointerPosition = event.changes.firstOrNull()?.position
                             if (pointerPosition != null) {
                                 menuPosition = IntOffset(
@@ -1915,8 +2190,8 @@ private fun PaintImageThumb(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {
-                            if (imageSelectionMode || compareSelected) {
-                                onToggleCompare(path)
+                            if (messageSelectionMode) {
+                                onToggleMessageSelection()
                                 return@clickable
                             }
                             if (previewIndex >= 0) {
@@ -1932,8 +2207,8 @@ private fun PaintImageThumb(
                 position = menuPosition,
                 onDismiss = { menuExpanded = false },
                 path = path,
-                compareSelected = compareSelected,
-                onToggleCompare = onToggleCompare,
+                messageSelected = messageSelected,
+                onToggleMessageSelection = onToggleMessageSelection,
                 onAddToWallpapers = onAddToWallpapers,
                 onSetWallpaper = onSetWallpaper,
                 onCopyText = onCopyText,
@@ -1950,8 +2225,8 @@ private fun ImageActionMenu(
     position: IntOffset,
     onDismiss: () -> Unit,
     path: String,
-    compareSelected: Boolean,
-    onToggleCompare: (String) -> Unit,
+    messageSelected: Boolean,
+    onToggleMessageSelection: () -> Unit,
     onAddToWallpapers: (String) -> Unit,
     onSetWallpaper: (String) -> Unit,
     onCopyText: (String) -> Unit,
@@ -1990,10 +2265,10 @@ private fun ImageActionMenu(
                     saveImageAs(path, strings.paintSaveAs)
                 }
                 ImageActionMenuItem(
-                    if (compareSelected) strings.paintRemoveFromCompare else strings.paintAddToCompare
+                    if (messageSelected) strings.paintRemoveFromCompare else strings.paintAddToCompare
                 ) {
                     onDismiss()
-                    onToggleCompare(path)
+                    onToggleMessageSelection()
                 }
                 ImageActionMenuItem(strings.paintAddToWallpaper) {
                     onDismiss()
@@ -4568,6 +4843,8 @@ private sealed class DesktopEditOperation {
 @OptIn(ExperimentalComposeUiApi::class)
 private fun PaintImageCompareDialog(
     paths: List<String>,
+    initialBottomIndex: Int,
+    initialTopIndex: Int,
     requestId: Int,
     onDismiss: () -> Unit,
 ) {
@@ -4576,9 +4853,15 @@ private fun PaintImageCompareDialog(
         onDismiss()
         return
     }
-
-    val bottomPath = paths[0]
-    val topPath = paths[1]
+    var bottomIndex by remember(paths, initialBottomIndex, initialTopIndex) {
+        mutableStateOf(initialBottomIndex.coerceIn(0, paths.lastIndex))
+    }
+    var topIndex by remember(paths, initialBottomIndex, initialTopIndex) {
+        mutableStateOf(initialTopIndex.coerceIn(0, paths.lastIndex))
+    }
+    var pickingBottom by remember(paths) { mutableStateOf<Boolean?>(null) }
+    val bottomPath = paths[bottomIndex]
+    val topPath = paths[topIndex]
     val bottomState by produceState<ImageLoadState>(initialValue = ImageLoadState.Loading, bottomPath) {
         value = ImageLoadState.Loading
         value = withContext(Dispatchers.IO) {
@@ -4596,8 +4879,8 @@ private fun PaintImageCompareDialog(
     var showControls by remember { mutableStateOf(true) }
     var hideTop by remember { mutableStateOf(false) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
-    var previewScale by remember(paths) { mutableStateOf(1f) }
-    var previewOffset by remember(paths) { mutableStateOf(Offset.Zero) }
+    var previewScale by remember(bottomPath, topPath) { mutableStateOf(1f) }
+    var previewOffset by remember(bottomPath, topPath) { mutableStateOf(Offset.Zero) }
     var previewViewportSize by remember(paths) { mutableStateOf(IntSize.Zero) }
 
     fun applyPreviewTransform(scale: Float, offset: Offset = previewOffset) {
@@ -4640,7 +4923,7 @@ private fun PaintImageCompareDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 24.dp, end = 24.dp, top = 76.dp, bottom = 120.dp)
+                        .padding(start = 24.dp, end = 24.dp, top = 76.dp, bottom = 140.dp)
                         .onPointerEvent(PointerEventType.Scroll) { event ->
                             val scrollDelta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
                             if (scrollDelta != 0f) {
@@ -4765,6 +5048,33 @@ private fun PaintImageCompareDialog(
                                 color = Color.White.copy(alpha = 0.82f),
                             )
                         }
+                        if (pickingBottom != null) {
+                            DesktopComparePreviewMenu(
+                                paths = paths,
+                                onPick = { index ->
+                                    val assigned = assignCompareSelection(
+                                        index = index,
+                                        asBottom = pickingBottom == true,
+                                        bottomIndex = bottomIndex,
+                                        topIndex = topIndex,
+                                    )
+                                    bottomIndex = assigned.first
+                                    topIndex = assigned.second
+                                    pickingBottom = null
+                                },
+                            )
+                        }
+                        DesktopComparePairControl(
+                            bottomNumber = bottomIndex + 1,
+                            topNumber = topIndex + 1,
+                            pickingBottom = pickingBottom,
+                            onPickBottom = {
+                                pickingBottom = if (pickingBottom == true) null else true
+                            },
+                            onPickTop = {
+                                pickingBottom = if (pickingBottom == false) null else false
+                            },
+                        )
                         Text(
                             text = "${(previewScale * 100).roundToInt()}%",
                             style = MaterialTheme.typography.labelMedium,
@@ -4775,6 +5085,103 @@ private fun PaintImageCompareDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DesktopComparePairControl(
+    bottomNumber: Int,
+    topNumber: Int,
+    pickingBottom: Boolean?,
+    onPickBottom: () -> Unit,
+    onPickTop: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DesktopComparePairSide("<$bottomNumber", pickingBottom == true, onPickBottom)
+        Text(
+            text = "|",
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 14.sp,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        DesktopComparePairSide("$topNumber>", pickingBottom == false, onPickTop)
+    }
+}
+
+@Composable
+private fun DesktopComparePairSide(
+    text: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun DesktopComparePreviewMenu(
+    paths: List<String>,
+    onPick: (Int) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.72f))
+            .padding(vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(paths, key = { index, path -> "$index-$path" }) { index, path ->
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onPick(index) },
+            ) {
+                FileImage(path = path, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Text(
+                    text = (index + 1).toString(),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun assignCompareSelection(
+    index: Int,
+    asBottom: Boolean,
+    bottomIndex: Int,
+    topIndex: Int,
+): Pair<Int, Int> {
+    return if (asBottom) {
+        if (index == topIndex) topIndex to bottomIndex else index to topIndex
+    } else if (index == bottomIndex) {
+        topIndex to bottomIndex
+    } else {
+        bottomIndex to index
     }
 }
 
@@ -4878,6 +5285,35 @@ private fun GeneratingBlock(
             }
         }
     }
+}
+
+/**
+ * 读取生成图片的文件大小，并和像素尺寸合成气泡信息。
+ *
+ * 尺寸可以立刻显示。文件大小在后台读取，避免在组合阶段访问磁盘。
+ */
+@Composable
+private fun rememberPaintImageSizeSummary(images: List<PaintImage>): String? {
+    val signature = images.joinToString(separator = "|") { image ->
+        "${image.id}:${image.width}:${image.height}:${image.localPath}"
+    }
+    var summary by remember(signature) { mutableStateOf(paintImageSizeSummary(images)) }
+    LaunchedEffect(signature) {
+        if (images.isEmpty()) {
+            summary = null
+            return@LaunchedEffect
+        }
+        val bytes = withContext(Dispatchers.IO) {
+            images.mapNotNull { image ->
+                val path = image.localPath ?: return@mapNotNull null
+                val length = localImageFile(path)?.takeIf { file -> file.isFile }?.length()
+                    ?.takeIf { it > 0L } ?: return@mapNotNull null
+                image.id to length
+            }.toMap()
+        }
+        summary = paintImageSizeSummary(images, bytes)
+    }
+    return summary
 }
 
 @Composable

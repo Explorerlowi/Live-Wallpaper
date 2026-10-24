@@ -30,8 +30,8 @@ interface PaintConversationDataSource {
     /** Adds a message and its image metadata. */
     suspend fun addMessage(message: PaintMessage)
 
-    /** Replaces a message and its image metadata. */
-    suspend fun updateMessage(message: PaintMessage)
+    /** Replaces a message and its image metadata. [touchUpdatedAt] 为 false 时保留原完成时间。 */
+    suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean = true)
 
     /** Deletes one message by stable ID. */
     suspend fun deleteMessage(messageId: String)

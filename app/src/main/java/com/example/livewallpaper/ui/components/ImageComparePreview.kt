@@ -21,14 +21,24 @@ import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,7 +46,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,23 +85,30 @@ import kotlin.math.abs
  * 图片对比预览对话框
  *
  * 两张图片重叠显示，长按隐藏上层图片以查看下层图片。
- * 支持双指缩放、拖动和双击缩放，风格与 [ImagePreviewDialog] 保持一致。
+ * 底部只有一个小的 <1|2>。点左侧或右侧序号时，再弹出预览来切换这一侧。
  *
- * @param topImage 上层图片（默认显示）
- * @param bottomImage 下层图片（长按时显示）
- * @param onDismiss 关闭回调
- * @param onSwap 交换上下层回调
+ * @param paths 可选图片，按消息选择顺序排列。
+ * @param initialBottomIndex 初始下层在 [paths] 中的位置。
+ * @param initialTopIndex 初始上层在 [paths] 中的位置。
+ * @param onDismiss 关闭回调。
  */
 @Composable
 fun ImageComparePreviewDialog(
-    topImage: ImageSource,
-    bottomImage: ImageSource,
+    paths: List<String>,
+    initialBottomIndex: Int,
+    initialTopIndex: Int,
     onDismiss: () -> Unit
 ) {
-    // 控制 UI 元素的显示/隐藏
+    if (paths.size < 2) return
     var showControls by remember { mutableStateOf(true) }
-    // 长按时隐藏上层图片
     var hideTopImage by remember { mutableStateOf(false) }
+    var bottomIndex by remember(paths, initialBottomIndex, initialTopIndex) {
+        mutableIntStateOf(initialBottomIndex.coerceIn(0, paths.lastIndex))
+    }
+    var topIndex by remember(paths, initialBottomIndex, initialTopIndex) {
+        mutableIntStateOf(initialTopIndex.coerceIn(0, paths.lastIndex))
+    }
+    var pickingBottom by remember(paths) { mutableStateOf<Boolean?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -104,17 +123,17 @@ fun ImageComparePreviewDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.95f))
         ) {
-            // 图片对比区域
-            CompareImageContent(
-                topImage = topImage,
-                bottomImage = bottomImage,
-                hideTopImage = hideTopImage,
-                onTap = { showControls = !showControls },
-                onLongPressStart = { hideTopImage = true },
-                onLongPressEnd = { hideTopImage = false }
-            )
+            key(paths[bottomIndex], paths[topIndex]) {
+                CompareImageContent(
+                    topImage = ImageSource.StringSource(paths[topIndex]),
+                    bottomImage = ImageSource.StringSource(paths[bottomIndex]),
+                    hideTopImage = hideTopImage,
+                    onTap = { showControls = !showControls },
+                    onLongPressStart = { hideTopImage = true },
+                    onLongPressEnd = { hideTopImage = false }
+                )
+            }
 
-            // 顶部控制栏
             AnimatedVisibility(
                 visible = showControls,
                 enter = fadeIn(tween(200)),
@@ -127,7 +146,6 @@ fun ImageComparePreviewDialog(
                         .statusBarsPadding()
                         .padding(horizontal = 4.dp, vertical = 4.dp)
                 ) {
-                    // 中间标题
                     Text(
                         text = stringResource(R.string.compare_preview_title),
                         color = Color.White,
@@ -136,8 +154,6 @@ fun ImageComparePreviewDialog(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.align(Alignment.Center)
                     )
-
-                    // 右侧关闭按钮
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier.align(Alignment.CenterEnd)
@@ -152,38 +168,188 @@ fun ImageComparePreviewDialog(
                 }
             }
 
-            // 底部区域
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // 长按提示标签
                 AnimatedVisibility(
                     visible = showControls,
                     enter = fadeIn(tween(200)),
                     exit = fadeOut(tween(200))
                 ) {
-                    Text(
-                        text = if (hideTopImage) {
-                            stringResource(R.string.compare_image_bottom)
-                        } else {
-                            stringResource(R.string.compare_hint_long_press)
-                        },
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .background(
-                                Color.Black.copy(alpha = 0.4f),
-                                RoundedCornerShape(16.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = if (hideTopImage) {
+                                stringResource(R.string.compare_image_bottom)
+                            } else {
+                                stringResource(R.string.compare_hint_long_press)
+                            },
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier
+                                .background(
+                                    Color.Black.copy(alpha = 0.4f),
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                        if (pickingBottom != null) {
+                            ComparePreviewMenu(
+                                paths = paths,
+                                onPick = { index ->
+                                    assignCompareLayer(
+                                        index = index,
+                                        asBottom = pickingBottom == true,
+                                        bottomIndex = bottomIndex,
+                                        topIndex = topIndex,
+                                        onBottom = { bottomIndex = it },
+                                        onTop = { topIndex = it },
+                                    )
+                                    pickingBottom = null
+                                },
                             )
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
+                        }
+                        ComparePairControl(
+                            bottomNumber = bottomIndex + 1,
+                            topNumber = topIndex + 1,
+                            pickingBottom = pickingBottom,
+                            onPickBottom = {
+                                pickingBottom = if (pickingBottom == true) null else true
+                            },
+                            onPickTop = {
+                                pickingBottom = if (pickingBottom == false) null else false
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ComparePairControl(
+    bottomNumber: Int,
+    topNumber: Int,
+    pickingBottom: Boolean?,
+    onPickBottom: () -> Unit,
+    onPickTop: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ComparePairSide(
+            text = "<$bottomNumber",
+            active = pickingBottom == true,
+            onClick = onPickBottom,
+        )
+        Text(
+            text = "|",
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 14.sp,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        ComparePairSide(
+            text = "$topNumber>",
+            active = pickingBottom == false,
+            onClick = onPickTop,
+        )
+    }
+}
+
+@Composable
+private fun ComparePairSide(
+    text: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun ComparePreviewMenu(
+    paths: List<String>,
+    onPick: (Int) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.72f))
+            .padding(vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(paths, key = { index, path -> "$index-$path" }) { index, path ->
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onPick(index) },
+            ) {
+                Image(
+                    painter = rememberAsyncImagePainter(path),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Text(
+                    text = (index + 1).toString(),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun assignCompareLayer(
+    index: Int,
+    asBottom: Boolean,
+    bottomIndex: Int,
+    topIndex: Int,
+    onBottom: (Int) -> Unit,
+    onTop: (Int) -> Unit,
+) {
+    if (asBottom) {
+        if (index == topIndex) {
+            onBottom(topIndex)
+            onTop(bottomIndex)
+        } else {
+            onBottom(index)
+        }
+    } else if (index == bottomIndex) {
+        onTop(bottomIndex)
+        onBottom(topIndex)
+    } else {
+        onTop(index)
     }
 }
 

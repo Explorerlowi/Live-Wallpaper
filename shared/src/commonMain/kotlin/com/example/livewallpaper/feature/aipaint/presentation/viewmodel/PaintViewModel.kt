@@ -134,6 +134,15 @@ class PaintViewModel(
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteMessages -> viewModelScope.launch {
+                _uiState.deleteSelectedMessages(repository, event.messageIds)
+            }
+            is PaintEvent.MoveMessages -> viewModelScope.launch {
+                _uiState.moveSelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
+            is PaintEvent.CopyMessages -> viewModelScope.launch {
+                _uiState.copySelectedMessages(repository, event.messageIds, event.targetSessionId)
+            }
             is PaintEvent.EditUserMessage -> { /* Android 端实现 */ }
             is PaintEvent.UpdatePrompt -> updatePrompt(event.text)
             is PaintEvent.AddImage -> addImage(event.image)

@@ -83,18 +83,23 @@ class SqlDelightPaintStore(
         }
     }
 
-    override suspend fun updateMessage(message: PaintMessage) = withContext(dispatchers.io) {
+    override suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean) = withContext(dispatchers.io) {
         val candidates = queries.selectImagesByMessage(message.id).executeAsList().mapNotNull { it.local_path }.toSet()
+        val stored = if (touchUpdatedAt) {
+            message.copy(updatedAt = TimeProvider.currentTimeMillis())
+        } else {
+            message
+        }
         database.transaction {
             val existing = queries.selectMessageById(message.id).executeAsOneOrNull()
-            val existingOrder = if (existing?.session_id == message.sessionId) {
+            val existingOrder = if (existing?.session_id == stored.sessionId) {
                 existing.sort_order
             } else {
-                queries.nextMessageSortOrder(message.sessionId).executeAsOne()
+                queries.nextMessageSortOrder(stored.sessionId).executeAsOne()
             }
-            upsertMessage(message.copy(updatedAt = TimeProvider.currentTimeMillis()), existingOrder)
-            normalizeMessageOrder(message.sessionId)
-            existing?.session_id?.takeIf { it != message.sessionId }?.let(::normalizeMessageOrder)
+            upsertMessage(stored, existingOrder)
+            normalizeMessageOrder(stored.sessionId)
+            existing?.session_id?.takeIf { it != stored.sessionId }?.let(::normalizeMessageOrder)
         }
         discardUnreferenced(candidates)
     }

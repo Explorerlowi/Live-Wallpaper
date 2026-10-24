@@ -64,7 +64,8 @@ class PaintRepositoryImpl(
 
     override suspend fun addMessage(message: PaintMessage) = localDataSource.addMessage(message)
 
-    override suspend fun updateMessage(message: PaintMessage) = localDataSource.updateMessage(message)
+    override suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean) =
+        localDataSource.updateMessage(message, touchUpdatedAt)
 
     override suspend fun deleteMessage(messageId: String) = localDataSource.deleteMessage(messageId)
 

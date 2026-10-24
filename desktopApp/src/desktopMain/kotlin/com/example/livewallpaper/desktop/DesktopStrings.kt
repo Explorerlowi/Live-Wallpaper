@@ -126,9 +126,15 @@ class DesktopStrings internal constructor(
     val paintStatusTime: (String, String) -> String = { status, duration ->
         text("paintStatusTime").format(status, duration)
     }
+    val paintStatusTimeSize: (String, String, String) -> String = { status, duration, size ->
+        text("paintStatusTimeSize").format(status, duration, size)
+    }
     val paintGeneratingTime: (String) -> String = { duration -> text("paintGeneratingTime").format(duration) }
     val paintDeleteMessageTitle: String = text("paintDeleteMessageTitle")
     val paintDeleteMessageConfirm: String = text("paintDeleteMessageConfirm")
+    val paintDeleteSelectedMessages: (Int) -> String = { count ->
+        text("paintDeleteSelectedMessages").format(count)
+    }
     val paintDeleteVersionHint: String = text("paintDeleteVersionHint")
     val paintDeleteCurrentVersion: String = text("paintDeleteCurrentVersion")
     val paintDeleteAllVersions: String = text("paintDeleteAllVersions")
@@ -146,8 +152,25 @@ class DesktopStrings internal constructor(
     val paintAddToCompare: String = text("paintAddToCompare")
     val paintRemoveFromCompare: String = text("paintRemoveFromCompare")
     val paintCompareSelectedCount: (Int) -> String = { count -> text("paintCompareSelectedCount").format(count) }
+    val paintMessageSelectedCount: (Int) -> String = { count ->
+        text("paintMessageSelectedCount").format(count)
+    }
+    val paintTransferMessages: String = text("paintTransferMessages")
+    val paintCopyMessagesTitle: String = text("paintCopyMessagesTitle")
+    val paintCopyMessagesHint: String = text("paintCopyMessagesHint")
+    val paintGeneratingCannotCopy: String = text("paintGeneratingCannotCopy")
+    val paintGeneratingCannotTransfer: String = text("paintGeneratingCannotTransfer")
+    val paintGeneratingCannotDelete: String = text("paintGeneratingCannotDelete")
+    val paintMessagesCopied: String = text("paintMessagesCopied")
+    val paintTransferMessagesTitle: String = text("paintTransferMessagesTitle")
+    val paintTransferMessagesHint: String = text("paintTransferMessagesHint")
+    val paintTransferNoSession: String = text("paintTransferNoSession")
+    val paintMessagesTransferred: String = text("paintMessagesTransferred")
     val paintCompareNeedTwoImages: String = text("paintCompareNeedTwoImages")
     val paintCompareHintHold: String = text("paintCompareHintHold")
+    val paintComparePickHint: String = text("paintComparePickHint")
+    val paintCompareSetBottom: String = text("paintCompareSetBottom")
+    val paintCompareSetTop: String = text("paintCompareSetTop")
     val paintCompareShowingBottom: String = text("paintCompareShowingBottom")
     val imagePreviewRotateLeft: String = text("imagePreviewRotateLeft")
     val imagePreviewRotateRight: String = text("imagePreviewRotateRight")

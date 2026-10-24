@@ -16,7 +16,7 @@ interface PaintRepository {
     fun getMessages(sessionId: String): Flow<List<PaintMessage>>
     fun getMessagesPaged(sessionId: String, limit: Int, offset: Int): Flow<List<PaintMessage>>
     suspend fun addMessage(message: PaintMessage)
-    suspend fun updateMessage(message: PaintMessage)
+    suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean = true)
     suspend fun deleteMessage(messageId: String)
     suspend fun getMessageCount(sessionId: String): Int
     suspend fun getMessage(messageId: String): PaintMessage?

@@ -87,8 +87,8 @@ class PaintStorageCoordinator(
         trackGeneration(message)
     }
 
-    override suspend fun updateMessage(message: PaintMessage) = storageOperationLock.withLock {
-        writableConversations().updateMessage(message)
+    override suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean) = storageOperationLock.withLock {
+        writableConversations().updateMessage(message, touchUpdatedAt)
         trackGeneration(message)
     }
 

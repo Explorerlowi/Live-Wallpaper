@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.BasicTextField
@@ -39,6 +41,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -55,6 +59,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToMessage
@@ -237,10 +242,44 @@ fun PaintScreen(
     var previewImages by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
     var previewInitialIndex by remember { mutableIntStateOf(0) }
     
-    // 图片对比状态（多选模式）
-    var imageSelectionMode by remember { mutableStateOf(false) }
-    var selectedImageSources by remember { mutableStateOf<List<ImageSource>>(emptyList()) }
+    // 消息多选：长按整条消息进入。两张及以上图片可以对比，其余情况可以复制、转移或删除。
+    var selectedMessageIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var showComparePreview by remember { mutableStateOf(false) }
+    var messagePlacement by remember { mutableStateOf<MessagePlacement?>(null) }
+    var showDeleteSelection by remember { mutableStateOf(false) }
+    val messageSelectionMode = selectedMessageIds.isNotEmpty()
+    val comparePlan = remember(uiState.messages, selectedMessageIds) {
+        selectedComparePlan(uiState.messages, selectedMessageIds)
+    }
+    val selectionBlockedByGenerating = remember(
+        uiState.messages,
+        uiState.currentSession?.id,
+        selectedMessageIds,
+    ) {
+        val currentSessionId = uiState.currentSession?.id
+        currentSessionId != null &&
+            uiState.messages.selectionTouchesGenerating(selectedMessageIds, currentSessionId)
+    }
+    val canPlaceMessages = remember(
+        uiState.messages,
+        uiState.sessions,
+        uiState.currentSession?.id,
+        selectedMessageIds,
+    ) {
+        val currentSessionId = uiState.currentSession?.id
+        currentSessionId != null &&
+            uiState.sessions.any { session -> session.id != currentSessionId } &&
+            uiState.messages.movableSelectedMessages(selectedMessageIds, currentSessionId).isNotEmpty()
+    }
+    LaunchedEffect(uiState.currentSession?.id) {
+        selectedMessageIds = emptyList()
+        showComparePreview = false
+        messagePlacement = null
+        showDeleteSelection = false
+    }
+    LaunchedEffect(comparePlan) {
+        if (comparePlan == null) showComparePreview = false
+    }
     
     // 图片编辑状态
     var editImagePath by remember { mutableStateOf<String?>(null) }
@@ -256,9 +295,10 @@ fun PaintScreen(
 
     // 处理返回逻辑：如果抽屉打开则关闭抽屉，否则关闭界面
     val handleBack: () -> Unit = {
-        if (imageSelectionMode) {
-            imageSelectionMode = false
-            selectedImageSources = emptyList()
+        if (messageSelectionMode) {
+            selectedMessageIds = emptyList()
+            messagePlacement = null
+            showDeleteSelection = false
         } else if (messageSearch.isActive) {
             viewModel.onEvent(PaintEvent.CloseMessageSearch)
         } else if (drawerState.currentValue == DrawerValue.Open || isDrawerTargetOpen) {
@@ -522,7 +562,7 @@ fun PaintScreen(
                 }
             )
         },
-        gesturesEnabled = currentScreen == Screen.Conversation && !imageSelectionMode
+        gesturesEnabled = currentScreen == Screen.Conversation && !messageSelectionMode
     ) {
         // 前景卡片效果随 drawerProgress 连续变化：圆角、阴影、轻微缩放、模糊
         val contentCornerRadius = 28.dp * drawerProgress
@@ -547,12 +587,13 @@ fun PaintScreen(
         ) {
             Scaffold(
             topBar = {
-                if (imageSelectionMode) {
-                    ImageSelectionTopBar(
-                        selectedCount = selectedImageSources.size,
+                if (messageSelectionMode) {
+                    MessageSelectionTopBar(
+                        selectedCount = selectedMessageIds.size,
                         onCancel = {
-                            imageSelectionMode = false
-                            selectedImageSources = emptyList()
+                            selectedMessageIds = emptyList()
+                            messagePlacement = null
+                            showDeleteSelection = false
                         }
                     )
                 } else if (messageSearch.isActive) {
@@ -590,14 +631,44 @@ fun PaintScreen(
             bottomBar = {
                 if (storageBlocked) {
                     Unit
-                } else if (imageSelectionMode) {
-                    ImageSelectionBottomBar(
-                        selectedCount = selectedImageSources.size,
-                        onCompare = {
-                            if (selectedImageSources.size == 2) {
-                                showComparePreview = true
+                } else if (messageSelectionMode) {
+                    MessageSelectionBottomBar(
+                        canCompare = comparePlan != null,
+                        canPlace = canPlaceMessages || selectionBlockedByGenerating,
+                        onCompare = { showComparePreview = true },
+                        onCopy = {
+                            if (selectionBlockedByGenerating) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.message_generating_cannot_copy),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                messagePlacement = MessagePlacement.Copy
                             }
-                        }
+                        },
+                        onTransfer = {
+                            if (selectionBlockedByGenerating) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.message_generating_cannot_transfer),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                messagePlacement = MessagePlacement.Move
+                            }
+                        },
+                        onDelete = {
+                            if (selectionBlockedByGenerating) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.message_generating_cannot_delete),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                showDeleteSelection = true
+                            }
+                        },
                     )
                 } else {
                     PaintBottomBar(
@@ -707,30 +778,25 @@ fun PaintScreen(
                                 selectedAspectRatio = uiState.selectedAspectRatio,
                                 selectionVersion = selectionVersion,
                                 isSearchHighlighted = message.id == messageSearch.highlightedMessageId,
-                                imageSelectionMode = imageSelectionMode,
-                                selectedImageSources = selectedImageSources,
-                                onImageClick = { images, index ->
-                                    if (imageSelectionMode) {
-                                        // 选择模式下点击图片切换选中
-                                        val source = images.getOrNull(index)
-                                        if (source != null) {
-                                            selectedImageSources = if (source in selectedImageSources) {
-                                                selectedImageSources - source
-                                            } else {
-                                                selectedImageSources + source
-                                            }
-                                        }
+                                messageSelectionMode = messageSelectionMode,
+                                messageSelected = message.id in selectedMessageIds,
+                                selectionIndex = selectedMessageIds.indexOf(message.id),
+                                onMessageClick = {
+                                    selectedMessageIds = if (message.id in selectedMessageIds) {
+                                        selectedMessageIds - message.id
                                     } else {
-                                        previewImages = images
-                                        previewInitialIndex = index
+                                        selectedMessageIds + message.id
                                     }
                                 },
-                                onImageLongClick = { imageSource ->
-                                    // 长按图片进入选择模式并选中该图片
-                                    if (!imageSelectionMode) {
-                                        imageSelectionMode = true
-                                        selectedImageSources = listOf(imageSource)
+                                onMessageLongClick = {
+                                    selectionVersion++
+                                    if (message.id !in selectedMessageIds) {
+                                        selectedMessageIds = selectedMessageIds + message.id
                                     }
+                                },
+                                onImageClick = { images, index ->
+                                    previewImages = images
+                                    previewInitialIndex = index
                                 },
                                 onCopyText = { text ->
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1052,13 +1118,63 @@ fun PaintScreen(
         )
     }
     
-    // 图片对比预览对话框
-    if (showComparePreview && selectedImageSources.size == 2) {
-        val compareList = selectedImageSources.toList()
-        ImageComparePreviewDialog(
-            topImage = compareList[1],
-            bottomImage = compareList[0],
-            onDismiss = { showComparePreview = false }
+    comparePlan?.let { plan ->
+        if (showComparePreview) {
+            ImageComparePreviewDialog(
+                paths = plan.paths,
+                initialBottomIndex = plan.bottomIndex,
+                initialTopIndex = plan.topIndex,
+                onDismiss = { showComparePreview = false },
+            )
+        }
+    }
+
+    messagePlacement?.let { placement ->
+        val copying = placement == MessagePlacement.Copy
+        TransferMessagesDialog(
+            title = stringResource(
+                if (copying) R.string.message_copy_to_session_title else R.string.message_transfer_title,
+            ),
+            description = stringResource(
+                if (copying) R.string.message_copy_to_session_hint else R.string.message_transfer_hint,
+            ),
+            sessions = uiState.sessions,
+            currentSessionId = uiState.currentSession?.id,
+            onDismiss = { messagePlacement = null },
+            onSelect = { sessionId ->
+                val event = if (copying) {
+                    PaintEvent.CopyMessages(selectedMessageIds, sessionId)
+                } else {
+                    PaintEvent.MoveMessages(selectedMessageIds, sessionId)
+                }
+                viewModel.onEvent(event)
+                selectedMessageIds = emptyList()
+                messagePlacement = null
+                showDeleteSelection = false
+                Toast.makeText(
+                    context,
+                    resources.getString(
+                        if (copying) R.string.message_copied_to_session else R.string.message_transferred,
+                    ),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+        )
+    }
+
+    if (showDeleteSelection) {
+        ConfirmDialog(
+            title = stringResource(R.string.message_delete_title),
+            message = stringResource(R.string.message_delete_selected_confirm, selectedMessageIds.size),
+            confirmText = stringResource(R.string.message_delete),
+            dismissText = stringResource(R.string.cancel),
+            isDangerous = true,
+            onConfirm = {
+                viewModel.onEvent(PaintEvent.DeleteMessages(selectedMessageIds))
+                selectedMessageIds = emptyList()
+                showDeleteSelection = false
+            },
+            onDismiss = { showDeleteSelection = false },
         )
     }
     
@@ -1258,6 +1374,36 @@ private fun EmptyState() {
 }
 
 /**
+ * 读取生成图片的文件大小，并和像素尺寸合成气泡信息。
+ *
+ * 尺寸可以立刻显示。文件大小在后台读取，避免在组合阶段访问磁盘。
+ */
+@Composable
+private fun rememberPaintImageSizeSummary(images: List<PaintImage>): String? {
+    val signature = images.joinToString(separator = "|") { image ->
+        "${image.id}:${image.width}:${image.height}:${image.localPath}"
+    }
+    var summary by remember(signature) { mutableStateOf(paintImageSizeSummary(images)) }
+    LaunchedEffect(signature) {
+        if (images.isEmpty()) {
+            summary = null
+            return@LaunchedEffect
+        }
+        val bytes = withContext(Dispatchers.IO) {
+            images.mapNotNull { image ->
+                val path = image.localPath ?: return@mapNotNull null
+                val length = runCatching {
+                    java.io.File(path).takeIf { file -> file.isFile }?.length()
+                }.getOrNull()?.takeIf { it > 0L } ?: return@mapNotNull null
+                image.id to length
+            }.toMap()
+        }
+        summary = paintImageSizeSummary(images, bytes)
+    }
+    return summary
+}
+
+/**
  * 生成参数信息标签
  * 以紧凑的标签样式展示模型名称、比例、分辨率
  */
@@ -1314,10 +1460,12 @@ private fun MessageItem(
     selectedAspectRatio: AspectRatio = AspectRatio.RATIO_1_1,
     selectionVersion: Int = 0,
     isSearchHighlighted: Boolean = false,
-    imageSelectionMode: Boolean = false,
-    selectedImageSources: List<ImageSource> = emptyList(),
+    messageSelectionMode: Boolean = false,
+    messageSelected: Boolean = false,
+    selectionIndex: Int = -1,
+    onMessageClick: () -> Unit = {},
+    onMessageLongClick: () -> Unit = {},
     onImageClick: (List<ImageSource>, Int) -> Unit = { _, _ -> },
-    onImageLongClick: (ImageSource) -> Unit = {},
     onCopyText: (String) -> Unit = {},
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
@@ -1332,6 +1480,13 @@ private fun MessageItem(
 ) {
     val isUser = message.senderIdentity == SenderIdentity.USER
     val isAssistant = !isUser
+    val imageSizeSummary = rememberPaintImageSizeSummary(
+        images = if (isAssistant && message.status != MessageStatus.GENERATING) {
+            message.images
+        } else {
+            emptyList()
+        },
+    )
     
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDeleteOptions by remember { mutableStateOf(false) }
@@ -1430,10 +1585,30 @@ private fun MessageItem(
             .format(java.util.Date(message.createdAt))
     }
 
-    Column(
+    val messageViewConfiguration = LocalViewConfiguration.current
+    val longPressViewConfiguration = remember(messageViewConfiguration) {
+        object : ViewConfiguration by messageViewConfiguration {
+            override val longPressTimeoutMillis: Long = MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS
+        }
+    }
+    CompositionLocalProvider(LocalViewConfiguration provides longPressViewConfiguration) {
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (messageSelectionMode) {
+            MessageSelectionMark(
+                selected = messageSelected,
+                order = selectionIndex,
+                onClick = onMessageClick,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Box(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        ) {
         // 时间标签（气泡外侧上方）
         Text(
             text = timeText,
@@ -1444,16 +1619,23 @@ private fun MessageItem(
 
         // 消息气泡；搜索定位到的消息用主题色描边 + 淡色底突出显示
         val bubbleColor = when {
-            isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
+            messageSelected || isSearchHighlighted -> MaterialTheme.colorScheme.primaryContainer
             isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             else -> MaterialTheme.colorScheme.surfaceVariant
         }
         Surface(
             shape = bubbleShape,
             color = bubbleColor,
-            border = if (isSearchHighlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-            modifier = Modifier.widthIn(max = 300.dp)
+            border = if (messageSelected || isSearchHighlighted) {
+                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            } else {
+                null
+            },
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .detectMessageLongPress(onMessageLongClick)
         ) {
+            Box {
             Column(modifier = Modifier.padding(12.dp)) {
                 // 文本内容
                 if (message.messageContent.isNotEmpty()) {
@@ -1478,72 +1660,32 @@ private fun MessageItem(
                 
                 message.images.forEachIndexed { index, image ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    
-                    val imageSource = imageSources.getOrNull(index)
-                    val selectionIndex = if (imageSource != null) selectedImageSources.indexOf(imageSource) else -1
-                    val isSelected = selectionIndex >= 0
-                    
-                    Box {
-                        image.localPath?.let { path ->
-                            MessageLocalImage(
-                                path = path,
-                                width = image.width,
-                                height = image.height,
-                                onClick = {
-                                    val previewIndex = conversationPreviewImages.indexOfFirst { source ->
-                                        source is ImageSource.StringSource && source.path == path
-                                    }
-                                    if (previewIndex >= 0) {
-                                        onImageClick(conversationPreviewImages, previewIndex)
-                                    } else {
-                                        onImageClick(imageSources, index)
-                                    }
-                                },
-                                onLongClick = {
-                                    if (imageSource != null) onImageLongClick(imageSource)
-                                },
-                                onDimensionsLoaded = { w, h ->
-                                    if (image.width == 0 || image.height == 0) {
-                                        onUpdateImageDimensions(message.id, image.id, w, h)
-                                    }
+                    image.localPath?.let { path ->
+                        MessageLocalImage(
+                            path = path,
+                            width = image.width,
+                            height = image.height,
+                            onClick = {
+                                if (messageSelectionMode) {
+                                    onMessageClick()
+                                    return@MessageLocalImage
                                 }
-                            )
-                        }
-                        // 选择模式下显示勾选标记
-                        if (imageSelectionMode) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(6.dp)
-                                    .size(24.dp)
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary
-                                        else Color.Black.copy(alpha = 0.3f),
-                                        CircleShape
-                                    )
-                                    .then(
-                                        if (isSelected) Modifier.border(
-                                            2.dp,
-                                            Color.White,
-                                            CircleShape
-                                        ) else Modifier.border(
-                                            1.5.dp,
-                                            Color.White.copy(alpha = 0.7f),
-                                            CircleShape
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Text(
-                                        text = "${selectionIndex + 1}",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                val previewIndex = conversationPreviewImages.indexOfFirst { source ->
+                                    source is ImageSource.StringSource && source.path == path
+                                }
+                                if (previewIndex >= 0) {
+                                    onImageClick(conversationPreviewImages, previewIndex)
+                                } else {
+                                    onImageClick(imageSources, index)
+                                }
+                            },
+                            onLongClick = onMessageLongClick,
+                            onDimensionsLoaded = { w, h ->
+                                if (image.width == 0 || image.height == 0) {
+                                    onUpdateImageDimensions(message.id, image.id, w, h)
                                 }
                             }
-                        }
+                        )
                     }
                 }
                 
@@ -1569,7 +1711,16 @@ private fun MessageItem(
                         MessageStatus.PENDING -> stringResource(R.string.paint_status_pending)
                         MessageStatus.GENERATING -> ""
                     }
-                    val metaText = stringResource(R.string.paint_status_time, statusText, durationText)
+                    val metaText = if (imageSizeSummary.isNullOrEmpty()) {
+                        stringResource(R.string.paint_status_time, statusText, durationText)
+                    } else {
+                        stringResource(
+                            R.string.paint_status_time_size,
+                            statusText,
+                            durationText,
+                            imageSizeSummary,
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = metaText,
@@ -1595,10 +1746,22 @@ private fun MessageItem(
                     )
                 }
             }
+            if (messageSelectionMode) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onMessageClick,
+                        )
+                )
+            }
+            }
         }
         
         // AI消息的固定操作栏（包括正在生成状态，以便用户可以处理卡住的消息）
-        if (isAssistant) {
+        if (isAssistant && !messageSelectionMode) {
             Spacer(modifier = Modifier.height(4.dp))
             MessageActionBar(
                 message = message,
@@ -1643,7 +1806,7 @@ private fun MessageItem(
         }
         
         // 用户消息的简化操作栏（仅复制和删除）
-        if (isUser) {
+        if (isUser && !messageSelectionMode) {
             Spacer(modifier = Modifier.height(4.dp))
             UserMessageActionBar(
                 message = message,
@@ -1652,6 +1815,9 @@ private fun MessageItem(
                 onDelete = { showDeleteConfirm = true }
             )
         }
+        }
+        }
+    }
     }
 }
 
@@ -1743,7 +1909,6 @@ private fun MessageActionBar(
             onClick = onRegenerate
         )
         
-        // 下载按钮（仅图片实际可用时显示）
         if (imagesAvailable) {
             ActionIconButton(
                 icon = AppIcons.download,
@@ -1751,14 +1916,15 @@ private fun MessageActionBar(
                 onClick = onDownload
             )
         }
-        
-        // 删除按钮
-        ActionIconButton(
-            icon = AppIcons.deleteOutline,
-            contentDescription = stringResource(R.string.message_delete),
-            onClick = onDelete,
-            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-        )
+
+        if (message.status != MessageStatus.GENERATING) {
+            ActionIconButton(
+                icon = AppIcons.deleteOutline,
+                contentDescription = stringResource(R.string.message_delete),
+                onClick = onDelete,
+                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+            )
+        }
 
         // 更多菜单（仅图片实际可用时显示）
         if (imagesAvailable) {
@@ -2055,20 +2221,20 @@ private fun ScrollToBottomButton(
 }
 
 /**
- * 图片选择模式顶部栏
+ * 消息多选顶部栏。
  *
- * 显示已选择的图片数量和取消按钮，参考 QQ 多选样式。
+ * 显示已选择的消息数量和取消按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ImageSelectionTopBar(
+private fun MessageSelectionTopBar(
     selectedCount: Int,
     onCancel: () -> Unit
 ) {
     TopAppBar(
         title = {
             Text(
-                text = stringResource(R.string.compare_selected_count, selectedCount),
+                text = stringResource(R.string.message_selected_count, selectedCount),
                 style = MaterialTheme.typography.titleMedium
             )
         },
@@ -2084,16 +2250,19 @@ private fun ImageSelectionTopBar(
 }
 
 /**
- * 图片选择模式底部操作栏
+ * 消息多选底部操作栏。
  *
- * 替代输入框，显示操作按钮。目前仅包含"对比预览"。
+ * 选中消息里恰好有两张图片时可以对比。复制会在其他会话留下副本，转移会把消息挪过去，删除会去掉选中消息。
  */
 @Composable
-private fun ImageSelectionBottomBar(
-    selectedCount: Int,
-    onCompare: () -> Unit
+private fun MessageSelectionBottomBar(
+    canCompare: Boolean,
+    canPlace: Boolean,
+    onCompare: () -> Unit,
+    onCopy: () -> Unit,
+    onTransfer: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    val enabled = selectedCount == 2
     Surface(
         shadowElevation = 8.dp,
         color = MaterialTheme.colorScheme.surface
@@ -2105,37 +2274,229 @@ private fun ImageSelectionBottomBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 对比预览按钮
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .clickable(
-                        enabled = enabled,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = onCompare
-                    )
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                Icon(
-                    AppIcons.compare,
-                    contentDescription = stringResource(R.string.compare_preview_title),
-                    tint = if (enabled) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    },
-                    modifier = Modifier.size(24.dp)
-                )
+            MessageSelectionAction(
+                icon = AppIcons.compare,
+                label = stringResource(R.string.compare_preview_title),
+                enabled = canCompare,
+                onClick = onCompare,
+            )
+            MessageSelectionAction(
+                icon = AppIcons.copy,
+                label = stringResource(R.string.message_copy),
+                enabled = canPlace,
+                onClick = onCopy,
+            )
+            MessageSelectionAction(
+                icon = AppIcons.arrowForward,
+                label = stringResource(R.string.message_transfer),
+                enabled = canPlace,
+                onClick = onTransfer,
+            )
+            MessageSelectionAction(
+                icon = AppIcons.deleteOutline,
+                label = stringResource(R.string.message_delete),
+                enabled = true,
+                destructive = true,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+/**
+ * 多选底部栏里的一个操作。
+ *
+ * 不可用时保持可见并降低透明度，让用户知道当前选择还不能执行该操作。
+ */
+@Composable
+private fun MessageSelectionAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+        destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(
+                enabled = enabled,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(24.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+        )
+    }
+}
+
+/**
+ * 消息多选的序号标记。
+ *
+ * 未选中时只显示空心圆，选中后显示选择顺序。
+ */
+@Composable
+private fun MessageSelectionMark(
+    selected: Boolean,
+    order: Int,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                CircleShape,
+            )
+            .border(
+                width = 1.5.dp,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                },
+                shape = CircleShape,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected && order >= 0) {
+            Text(
+                text = "${order + 1}",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private enum class MessagePlacement {
+    Copy,
+    Move,
+}
+
+/**
+ * 选择要把消息复制或转移到的其他会话。
+ *
+ * @param title 对话框标题，区分复制和转移。
+ * @param description 操作说明，展示在会话列表上方。
+ * @param sessions 全部会话，当前会话会被排除。
+ * @param currentSessionId 当前会话 ID。
+ * @param onDismiss 关闭对话框。
+ * @param onSelect 选中目标会话。
+ */
+@Composable
+private fun TransferMessagesDialog(
+    title: String,
+    description: String,
+    sessions: List<PaintSession>,
+    currentSessionId: String?,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val targets = sessions.filter { it.id != currentSessionId }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = stringResource(R.string.compare_preview_title),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    }
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (targets.isEmpty()) {
+                    Text(stringResource(R.string.message_transfer_empty))
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 280.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        targets.forEach { session ->
+                            Text(
+                                text = session.title.ifBlank { stringResource(R.string.paint_new_session) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onSelect(session.id) },
+                                    )
+                                    .padding(vertical = 14.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+/**
+ * 进入消息多选需要按住的时间。
+ *
+ * 比系统默认长按更长，避免按住图片或文字时误进多选。
+ */
+private const val MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS = 800L
+
+/**
+ * 长按消息进入多选。
+ *
+ * 子组件已经消费按下事件时不拦截，避免和图片点击、按钮点击冲突。
+ * 文本选择仍可能同时开始，调用方会在进入多选后清掉文本选区。
+ */
+private fun Modifier.detectMessageLongPress(onLongPress: () -> Unit): Modifier = pointerInput(onLongPress) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        if (down.isConsumed) return@awaitEachGesture
+        var releasedOrConsumed = false
+        val timedOut = withTimeoutOrNull(MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS) {
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || change.isConsumed || !change.pressed) {
+                    releasedOrConsumed = true
+                    break
+                }
+            }
+        } == null
+        if (timedOut && !releasedOrConsumed) {
+            onLongPress()
+            while (true) {
+                val event = awaitPointerEvent()
+                event.changes.forEach { it.consume() }
+                if (event.changes.none { it.pressed }) break
             }
         }
     }

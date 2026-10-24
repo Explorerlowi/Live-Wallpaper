@@ -116,6 +116,13 @@ class PaintConversationOrderTest {
         )
     }
 
+    @Test
+    fun nextVersionStaysAfterSurvivingHigherIndexes() {
+        assertEquals(3 to 1, nextPaintVersion(listOf(2)))
+        assertEquals(3 to 3, nextPaintVersion(listOf(0, 1, 2)))
+        assertEquals(1 to 1, nextPaintVersion(listOf(0)))
+    }
+
     private fun message(
         id: String,
         sender: SenderIdentity,

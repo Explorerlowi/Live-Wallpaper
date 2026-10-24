@@ -89,9 +89,9 @@ class LegacyPaintConversationStore(
     override fun getMessagesPaged(sessionId: String, limit: Int, offset: Int): Flow<List<PaintMessage>> =
         getMessages(sessionId).map { messages -> messages.drop(offset).take(limit) }
 
-    override suspend fun addMessage(message: PaintMessage) = updateMessage(message)
+    override suspend fun addMessage(message: PaintMessage) = updateMessage(message, touchUpdatedAt = true)
 
-    override suspend fun updateMessage(message: PaintMessage) = mutate { data ->
+    override suspend fun updateMessage(message: PaintMessage, touchUpdatedAt: Boolean) = mutate { data ->
         check(data.sessions.any { it.id == message.sessionId }) { "Unknown painting session" }
         val messages = data.messages.filterNot { it.id == message.id } + message
         data.copy(messages = messages)
