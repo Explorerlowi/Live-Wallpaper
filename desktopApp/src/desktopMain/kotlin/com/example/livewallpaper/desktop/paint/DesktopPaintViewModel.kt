@@ -30,6 +30,9 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRep
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
+import com.example.livewallpaper.feature.aipaint.presentation.state.GenerationBatchNotice
+import com.example.livewallpaper.feature.aipaint.presentation.state.GenerationBatchState
+import com.example.livewallpaper.feature.aipaint.presentation.state.GenerationCompletion
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintGenerationTaskUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintMessageSearchUiState
@@ -44,6 +47,7 @@ import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySele
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -70,11 +74,21 @@ internal object DesktopPaintErrorText {
     const val GENERATION_FAILED = "__desktop_paint_generation_failed__"
 }
 
-data class DesktopPaintGenerationSuccess(
-    val sessionId: String,
-    val messageId: String,
-    val imageCount: Int
-)
+/** 桌面端在一批生成请求结束后展示的系统通知。 */
+sealed interface DesktopPaintGenerationNotice {
+    /** 只有一个请求成功。 */
+    data class SingleSuccess(
+        val sessionId: String,
+        val messageId: String,
+        val imageCount: Int,
+    ) : DesktopPaintGenerationNotice
+
+    /** 多个重叠请求全部结束。 */
+    data class Summary(
+        val successCount: Int,
+        val failureCount: Int,
+    ) : DesktopPaintGenerationNotice
+}
 
 class DesktopPaintViewModel(
     private val repository: PaintRepository,
@@ -87,6 +101,7 @@ class DesktopPaintViewModel(
         val sessionId: String,
         val modelName: String,
         val startedAt: Long,
+        val waveId: Int,
         val job: Job
     )
 
@@ -106,8 +121,10 @@ class DesktopPaintViewModel(
     )
     val scrollToMessageEvent: SharedFlow<ScrollToMessageRequest> = _scrollToMessageEvent.asSharedFlow()
 
-    private val _generationSuccessEvent = MutableSharedFlow<DesktopPaintGenerationSuccess>()
-    val generationSuccessEvent: SharedFlow<DesktopPaintGenerationSuccess> = _generationSuccessEvent.asSharedFlow()
+    private val _generationNoticeEvent = MutableSharedFlow<DesktopPaintGenerationNotice>()
+    val generationNoticeEvent: SharedFlow<DesktopPaintGenerationNotice> = _generationNoticeEvent.asSharedFlow()
+
+    private var generationBatch = GenerationBatchState()
 
     private val sessionDrafts = mutableMapOf<String, DesktopPaintDraft>()
     private val generationTasks = mutableMapOf<String, GenerationTask>()
@@ -529,8 +546,12 @@ class DesktopPaintViewModel(
         images: List<ImageRequestPayload>
     ) {
         val startedAt = System.currentTimeMillis()
-        val job = viewModelScope.launch {
+        val waveStart = generationBatch.onTaskStarted()
+        generationBatch = waveStart.state
+        val waveId = waveStart.waveId
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             var finalStatus = MessageStatus.ERROR
+            var imageCount = 0
             try {
                 val result = if (assistantMessage.generationModel?.isGpt == true) {
                     repository.generateGptImage(
@@ -559,7 +580,7 @@ class DesktopPaintViewModel(
                 when (result) {
                     is AppResult.Success -> {
                         finalStatus = MessageStatus.SUCCESS
-                        saveGeneratedImages(assistantMessage, result.data)
+                        imageCount = saveGeneratedImages(assistantMessage, result.data)
                     }
                     is AppResult.Error -> {
                         finalStatus = MessageStatus.ERROR
@@ -588,23 +609,27 @@ class DesktopPaintViewModel(
                     )
                 )
             } finally {
-                completeGenerationTask(assistantMessage.id, finalStatus)
-                syncGeneratingState()
+                withContext(NonCancellable) {
+                    completeGenerationTask(assistantMessage.id, finalStatus, imageCount)
+                    syncGeneratingState()
+                }
             }
         }
         generationTasks[assistantMessage.id] = GenerationTask(
             sessionId = assistantMessage.sessionId,
             modelName = assistantMessage.generationModel?.displayName ?: "",
             startedAt = startedAt,
+            waveId = waveId,
             job = job
         )
+        job.start()
         syncGeneratingState()
     }
 
     private suspend fun saveGeneratedImages(
         assistantMessage: PaintMessage,
         files: List<GeneratedImageFile>
-    ) {
+    ): Int {
         val images = files.map { file ->
             PaintImage(
                 id = generateId(),
@@ -622,18 +647,11 @@ class DesktopPaintViewModel(
             )
         )
         repository.getSession(assistantMessage.sessionId).first()?.let { repository.updateSession(it) }
-        if (images.isNotEmpty()) {
-            _generationSuccessEvent.emit(
-                DesktopPaintGenerationSuccess(
-                    sessionId = assistantMessage.sessionId,
-                    messageId = assistantMessage.id,
-                    imageCount = images.size
-                )
-            )
-        }
+        return images.size
     }
 
     private fun stopGeneration() {
+        generationBatch = generationBatch.suppress()
         generationTasks.values.forEach { it.job.cancel() }
         syncGeneratingState()
     }
@@ -653,7 +671,7 @@ class DesktopPaintViewModel(
         syncGeneratingState()
     }
 
-    private fun completeGenerationTask(messageId: String, status: MessageStatus) {
+    private suspend fun completeGenerationTask(messageId: String, status: MessageStatus, imageCount: Int) {
         val task = generationTasks.remove(messageId) ?: return
         val sessionTitle = _uiState.value.sessions.firstOrNull { it.id == task.sessionId }?.title.orEmpty()
         generationTaskHistory.removeAll { it.messageId == messageId }
@@ -671,6 +689,44 @@ class DesktopPaintViewModel(
         )
         if (generationTaskHistory.size > MAX_GENERATION_TASK_HISTORY) {
             generationTaskHistory.subList(MAX_GENERATION_TASK_HISTORY, generationTaskHistory.size).clear()
+        }
+        publishGenerationNotice(task, messageId, status, imageCount)
+    }
+
+    /**
+     * 单个成功仍提示图片数量。多个重叠请求要等全部结束后再提示成功和失败数量。
+     */
+    private suspend fun publishGenerationNotice(
+        task: GenerationTask,
+        messageId: String,
+        status: MessageStatus,
+        imageCount: Int,
+    ) {
+        val completion = when (status) {
+            MessageStatus.SUCCESS -> GenerationCompletion.Success(imageCount)
+            MessageStatus.CANCELLED -> GenerationCompletion.Cancelled
+            else -> GenerationCompletion.Failed(null)
+        }
+        val finished = generationBatch.onTaskFinished(task.waveId, completion)
+        generationBatch = finished.state
+        when (val notice = finished.notice) {
+            is GenerationBatchNotice.SingleSuccess -> {
+                if (notice.imageCount <= 0) return
+                _generationNoticeEvent.emit(
+                    DesktopPaintGenerationNotice.SingleSuccess(
+                        sessionId = task.sessionId,
+                        messageId = messageId,
+                        imageCount = notice.imageCount,
+                    )
+                )
+            }
+            is GenerationBatchNotice.Summary -> _generationNoticeEvent.emit(
+                DesktopPaintGenerationNotice.Summary(
+                    successCount = notice.successCount,
+                    failureCount = notice.failureCount,
+                )
+            )
+            is GenerationBatchNotice.SingleFailure, null -> Unit
         }
     }
 

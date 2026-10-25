@@ -9,6 +9,8 @@ sealed class PaintToastMessage {
     data object GenerateSuccess : PaintToastMessage()
     data class GenerateMultipleSuccess(val count: Int) : PaintToastMessage()  // 生成多张图片成功
     data class GenerateFailed(val error: String?) : PaintToastMessage()
+    /** 多个重叠请求全部结束后的成功与失败数量。 */
+    data class GenerateBatchSummary(val successCount: Int, val failureCount: Int) : PaintToastMessage()
     data object Stopped : PaintToastMessage()
     data object SaveSuccess : PaintToastMessage()
     data object Deleted : PaintToastMessage()

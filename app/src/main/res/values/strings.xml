@@ -225,6 +225,7 @@
     <string name="paint_generate_success">Generation successful</string>
     <string name="paint_generate_multiple_success">Successfully generated %d images</string>
     <string name="paint_generate_failed">Generation failed</string>
+    <string name="paint_generate_batch_result">%1$d succeeded, %2$d failed</string>
     <string name="paint_stopped">Generation stopped</string>
     <string name="paint_save_success">Saved successfully</string>
     <string name="paint_deleted">Deleted</string>
@@ -333,6 +334,7 @@
     <string name="paint_generation_notification_success_text">Tap to view the result</string>
     <string name="paint_generation_notification_failed">Generation failed</string>
     <string name="paint_generation_notification_failed_text">Tap to retry</string>
+    <string name="paint_generation_notification_batch_title">Generation finished</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">Add Tags</string>

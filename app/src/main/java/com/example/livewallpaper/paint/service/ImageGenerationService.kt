@@ -184,18 +184,57 @@ class ImageGenerationService : Service() {
          * @param sessionId 关联的会话 ID，用于通知跳转时恢复对应会话
          */
         fun stopWithResult(context: Context, success: Boolean, message: String? = null, sessionId: String? = null) {
-            try {
-                context.stopService(Intent(context, ImageGenerationService::class.java))
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to stop foreground service", e)
+            stopServiceQuietly(context)
+            val title = if (success) {
+                context.getString(R.string.paint_generation_notification_success)
+            } else {
+                context.getString(R.string.paint_generation_notification_failed)
             }
-            showResultNotification(context, success, message, sessionId)
+            val text = if (success) {
+                context.getString(R.string.paint_generation_notification_success_text)
+            } else {
+                message ?: context.getString(R.string.paint_generation_notification_failed_text)
+            }
+            showFinishedNotification(
+                context = context,
+                title = title,
+                text = text,
+                sessionId = sessionId,
+                timeoutMs = if (success) 30_000L else 60_000L,
+            )
+        }
+
+        /**
+         * 停止服务，并在多个重叠请求全部结束后展示成功与失败数量。
+         *
+         * @param successCount 成功的请求数
+         * @param failureCount 失败的请求数
+         * @param sessionId 通知点击后要恢复的会话
+         */
+        fun stopWithSummary(
+            context: Context,
+            successCount: Int,
+            failureCount: Int,
+            sessionId: String? = null,
+        ) {
+            stopServiceQuietly(context)
+            showFinishedNotification(
+                context = context,
+                title = context.getString(R.string.paint_generation_notification_batch_title),
+                text = context.getString(R.string.paint_generate_batch_result, successCount, failureCount),
+                sessionId = sessionId,
+                timeoutMs = if (failureCount > 0) 60_000L else 30_000L,
+            )
         }
 
         /**
          * 仅停止服务，不显示结果通知（用于用户主动取消）
          */
         fun stop(context: Context) {
+            stopServiceQuietly(context)
+        }
+
+        private fun stopServiceQuietly(context: Context) {
             try {
                 context.stopService(Intent(context, ImageGenerationService::class.java))
             } catch (e: Exception) {
@@ -203,7 +242,13 @@ class ImageGenerationService : Service() {
             }
         }
 
-        private fun showResultNotification(context: Context, success: Boolean, message: String?, sessionId: String?) {
+        private fun showFinishedNotification(
+            context: Context,
+            title: String,
+            text: String,
+            sessionId: String?,
+            timeoutMs: Long,
+        ) {
             ensureNotificationChannel(context)
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -216,18 +261,6 @@ class ImageGenerationService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            val title = if (success) {
-                context.getString(R.string.paint_generation_notification_success)
-            } else {
-                context.getString(R.string.paint_generation_notification_failed)
-            }
-
-            val text = if (success) {
-                context.getString(R.string.paint_generation_notification_success_text)
-            } else {
-                message ?: context.getString(R.string.paint_generation_notification_failed_text)
-            }
-
             val notification = NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
@@ -236,7 +269,7 @@ class ImageGenerationService : Service() {
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setTimeoutAfter(if (success) 30_000L else 60_000L)
+                .setTimeoutAfter(timeoutMs)
                 .build()
 
             manager.notify(RESULT_NOTIFICATION_ID, notification)

@@ -287,6 +287,10 @@ class DesktopStrings internal constructor(
     val paintGenerationSuccessMessage: (Int) -> String = { count ->
         text("paintGenerationSuccessMessage").format(count)
     }
+    val paintGenerationBatchTitle: String = text("paintGenerationBatchTitle")
+    val paintGenerationBatchMessage: (Int, Int) -> String = { successCount, failureCount ->
+        text("paintGenerationBatchMessage").format(successCount, failureCount)
+    }
     val chooseFolder: String = text("chooseFolder")
     val reset: String = text("reset")
     val intervalSeconds: String = text("intervalSeconds")

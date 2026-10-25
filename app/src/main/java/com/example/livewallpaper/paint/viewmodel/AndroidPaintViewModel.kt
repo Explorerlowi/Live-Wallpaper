@@ -10,6 +10,8 @@ import com.example.livewallpaper.feature.aipaint.domain.repository.PaintDraftRep
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintStorageStateProvider
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintReferenceImageStore
+import com.example.livewallpaper.feature.aipaint.presentation.state.GenerationBatchNotice
+import com.example.livewallpaper.feature.aipaint.presentation.state.GenerationCompletion
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintEvent
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintMessageSearchUiState
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
@@ -22,9 +24,9 @@ import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMe
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySelectedMessages
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
-import com.example.livewallpaper.paint.service.ImageGenerationService
+import com.example.livewallpaper.paint.service.GenerationTaskCompletion
 import com.example.livewallpaper.paint.service.GenerationTaskManager
-import com.example.livewallpaper.paint.service.GenerationResult
+import com.example.livewallpaper.paint.service.ImageGenerationService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
@@ -75,11 +77,53 @@ class AndroidPaintViewModel(
     }
 
     /**
-     * 将消息标记为生成完成，更新 UI 状态
+     * 记录一个请求的结果，并在整批请求结束后显示提示、关闭前台服务。
      */
-    private fun unmarkGenerating(messageId: String, sessionId: String) {
-        taskManager.unregister(messageId)
-        syncGeneratingState()
+    private suspend fun finishGenerationTask(
+        messageId: String,
+        sessionId: String,
+        result: GenerationCompletion,
+    ) {
+        val completion = taskManager.complete(messageId, result)
+        withContext(Dispatchers.Main) {
+            syncGeneratingState()
+        }
+        publishGenerationNotice(completion, sessionId)
+    }
+
+    /**
+     * 单个请求沿用原来的成功或失败提示；多个重叠请求全部结束后显示数量。
+     */
+    private fun publishGenerationNotice(completion: GenerationTaskCompletion, sessionId: String) {
+        val notice = completion.notice
+        if (notice != null) {
+            when (notice) {
+                is GenerationBatchNotice.SingleSuccess ->
+                    ImageGenerationService.stopWithResult(appContext, true, null, sessionId)
+                is GenerationBatchNotice.SingleFailure ->
+                    ImageGenerationService.stopWithResult(appContext, false, notice.error, sessionId)
+                is GenerationBatchNotice.Summary ->
+                    ImageGenerationService.stopWithSummary(
+                        appContext,
+                        notice.successCount,
+                        notice.failureCount,
+                        sessionId,
+                    )
+            }
+            return
+        }
+        if (completion.noTasksLeft) {
+            ImageGenerationService.stop(appContext)
+        }
+    }
+
+    private fun GenerationBatchNotice.toToastMessage(): PaintToastMessage = when (this) {
+        is GenerationBatchNotice.SingleSuccess ->
+            if (imageCount > 1) PaintToastMessage.GenerateMultipleSuccess(imageCount)
+            else PaintToastMessage.GenerateSuccess
+        is GenerationBatchNotice.SingleFailure -> PaintToastMessage.GenerateFailed(error)
+        is GenerationBatchNotice.Summary ->
+            PaintToastMessage.GenerateBatchSummary(successCount, failureCount)
     }
 
     /**
@@ -173,23 +217,10 @@ class AndroidPaintViewModel(
                 .collect { reloadDraftsAfterExternalChange() }
         }
 
-        // 监听生成结果事件，转发为 toast
+        // 一批请求全部结束后再提示。单个请求仍显示原来的成功或失败文案。
         viewModelScope.launch {
-            taskManager.resultEvents.collect { result ->
-                when (result) {
-                    is GenerationResult.Success -> {
-                        _toastEvent.emit(
-                            if (result.imageCount > 1) PaintToastMessage.GenerateMultipleSuccess(result.imageCount)
-                            else PaintToastMessage.GenerateSuccess
-                        )
-                    }
-                    is GenerationResult.Failed -> {
-                        _toastEvent.emit(PaintToastMessage.GenerateFailed(result.error))
-                    }
-                    is GenerationResult.Cancelled -> {
-                        // 用户主动取消，不需要额外 toast（stopGeneration 已发送 Stopped）
-                    }
-                }
+            taskManager.resultEvents.collect { notice ->
+                _toastEvent.emit(notice.toToastMessage())
             }
         }
     }
@@ -747,9 +778,8 @@ class AndroidPaintViewModel(
 
             ImageGenerationService.start(appContext, generatingSessionId)
 
-            val job = taskManager.generationScope.launch {
-                var generationSuccess = false
-                var failureMessage: String? = null
+            val job = taskManager.generationScope.launch(start = CoroutineStart.LAZY) {
+                var generationResult: GenerationCompletion = GenerationCompletion.Failed(null)
                 try {
                     val userImagesForApi = loadReferenceImagesForApi(selectedImagesSnapshot)
 
@@ -789,7 +819,6 @@ class AndroidPaintViewModel(
                             )
                         }
                         
-                        generationSuccess = true
                         val updatedMessage = assistantMessage.copy(
                             messageContent = "",
                             images = savedImages,
@@ -800,16 +829,15 @@ class AndroidPaintViewModel(
                         repository.getSession(generatingSessionId).first()?.let { sess ->
                             repository.updateSession(sess)
                         }
-                        taskManager.emitResult(GenerationResult.Success(savedImages.size))
+                        generationResult = GenerationCompletion.Success(savedImages.size)
                     }.onError { error ->
-                        failureMessage = error.message
                         val errorMessage = assistantMessage.copy(
                             messageContent = error.message ?: "生成失败",
                             status = MessageStatus.ERROR,
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(errorMessage)
-                        taskManager.emitResult(GenerationResult.Failed(error.message))
+                        generationResult = GenerationCompletion.Failed(error.message)
                     }
                     
                 } catch (e: CancellationException) {
@@ -821,36 +849,24 @@ class AndroidPaintViewModel(
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(cancelledMessage)
-                        taskManager.emitResult(GenerationResult.Cancelled)
+                        generationResult = GenerationCompletion.Cancelled
                     }
                 } catch (e: Exception) {
-                    failureMessage = e.message
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
                         updatedAt = System.currentTimeMillis()
                     )
                     repository.updateMessage(errorMessage)
-                    taskManager.emitResult(GenerationResult.Failed(e.message))
+                    generationResult = GenerationCompletion.Failed(e.message)
                 } finally {
                     withContext(NonCancellable) {
-                        withContext(Dispatchers.Main) {
-                            unmarkGenerating(generatingMessageId, generatingSessionId)
-                        }
-                        // 所有生成任务都完成后才停止前台服务
-                        if (taskManager.activeTasks.value.isEmpty()) {
-                            if (failureMessage != null || generationSuccess) {
-                                ImageGenerationService.stopWithResult(
-                                    appContext, generationSuccess, failureMessage, generatingSessionId
-                                )
-                            } else {
-                                ImageGenerationService.stop(appContext)
-                            }
-                        }
+                        finishGenerationTask(generatingMessageId, generatingSessionId, generationResult)
                     }
                 }
             }
             taskManager.register(generatingMessageId, generatingSessionId, startTime, job)
+            job.start()
             markGenerating(generatingMessageId, generatingSessionId, startTime)
         }
     }
@@ -1413,9 +1429,8 @@ class AndroidPaintViewModel(
 
             ImageGenerationService.start(appContext, sessionId)
             
-            val regenJob = taskManager.generationScope.launch {
-                var generationSuccess = false
-                var failureMessage: String? = null
+            val regenJob = taskManager.generationScope.launch(start = CoroutineStart.LAZY) {
+                var generationResult: GenerationCompletion = GenerationCompletion.Failed(null)
                 try {
                     val result = if (currentModel.isGpt) {
                         repository.generateGptImage(
@@ -1453,7 +1468,6 @@ class AndroidPaintViewModel(
                             )
                         }
                         
-                        generationSuccess = true
                         val updatedMessage = newAssistantMessage.copy(
                             messageContent = "",
                             images = savedImages,
@@ -1464,16 +1478,15 @@ class AndroidPaintViewModel(
                         repository.getSession(sessionId).first()?.let { sess ->
                             repository.updateSession(sess)
                         }
-                        taskManager.emitResult(GenerationResult.Success(savedImages.size))
+                        generationResult = GenerationCompletion.Success(savedImages.size)
                     }.onError { error ->
-                        failureMessage = error.message
                         val errorMessage = newAssistantMessage.copy(
                             messageContent = error.message ?: "生成失败",
                             status = MessageStatus.ERROR,
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(errorMessage)
-                        taskManager.emitResult(GenerationResult.Failed(error.message))
+                        generationResult = GenerationCompletion.Failed(error.message)
                     }
                 } catch (e: CancellationException) {
                     // 用户主动取消生成，更新消息状态为 CANCELLED
@@ -1484,35 +1497,24 @@ class AndroidPaintViewModel(
                             updatedAt = System.currentTimeMillis()
                         )
                         repository.updateMessage(cancelledMessage)
-                        taskManager.emitResult(GenerationResult.Cancelled)
+                        generationResult = GenerationCompletion.Cancelled
                     }
                 } catch (e: Exception) {
-                    failureMessage = e.message
                     val errorMessage = newAssistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
                         updatedAt = System.currentTimeMillis()
                     )
                     repository.updateMessage(errorMessage)
-                    taskManager.emitResult(GenerationResult.Failed(e.message))
+                    generationResult = GenerationCompletion.Failed(e.message)
                 } finally {
                     withContext(NonCancellable) {
-                        withContext(Dispatchers.Main) {
-                            unmarkGenerating(generatingMessageId, sessionId)
-                        }
-                        if (taskManager.activeTasks.value.isEmpty()) {
-                            if (failureMessage != null || generationSuccess) {
-                                ImageGenerationService.stopWithResult(
-                                    appContext, generationSuccess, failureMessage, sessionId
-                                )
-                            } else {
-                                ImageGenerationService.stop(appContext)
-                            }
-                        }
+                        finishGenerationTask(generatingMessageId, sessionId, generationResult)
                     }
                 }
             }
             taskManager.register(generatingMessageId, sessionId, regenStartTime, regenJob)
+            regenJob.start()
             markGenerating(generatingMessageId, sessionId, regenStartTime)
         }
     }

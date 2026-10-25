@@ -107,6 +107,8 @@ import androidx.compose.ui.window.rememberDialogState
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.example.livewallpaper.core.design.component.GenerationBatchDialog
+import com.example.livewallpaper.core.design.component.GenerationBatchDialogSummary
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.theme.AppDesignTheme
 import com.example.livewallpaper.core.design.theme.AppDesignThemeStyle
@@ -114,6 +116,7 @@ import com.example.livewallpaper.core.platform.DesktopAiPaintStoragePaths
 import com.example.livewallpaper.di.appModule
 import com.example.livewallpaper.di.platformModule
 import com.example.livewallpaper.desktop.paint.AiPaintWorkspace
+import com.example.livewallpaper.desktop.paint.DesktopPaintGenerationNotice
 import com.example.livewallpaper.desktop.paint.DesktopPaintSidebarSection
 import com.example.livewallpaper.desktop.paint.DesktopPaintViewModel
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
@@ -381,12 +384,21 @@ fun main() {
                     wallpaperController = wallpaperController,
                     runtimeSettings = runtimeSettings,
                     onConfigChanged = { latestConfig = it },
-                    onPaintGenerationSuccess = { imageCount ->
+                    onPaintGenerationNotice = { notice ->
                         if (latestConfig.paintGenerationSuccessNotification) {
-                            trayController.displayMessage(
-                                title = strings.paintGenerationSuccessTitle,
-                                message = strings.paintGenerationSuccessMessage(imageCount),
-                            )
+                            when (notice) {
+                                is DesktopPaintGenerationNotice.SingleSuccess -> trayController.displayMessage(
+                                    title = strings.paintGenerationSuccessTitle,
+                                    message = strings.paintGenerationSuccessMessage(notice.imageCount),
+                                )
+                                is DesktopPaintGenerationNotice.Summary -> trayController.displayMessage(
+                                    title = strings.paintGenerationBatchTitle,
+                                    message = strings.paintGenerationBatchMessage(
+                                        notice.successCount,
+                                        notice.failureCount,
+                                    ),
+                                )
+                            }
                         }
                     },
                 )
@@ -423,7 +435,7 @@ private fun DesktopApp(
     wallpaperController: DesktopWallpaperController,
     runtimeSettings: DesktopRuntimeSettings,
     onConfigChanged: (WallpaperConfig) -> Unit,
-    onPaintGenerationSuccess: (Int) -> Unit,
+    onPaintGenerationNotice: (DesktopPaintGenerationNotice) -> Unit,
 ) {
     val viewModel = remember { GlobalContext.get().get<SettingsViewModel>() }
     val uiState by viewModel.uiState.collectAsState()
@@ -476,7 +488,7 @@ private fun DesktopApp(
                     onSetCurrentWallpaper = { path ->
                         wallpaperController.setWallpaper(path, uiState.config.scaleMode)
                     },
-                    onPaintGenerationSuccess = onPaintGenerationSuccess,
+                    onPaintGenerationNotice = onPaintGenerationNotice,
                 )
             }
         }
@@ -518,7 +530,7 @@ private fun DesktopShell(
     onStartSlideshow: () -> Unit,
     onStopSlideshow: () -> Unit,
     onSetCurrentWallpaper: (String) -> Unit,
-    onPaintGenerationSuccess: (Int) -> Unit,
+    onPaintGenerationNotice: (DesktopPaintGenerationNotice) -> Unit,
 ) {
     val koin = GlobalContext.get()
     val paintViewModel = remember {
@@ -552,10 +564,16 @@ private fun DesktopShell(
     var selectedPath by remember(openedImages) { mutableStateOf(openedImages.firstOrNull()) }
     val effectiveSelectedPath = selectedPath?.takeIf { it in openedImages } ?: openedImages.firstOrNull()
 
+    var batchSummary by remember { mutableStateOf<DesktopPaintGenerationNotice.Summary?>(null) }
     LaunchedEffect(paintViewModel, config.paintGenerationSuccessNotification) {
-        paintViewModel.generationSuccessEvent.collect { event ->
-            if (config.paintGenerationSuccessNotification) {
-                onPaintGenerationSuccess(event.imageCount)
+        paintViewModel.generationNoticeEvent.collect { event ->
+            when (event) {
+                is DesktopPaintGenerationNotice.SingleSuccess -> {
+                    if (config.paintGenerationSuccessNotification) {
+                        onPaintGenerationNotice(event)
+                    }
+                }
+                is DesktopPaintGenerationNotice.Summary -> batchSummary = event
             }
         }
     }
@@ -626,6 +644,20 @@ private fun DesktopShell(
                 onDragEnd = { runtimeSettings.setSidebarWidthDp(sidebarWidth.value) },
             )
         }
+        val dialogStrings = LocalDesktopStrings.current
+        GenerationBatchDialog(
+            summary = batchSummary?.let { summary ->
+                GenerationBatchDialogSummary(
+                    title = dialogStrings.paintGenerationBatchTitle,
+                    successLabel = dialogStrings.paintStatsSuccessCount,
+                    failureLabel = dialogStrings.paintStatsFailedCount,
+                    successCount = summary.successCount,
+                    failureCount = summary.failureCount,
+                    confirmLabel = dialogStrings.confirm,
+                )
+            },
+            onConfirm = { batchSummary = null },
+        )
     }
 }
 

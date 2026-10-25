@@ -227,6 +227,7 @@
     <string name="paint_generate_success">生成成功</string>
     <string name="paint_generate_multiple_success">成功生成 %d 张图片</string>
     <string name="paint_generate_failed">生成失败</string>
+    <string name="paint_generate_batch_result">成功 %1$d 个，失败 %2$d 个</string>
     <string name="paint_stopped">已停止生成</string>
     <string name="paint_save_success">保存成功</string>
     <string name="paint_deleted">已删除</string>
@@ -335,6 +336,7 @@
     <string name="paint_generation_notification_success_text">点击查看结果</string>
     <string name="paint_generation_notification_failed">生成失败</string>
     <string name="paint_generation_notification_failed_text">点击重试</string>
+    <string name="paint_generation_notification_batch_title">生成结束</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">添加描述</string>

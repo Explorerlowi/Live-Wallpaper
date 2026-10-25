@@ -60,6 +60,8 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.example.livewallpaper.core.design.component.GenerationBatchDialog
+import com.example.livewallpaper.core.design.component.GenerationBatchDialogSummary
 import com.example.livewallpaper.core.design.icon.AppIcons
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToListEnd
 import com.example.livewallpaper.core.design.util.awaitReadyAndScrollToMessage
@@ -136,6 +138,7 @@ fun PaintScreen(
     val latestDisplayedMessages by rememberUpdatedState(displayedMessages)
     val suppressScrollUpdates = remember { MutableStateFlow(false) }
     val focusManager = LocalFocusManager.current
+    var batchSummary by remember { mutableStateOf<PaintToastMessage.GenerateBatchSummary?>(null) }
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Conversation) }
     
     // 使用 DrawerState 控制会话抽屉
@@ -504,9 +507,13 @@ fun PaintScreen(
         }
     }
 
-    // 监听Toast事件
+    // 监听 Toast。多请求汇总改由模态弹窗展示，直到用户确认。
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collectLatest { message ->
+            if (message is PaintToastMessage.GenerateBatchSummary) {
+                batchSummary = message
+                return@collectLatest
+            }
             val text = when (message) {
                 is PaintToastMessage.PleaseConfigApi -> resources.getString(R.string.paint_please_config_api)
                 is PaintToastMessage.GenerateSuccess -> resources.getString(R.string.paint_generate_success)
@@ -985,6 +992,20 @@ fun PaintScreen(
             }
         }
     }
+
+    GenerationBatchDialog(
+        summary = batchSummary?.let { summary ->
+            GenerationBatchDialogSummary(
+                title = stringResource(R.string.paint_generation_notification_batch_title),
+                successLabel = stringResource(R.string.paint_stats_success_count),
+                failureLabel = stringResource(R.string.paint_stats_failed_count),
+                successCount = summary.successCount,
+                failureCount = summary.failureCount,
+                confirmLabel = stringResource(R.string.confirm),
+            )
+        },
+        onConfirm = { batchSummary = null },
+    )
 
     // API设置对话框
     if (showApiSettings) {
