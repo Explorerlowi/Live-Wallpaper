@@ -174,6 +174,7 @@ import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintStorageState
 import com.example.livewallpaper.feature.aipaint.domain.model.Resolution
 import com.example.livewallpaper.feature.aipaint.domain.model.SenderIdentity
+import com.example.livewallpaper.feature.aipaint.domain.model.failedVersionIdsToRemove
 import com.example.livewallpaper.feature.aipaint.domain.model.conversationPreviewImagePaths
 import com.example.livewallpaper.feature.aipaint.domain.model.movableSelectedMessages
 import com.example.livewallpaper.feature.aipaint.domain.model.selectedComparePlan
@@ -731,6 +732,9 @@ fun AiPaintWorkspace(
                                 onRegenerate = { viewModel.onEvent(PaintEvent.RegenerateMessage(message.id)) },
                                 onDelete = { viewModel.onEvent(PaintEvent.DeleteMessage(message.id)) },
                                 onDeleteVersionGroup = { group -> viewModel.onEvent(PaintEvent.DeleteMessageVersion(group)) },
+                                onDeleteFailedVersions = { group ->
+                                    viewModel.onEvent(PaintEvent.DeleteFailedMessageVersions(group))
+                                },
                                 onEdit = { viewModel.onEvent(PaintEvent.EditUserMessage(message.id)) },
                                 onSwitchVersion = { group, index ->
                                     viewModel.onEvent(PaintEvent.SwitchMessageVersion(group, index))
@@ -1636,6 +1640,7 @@ private fun PaintMessageRow(
     onRegenerate: () -> Unit,
     onDelete: () -> Unit,
     onDeleteVersionGroup: (String) -> Unit,
+    onDeleteFailedVersions: (String) -> Unit,
     onEdit: () -> Unit,
     onSwitchVersion: (String, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -1687,12 +1692,18 @@ private fun PaintMessageRow(
             },
         )
     }
+    val canDeleteFailedVersions = versions.failedVersionIdsToRemove(currentVersionIndex).isNotEmpty()
     if (showDeleteOptions) {
         DeleteVersionDialog(
+            canDeleteFailedVersions = canDeleteFailedVersions,
             onDismiss = { showDeleteOptions = false },
             onDeleteCurrent = {
                 showDeleteOptions = false
                 onDelete()
+            },
+            onDeleteFailed = {
+                showDeleteOptions = false
+                versionGroup?.let(onDeleteFailedVersions)
             },
             onDeleteAll = {
                 showDeleteOptions = false
@@ -2106,8 +2117,10 @@ private fun GptImageSize.toPreviewRatio(): Float? {
 
 @Composable
 private fun DeleteVersionDialog(
+    canDeleteFailedVersions: Boolean,
     onDismiss: () -> Unit,
     onDeleteCurrent: () -> Unit,
+    onDeleteFailed: () -> Unit,
     onDeleteAll: () -> Unit,
 ) {
     val strings = LocalDesktopStrings.current
@@ -2116,13 +2129,18 @@ private fun DeleteVersionDialog(
         title = { Text(strings.paintDeleteMessageTitle) },
         text = { Text(strings.paintDeleteVersionHint) },
         confirmButton = {
-            TextButton(onClick = onDeleteAll) {
-                Text(strings.paintDeleteAllVersions, color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDeleteCurrent) {
-                Text(strings.paintDeleteCurrentVersion)
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = onDeleteAll) {
+                    Text(strings.paintDeleteAllVersions, color = MaterialTheme.colorScheme.error)
+                }
+                if (canDeleteFailedVersions) {
+                    TextButton(onClick = onDeleteFailed) {
+                        Text(strings.paintDeleteFailedVersions, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDeleteCurrent) {
+                    Text(strings.paintDeleteCurrentVersion)
+                }
             }
         },
     )

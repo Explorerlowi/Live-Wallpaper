@@ -44,6 +44,7 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhe
 import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteFailedVersions
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
 import kotlinx.coroutines.CancellationException
@@ -173,6 +174,9 @@ class DesktopPaintViewModel(
             PaintEvent.LoadMoreMessages -> Unit
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteFailedMessageVersions -> viewModelScope.launch {
+                _uiState.deleteFailedVersions(repository, event.versionGroup)
+            }
             is PaintEvent.DeleteMessages -> viewModelScope.launch {
                 _uiState.deleteSelectedMessages(repository, event.messageIds)
             }

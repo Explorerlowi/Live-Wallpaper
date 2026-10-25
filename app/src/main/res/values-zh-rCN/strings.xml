@@ -255,6 +255,7 @@
     <string name="message_generating_cannot_delete">同一条回复正在生成，不能删除</string>
     <string name="message_delete_version_hint">此消息有多个版本，请选择删除方式</string>
     <string name="message_delete_current_version">删除当前版本</string>
+    <string name="message_delete_failed_versions">删除所有失败版本</string>
     <string name="message_delete_all_versions">删除全部版本</string>
     <string name="message_copied">已复制到剪贴板</string>
     <string name="message_transfer">转移</string>

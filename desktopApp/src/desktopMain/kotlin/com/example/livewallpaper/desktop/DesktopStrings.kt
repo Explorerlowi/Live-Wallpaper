@@ -137,6 +137,7 @@ class DesktopStrings internal constructor(
     }
     val paintDeleteVersionHint: String = text("paintDeleteVersionHint")
     val paintDeleteCurrentVersion: String = text("paintDeleteCurrentVersion")
+    val paintDeleteFailedVersions: String = text("paintDeleteFailedVersions")
     val paintDeleteAllVersions: String = text("paintDeleteAllVersions")
     val paintVersionLabel: (Int, Int) -> String = { current, total ->
         text("paintVersionLabel").format(current, total)

@@ -134,6 +134,9 @@ class PaintViewModel(
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteFailedMessageVersions -> viewModelScope.launch {
+                _uiState.deleteFailedVersions(repository, event.versionGroup)
+            }
             is PaintEvent.DeleteMessages -> viewModelScope.launch {
                 _uiState.deleteSelectedMessages(repository, event.messageIds)
             }

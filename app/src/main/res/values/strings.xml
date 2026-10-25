@@ -253,6 +253,7 @@
     <string name="message_generating_cannot_delete">A version of this reply is still generating, so it can\'t be deleted.</string>
     <string name="message_delete_version_hint">This message has multiple versions. Choose how to delete:</string>
     <string name="message_delete_current_version">Delete current version</string>
+    <string name="message_delete_failed_versions">Delete all failed versions</string>
     <string name="message_delete_all_versions">Delete all versions</string>
     <string name="message_copied">Copied to clipboard</string>
     <string name="message_transfer">Transfer</string>

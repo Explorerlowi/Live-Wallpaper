@@ -820,6 +820,9 @@ fun PaintScreen(
                                 onDeleteVersionGroup = { versionGroup ->
                                     viewModel.onEvent(PaintEvent.DeleteMessageVersion(versionGroup))
                                 },
+                                onDeleteFailedVersions = { versionGroup ->
+                                    viewModel.onEvent(PaintEvent.DeleteFailedMessageVersions(versionGroup))
+                                },
                                 onRegenerate = { messageId ->
                                     viewModel.onEvent(PaintEvent.RegenerateMessage(messageId))
                                 },
@@ -1491,6 +1494,7 @@ private fun MessageItem(
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onDeleteVersionGroup: (String) -> Unit = {},
+    onDeleteFailedVersions: (String) -> Unit = {},
     onRegenerate: (String) -> Unit = {},
     onSwitchVersion: (String, Int) -> Unit = { _, _ -> },
     onDownloadImage: (PaintImage) -> Unit = {},
@@ -1527,7 +1531,10 @@ private fun MessageItem(
             Triple(0, 1, emptyList())
         }
     }
-    val (currentVersionIndex, totalVersions, _) = versionInfo
+    val (currentVersionIndex, totalVersions, versions) = versionInfo
+    val failedVersionIds = remember(versions, currentVersionIndex) {
+        versions.failedVersionIdsToRemove(currentVersionIndex)
+    }
 
     // 计算生成时长
     val durationMillis = if (message.status == MessageStatus.GENERATING) {
@@ -1575,26 +1582,39 @@ private fun MessageItem(
             title = { Text(stringResource(R.string.message_delete_title)) },
             text = { Text(stringResource(R.string.message_delete_version_hint)) },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteOptions = false
-                        versionGroup?.let { onDeleteVersionGroup(it) }
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(stringResource(R.string.message_delete_all_versions))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteOptions = false
-                        onDeleteMessage(message.id)
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(
+                        onClick = {
+                            showDeleteOptions = false
+                            versionGroup?.let { onDeleteVersionGroup(it) }
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text(stringResource(R.string.message_delete_all_versions))
                     }
-                ) {
-                    Text(stringResource(R.string.message_delete_current_version))
+                    if (failedVersionIds.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                showDeleteOptions = false
+                                versionGroup?.let { onDeleteFailedVersions(it) }
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text(stringResource(R.string.message_delete_failed_versions))
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showDeleteOptions = false
+                            onDeleteMessage(message.id)
+                        }
+                    ) {
+                        Text(stringResource(R.string.message_delete_current_version))
+                    }
                 }
             }
         )

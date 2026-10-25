@@ -177,6 +177,30 @@ class PaintMessageSelectionTest {
     }
 
     @Test
+    fun failedVersionsAreRemovedWhenAnotherStatusRemains() {
+        val failed = version("failed", index = 0, status = MessageStatus.ERROR)
+        val success = version("success", index = 1)
+        val cancelled = version("cancelled", index = 2, status = MessageStatus.CANCELLED)
+        val generating = version("generating", index = 3, status = MessageStatus.GENERATING)
+        val removing = listOf(success, generating, cancelled, failed).failedVersionIdsToRemove(activePosition = 1)
+        assertEquals(setOf("failed"), removing)
+    }
+
+    @Test
+    fun allFailedVersionsKeepTheOneOnScreen() {
+        val versions = listOf(
+            version("first", index = 0, status = MessageStatus.ERROR),
+            version("current", index = 1, status = MessageStatus.ERROR),
+            version("latest", index = 2, status = MessageStatus.ERROR),
+        )
+        assertEquals(setOf("first", "latest"), versions.failedVersionIdsToRemove(activePosition = 1))
+        assertEquals(setOf("first", "current"), versions.failedVersionIdsToRemove(activePosition = 9))
+        assertEquals(emptySet(), listOf(versions.first()).failedVersionIdsToRemove(activePosition = 0))
+        assertEquals(emptySet(), versions.take(2).map { it.copy(status = MessageStatus.SUCCESS) }
+            .failedVersionIdsToRemove(activePosition = 0))
+    }
+
+    @Test
     fun removingActiveVersionStepsBackWithinTheGroup() {
         val older = message(id = "v0", versionGroup = "group", versionIndex = 0)
         val middle = message(id = "v1", versionGroup = "group", versionIndex = 1, createdAt = 2)
@@ -189,6 +213,19 @@ class PaintMessageSelectionTest {
         assertEquals(1, versions["group"])
         assertTrue("missing" !in versions)
     }
+
+    private fun version(
+        id: String,
+        index: Int,
+        status: MessageStatus = MessageStatus.SUCCESS,
+    ): PaintMessage = message(
+        id = id,
+        createdAt = index.toLong() + 1,
+        sender = SenderIdentity.ASSISTANT,
+        status = status,
+        versionGroup = "group",
+        versionIndex = index,
+    )
 
     private fun message(
         id: String,

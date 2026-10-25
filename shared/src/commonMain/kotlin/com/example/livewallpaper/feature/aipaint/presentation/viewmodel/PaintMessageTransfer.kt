@@ -3,6 +3,7 @@ package com.example.livewallpaper.feature.aipaint.presentation.viewmodel
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.aipaint.domain.model.activeVersionsAfterRemoving
 import com.example.livewallpaper.feature.aipaint.domain.model.copiedSelectedMessages
+import com.example.livewallpaper.feature.aipaint.domain.model.failedVersionIdsToRemove
 import com.example.livewallpaper.feature.aipaint.domain.model.movableSelectedMessages
 import com.example.livewallpaper.feature.aipaint.domain.repository.PaintRepository
 import com.example.livewallpaper.feature.aipaint.presentation.state.PaintUiState
@@ -106,4 +107,37 @@ suspend fun MutableStateFlow<PaintUiState>.deleteSelectedMessages(
         )
     }
     removing.forEach { message -> repository.deleteMessage(message.id) }
+}
+
+/**
+ * 删除同一版本组中的失败版本，并修正仍留在会话里的版本位置。
+ *
+ * 组里还有其他状态的版本时，失败版本全部删除。
+ * 如果这一组全部失败，保留当前正在查看的一条。
+ *
+ * @param versionGroup 版本组 ID。
+ * @return 是否删除了至少一条失败版本。
+ */
+suspend fun MutableStateFlow<PaintUiState>.deleteFailedVersions(
+    repository: PaintRepository,
+    versionGroup: String,
+): Boolean {
+    val versions = value.messages.filter { it.versionGroup == versionGroup }.sortedBy { it.versionIndex }
+    if (versions.isEmpty()) return false
+    val activePosition = (value.activeVersions[versionGroup] ?: versions.lastIndex)
+        .coerceIn(0, versions.lastIndex)
+    val removedIds = versions.failedVersionIdsToRemove(activePosition)
+    if (removedIds.isEmpty()) return false
+    val removing = versions.filter { it.id in removedIds }
+    update { current ->
+        current.copy(
+            activeVersions = activeVersionsAfterRemoving(
+                messages = current.messages,
+                activeVersions = current.activeVersions,
+                removedIds = removedIds,
+            ),
+        )
+    }
+    removing.forEach { message -> repository.deleteMessage(message.id) }
+    return true
 }

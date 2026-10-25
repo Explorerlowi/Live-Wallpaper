@@ -22,6 +22,7 @@ import com.example.livewallpaper.feature.aipaint.presentation.state.isAllowedWhe
 import com.example.livewallpaper.feature.aipaint.presentation.state.recomputeMessageSearch
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.handleMessageSearchEvent
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.copySelectedMessages
+import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteFailedVersions
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.deleteSelectedMessages
 import com.example.livewallpaper.feature.aipaint.presentation.viewmodel.moveSelectedMessages
 import com.example.livewallpaper.paint.service.GenerationTaskCompletion
@@ -427,6 +428,11 @@ class AndroidPaintViewModel(
             is PaintEvent.LoadMoreMessages -> loadMoreMessages()
             is PaintEvent.DeleteMessage -> deleteMessage(event.messageId)
             is PaintEvent.DeleteMessageVersion -> deleteMessageVersion(event.versionGroup)
+            is PaintEvent.DeleteFailedMessageVersions -> viewModelScope.launch {
+                if (_uiState.deleteFailedVersions(repository, event.versionGroup)) {
+                    _toastEvent.emit(PaintToastMessage.Deleted)
+                }
+            }
             is PaintEvent.DeleteMessages -> viewModelScope.launch {
                 _uiState.deleteSelectedMessages(repository, event.messageIds)
             }

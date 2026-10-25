@@ -22,6 +22,16 @@ sealed class PaintEvent {
     data class DeleteMessageVersion(val versionGroup: String) : PaintEvent()  // 删除整个版本组
 
     /**
+     * 删除同一版本组里的失败版本。
+     *
+     * 组里还有其他状态的版本时，失败版本全部删除。
+     * 如果这一组全部失败，保留当前正在查看的一条。
+     *
+     * @property versionGroup 版本组 ID。
+     */
+    data class DeleteFailedMessageVersions(val versionGroup: String) : PaintEvent()
+
+    /**
      * 删除当前会话中选中的消息。
      *
      * 正在生成的消息不会删除。选中某个已完成版本时，同一版本组里其余已完成的版本会一起删除。

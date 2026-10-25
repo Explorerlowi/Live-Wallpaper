@@ -169,6 +169,25 @@ private fun List<PaintMessage>.selectedWithVersionSiblings(
 }
 
 /**
+ * 选出同一版本组里应删除的失败版本。
+ *
+ * 失败版本指状态为 [MessageStatus.ERROR] 的回复。组里还有成功、取消或生成中的版本时，
+ * 删除全部失败版本。如果全部都是失败版本，保留当前正在查看的那一条，避免整条回复消失。
+ *
+ * @param activePosition 当前展示版本在按版本号排序后的位置。
+ * @return 要删除的消息 ID。没有可删的失败版本时为空。
+ */
+fun List<PaintMessage>.failedVersionIdsToRemove(activePosition: Int): Set<String> {
+    val sorted = sortedBy { it.versionIndex }
+    if (sorted.size <= 1) return emptySet()
+    val failedIds = sorted.filter { it.status == MessageStatus.ERROR }.map { it.id }
+    if (failedIds.isEmpty()) return emptySet()
+    if (sorted.any { it.status != MessageStatus.ERROR }) return failedIds.toSet()
+    val keepId = sorted[activePosition.coerceIn(0, sorted.lastIndex)].id
+    return failedIds.filter { it != keepId }.toSet()
+}
+
+/**
  * 移除若干消息后，修正版本组当前展示的位置。
  *
  * 规则与单条删除一致：移除当前版本时回退到上一版本，移除更早版本时当前位置前移。
