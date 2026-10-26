@@ -29,6 +29,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -1475,7 +1478,6 @@ private fun GenerationParamsBadge(
 }
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
 private fun MessageItem(
     message: PaintMessage,
     allMessages: List<PaintMessage> = emptyList(),
@@ -1791,11 +1793,7 @@ private fun MessageItem(
                 Box(
                     modifier = Modifier
                         .matchParentSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onMessageClick,
-                        )
+                        .detectTapUnlessDrag(onMessageClick),
                 )
             }
             }
@@ -2129,7 +2127,6 @@ private fun formatDuration(durationMillis: Long): String {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageLocalImage(
     path: String,
@@ -2187,10 +2184,7 @@ private fun MessageLocalImage(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = onLongClick
-                    ),
+                    .detectPress(consumeDown = true, onTap = onClick, onLongPress = onLongClick),
                 contentScale = ContentScale.Fit,
                 onSuccess = { state ->
                     isLoading = false
@@ -2514,33 +2508,100 @@ private const val MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS = 800L
 /**
  * 长按消息进入多选。
  *
- * 子组件已经消费按下事件时不拦截，避免和图片点击、按钮点击冲突。
- * 文本选择仍可能同时开始，调用方会在进入多选后清掉文本选区。
+ * 子组件已经消费按下事件时不拦截，避免和图片点击重复触发。
+ * 手指移动超过触摸阈值就取消，上下滑动列表时不会选中气泡。
  */
-private fun Modifier.detectMessageLongPress(onLongPress: () -> Unit): Modifier = pointerInput(onLongPress) {
+private fun Modifier.detectMessageLongPress(onLongPress: () -> Unit): Modifier =
+    detectPress(consumeDown = false, onTap = null, onLongPress = onLongPress)
+
+/**
+ * 区分点击、长按和滑动。
+ *
+ * 按下后移动超过触摸阈值会放弃本次手势，并且不消费后续移动，让外层列表继续滚动。
+ * 图片需要消费按下事件，避免和气泡上的长按检测各触发一次。
+ */
+private fun Modifier.detectPress(
+    consumeDown: Boolean,
+    onTap: (() -> Unit)?,
+    onLongPress: () -> Unit,
+): Modifier = pointerInput(consumeDown, onTap, onLongPress) {
+    val touchSlop = viewConfiguration.touchSlop
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         if (down.isConsumed) return@awaitEachGesture
-        var releasedOrConsumed = false
-        val timedOut = withTimeoutOrNull(MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS) {
-            while (true) {
-                val event = awaitPointerEvent()
-                val change = event.changes.firstOrNull { it.id == down.id }
-                if (change == null || change.isConsumed || !change.pressed) {
-                    releasedOrConsumed = true
-                    break
-                }
+        if (consumeDown) down.consume()
+        val outcome = awaitPressOutcome(down.id, down.position, touchSlop)
+        when (outcome) {
+            PressOutcome.Tap -> onTap?.invoke()
+            PressOutcome.LongPress -> {
+                onLongPress()
+                consumeUntilRelease()
             }
-        } == null
-        if (timedOut && !releasedOrConsumed) {
-            onLongPress()
-            while (true) {
-                val event = awaitPointerEvent()
-                event.changes.forEach { it.consume() }
-                if (event.changes.none { it.pressed }) break
+            PressOutcome.Cancel -> Unit
+        }
+    }
+}
+
+/**
+ * 多选状态下点击气泡。手指滑出触摸阈值则视为滚动，不改变选中状态。
+ */
+private fun Modifier.detectTapUnlessDrag(onTap: () -> Unit): Modifier = pointerInput(onTap) {
+    val touchSlop = viewConfiguration.touchSlop
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        if (down.isConsumed) return@awaitEachGesture
+        down.consume()
+        val origin = down.position
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+            val movedPastSlop = (change.position - origin).getDistance() > touchSlop
+            if (movedPastSlop || change.isConsumed) return@awaitEachGesture
+            if (!change.pressed) {
+                onTap()
+                return@awaitEachGesture
             }
         }
     }
+}
+
+private suspend fun AwaitPointerEventScope.awaitPressOutcome(
+    pointerId: PointerId,
+    origin: Offset,
+    touchSlop: Float,
+): PressOutcome {
+    val completed = withTimeoutOrNull(MESSAGE_MULTI_SELECT_LONG_PRESS_MILLIS) {
+        var outcome = PressOutcome.Cancel
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == pointerId }
+            val movedPastSlop = change != null && (change.position - origin).getDistance() > touchSlop
+            if (change == null || change.isConsumed || movedPastSlop) {
+                outcome = PressOutcome.Cancel
+                break
+            }
+            if (!change.pressed) {
+                outcome = PressOutcome.Tap
+                break
+            }
+        }
+        outcome
+    }
+    return completed ?: PressOutcome.LongPress
+}
+
+private suspend fun AwaitPointerEventScope.consumeUntilRelease() {
+    while (true) {
+        val event = awaitPointerEvent()
+        event.changes.forEach { it.consume() }
+        if (event.changes.none { it.pressed }) break
+    }
+}
+
+private enum class PressOutcome {
+    Tap,
+    LongPress,
+    Cancel,
 }
 
 /**
