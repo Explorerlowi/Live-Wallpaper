@@ -257,6 +257,7 @@
     <string name="message_delete_current_version">删除当前版本</string>
     <string name="message_delete_failed_versions">删除所有失败版本</string>
     <string name="message_delete_all_versions">删除全部版本</string>
+    <string name="message_delete_all_versions_confirm">确定删除这条回复的全部版本吗？删除后无法恢复。</string>
     <string name="message_copied">已复制到剪贴板</string>
     <string name="message_transfer">转移</string>
     <string name="message_copy_to_session_title">复制到会话</string>

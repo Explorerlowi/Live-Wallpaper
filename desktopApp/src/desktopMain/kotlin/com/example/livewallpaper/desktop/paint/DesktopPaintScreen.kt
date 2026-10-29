@@ -1650,6 +1650,7 @@ private fun PaintMessageRow(
     val strings = LocalDesktopStrings.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDeleteOptions by remember { mutableStateOf(false) }
+    var showDeleteAllVersionsConfirm by remember { mutableStateOf(false) }
     val versionGroup = message.versionGroup
     val versions = remember(versionGroup, uiState.messages) {
         if (versionGroup != null && !isUser) {
@@ -1692,6 +1693,18 @@ private fun PaintMessageRow(
             },
         )
     }
+    if (showDeleteAllVersionsConfirm) {
+        ConfirmDialog(
+            title = strings.paintDeleteAllVersions,
+            message = strings.paintDeleteAllVersionsConfirm,
+            confirmText = strings.confirm,
+            onDismiss = { showDeleteAllVersionsConfirm = false },
+            onConfirm = {
+                showDeleteAllVersionsConfirm = false
+                versionGroup?.let(onDeleteVersionGroup)
+            },
+        )
+    }
     val canDeleteFailedVersions = versions.failedVersionIdsToRemove(currentVersionIndex).isNotEmpty()
     if (showDeleteOptions) {
         DeleteVersionDialog(
@@ -1707,7 +1720,7 @@ private fun PaintMessageRow(
             },
             onDeleteAll = {
                 showDeleteOptions = false
-                versionGroup?.let(onDeleteVersionGroup)
+                showDeleteAllVersionsConfirm = true
             },
         )
     }

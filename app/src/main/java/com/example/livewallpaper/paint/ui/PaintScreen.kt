@@ -1517,6 +1517,7 @@ private fun MessageItem(
     
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDeleteOptions by remember { mutableStateOf(false) }
+    var showDeleteAllVersionsConfirm by remember { mutableStateOf(false) }
 
     // 计算版本信息 - 基于列表位置而非 versionIndex
     val versionGroup = message.versionGroup
@@ -1577,6 +1578,18 @@ private fun MessageItem(
         )
     }
     
+    if (showDeleteAllVersionsConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.message_delete_all_versions),
+            message = stringResource(R.string.message_delete_all_versions_confirm),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            isDangerous = true,
+            onConfirm = { versionGroup?.let { onDeleteVersionGroup(it) } },
+            onDismiss = { showDeleteAllVersionsConfirm = false },
+        )
+    }
+
     // AI消息多版本删除选项对话框
     if (showDeleteOptions) {
         AlertDialog(
@@ -1588,7 +1601,7 @@ private fun MessageItem(
                     TextButton(
                         onClick = {
                             showDeleteOptions = false
-                            versionGroup?.let { onDeleteVersionGroup(it) }
+                            showDeleteAllVersionsConfirm = true
                         },
                         colors = ButtonDefaults.textButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
