@@ -336,6 +336,8 @@
     <string name="paint_generation_notification_failed">Generation failed</string>
     <string name="paint_generation_notification_failed_text">Tap to retry</string>
     <string name="paint_generation_notification_batch_title">Generation finished</string>
+    <string name="paint_generation_notification_sound">Completion sound</string>
+    <string name="paint_generation_notification_sound_option">Sound %1$d</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">Add Tags</string>

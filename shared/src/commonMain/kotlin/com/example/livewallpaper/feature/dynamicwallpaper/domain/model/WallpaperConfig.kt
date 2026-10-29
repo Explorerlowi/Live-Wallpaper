@@ -26,8 +26,26 @@ data class WallpaperConfig(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val launchAtStartup: Boolean = false,
     val restoreSlideshowOnLaunch: Boolean = false,
-    val paintGenerationSuccessNotification: Boolean = true
+    val paintGenerationSuccessNotification: Boolean = true,
+    val paintGenerationNotificationSound: GenerationNotificationSound = GenerationNotificationSound.TONE_1
 )
+
+/**
+ * 生成完成通知使用的提示音。
+ *
+ * 顺序与设置里的「提示音 1」到「提示音 4」一致，分别对应资源 gen_notify_07、017、033、051。
+ */
+@Serializable
+enum class GenerationNotificationSound {
+    TONE_1,
+    TONE_2,
+    TONE_3,
+    TONE_4;
+
+    /** 设置项展示用的序号，从 1 开始。 */
+    val optionNumber: Int
+        get() = ordinal + 1
+}
 
 /**
  * 缩放模式

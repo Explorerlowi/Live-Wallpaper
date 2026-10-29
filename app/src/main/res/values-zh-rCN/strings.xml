@@ -338,6 +338,8 @@
     <string name="paint_generation_notification_failed">生成失败</string>
     <string name="paint_generation_notification_failed_text">点击重试</string>
     <string name="paint_generation_notification_batch_title">生成结束</string>
+    <string name="paint_generation_notification_sound">完成提示音</string>
+    <string name="paint_generation_notification_sound_option">提示音 %1$d</string>
     
     <!-- 描述选择器 -->
     <string name="desc_add_description">添加描述</string>

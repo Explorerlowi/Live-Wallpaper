@@ -34,6 +34,7 @@ kotlin {
                 implementation(libs.koin.core)
                 implementation(libs.jna.platform)
                 implementation(libs.compose.reorderable)
+                implementation(libs.jlayer)
             }
         }
 

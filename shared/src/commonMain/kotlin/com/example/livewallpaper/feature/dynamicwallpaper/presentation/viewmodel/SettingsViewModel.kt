@@ -78,6 +78,9 @@ class SettingsViewModel(
                 is SettingsEvent.UpdatePaintGenerationSuccessNotification -> {
                     repository.setPaintGenerationSuccessNotification(event.enabled)
                 }
+                is SettingsEvent.UpdatePaintGenerationNotificationSound -> {
+                    repository.setPaintGenerationNotificationSound(event.sound)
+                }
                 is SettingsEvent.CheckUpdate -> checkUpdate(event)
                 is SettingsEvent.ClearUpdateStatus -> _updateStatus.value = UpdateStatus.Idle
             }

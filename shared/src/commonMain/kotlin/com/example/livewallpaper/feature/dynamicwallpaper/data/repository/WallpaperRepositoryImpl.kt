@@ -3,6 +3,7 @@ package com.example.livewallpaper.feature.dynamicwallpaper.data.repository
 import com.example.livewallpaper.core.util.TimeProvider
 import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.AppUpdateService
 import com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
@@ -181,6 +182,10 @@ class WallpaperRepositoryImpl(
 
     override suspend fun setPaintGenerationSuccessNotification(enabled: Boolean) {
         persistSettings(loadSettings().copy(paintGenerationSuccessNotification = enabled))
+    }
+
+    override suspend fun setPaintGenerationNotificationSound(sound: GenerationNotificationSound) {
+        persistSettings(loadSettings().copy(paintGenerationNotificationSound = sound))
     }
 
     override suspend fun checkAppUpdate(

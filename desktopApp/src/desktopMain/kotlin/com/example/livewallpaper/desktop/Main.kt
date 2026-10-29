@@ -64,6 +64,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -129,6 +130,7 @@ import com.example.livewallpaper.feature.aipaint.data.local.PaintStorageCoordina
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ExportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.ImportPaintDataUseCase
 import com.example.livewallpaper.feature.aipaint.domain.usecase.PreviewPaintDataImportUseCase
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -565,15 +567,21 @@ private fun DesktopShell(
     val effectiveSelectedPath = selectedPath?.takeIf { it in openedImages } ?: openedImages.firstOrNull()
 
     var batchSummary by remember { mutableStateOf<DesktopPaintGenerationNotice.Summary?>(null) }
-    LaunchedEffect(paintViewModel, config.paintGenerationSuccessNotification) {
+    val notificationSound by rememberUpdatedState(config.paintGenerationNotificationSound)
+    val completionNotificationEnabled by rememberUpdatedState(config.paintGenerationSuccessNotification)
+    LaunchedEffect(paintViewModel) {
         paintViewModel.generationNoticeEvent.collect { event ->
             when (event) {
                 is DesktopPaintGenerationNotice.SingleSuccess -> {
-                    if (config.paintGenerationSuccessNotification) {
+                    if (completionNotificationEnabled) {
                         onPaintGenerationNotice(event)
+                        DesktopGenerationNotificationSoundPlayer.play(notificationSound)
                     }
                 }
-                is DesktopPaintGenerationNotice.Summary -> batchSummary = event
+                is DesktopPaintGenerationNotice.Summary -> {
+                    batchSummary = event
+                    DesktopGenerationNotificationSoundPlayer.play(notificationSound)
+                }
             }
         }
     }
@@ -2801,6 +2809,19 @@ private fun SettingsContent(
                 description = strings.paintGenerationSuccessNotificationDescription,
                 checked = config.paintGenerationSuccessNotification,
                 onCheckedChange = { onEvent(SettingsEvent.UpdatePaintGenerationSuccessNotification(it)) },
+            )
+            SettingsItemDivider()
+            SettingsDropdownRow(
+                title = strings.paintGenerationNotificationSound,
+                selectedLabel = strings.paintGenerationNotificationSoundOption(
+                    config.paintGenerationNotificationSound.optionNumber,
+                ),
+                options = GenerationNotificationSound.entries,
+                optionLabel = { strings.paintGenerationNotificationSoundOption(it.optionNumber) },
+                onOptionSelected = { sound ->
+                    onEvent(SettingsEvent.UpdatePaintGenerationNotificationSound(sound))
+                    DesktopGenerationNotificationSoundPlayer.play(sound)
+                },
             )
         }
 

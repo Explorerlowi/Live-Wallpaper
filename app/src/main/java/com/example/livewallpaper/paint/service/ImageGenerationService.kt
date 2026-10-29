@@ -15,7 +15,10 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.livewallpaper.R
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.repository.WallpaperRepository
 import com.example.livewallpaper.paint.PaintActivity
+import org.koin.core.context.GlobalContext
 
 /**
  * AI 绘画前台服务
@@ -129,7 +132,8 @@ class ImageGenerationService : Service() {
     companion object {
         private const val TAG = "ImageGenService"
         private const val CHANNEL_ID = "image_generation_channel"
-        private const val RESULT_CHANNEL_ID = "image_generation_result_channel"
+        private const val LEGACY_RESULT_CHANNEL_ID = "image_generation_result_channel"
+        private const val RESULT_CHANNEL_ID = "image_generation_result_silent"
         private const val NOTIFICATION_ID = 9001
         private const val RESULT_NOTIFICATION_ID = 9002
 
@@ -149,21 +153,46 @@ class ImageGenerationService : Service() {
                     }
                     manager.createNotificationChannel(channel)
                 }
-
-                // 结果通知渠道（高重要性，弹出横幅 + 声音 + 振动）
-                if (manager.getNotificationChannel(RESULT_CHANNEL_ID) == null) {
-                    val resultChannel = NotificationChannel(
-                        RESULT_CHANNEL_ID,
-                        context.getString(R.string.paint_generation_result_channel_name),
-                        NotificationManager.IMPORTANCE_HIGH
-                    ).apply {
-                        description = context.getString(R.string.paint_generation_result_channel_desc)
-                        setShowBadge(true)
-                        enableVibration(true)
-                    }
-                    manager.createNotificationChannel(resultChannel)
-                }
             }
+        }
+
+        /**
+         * 准备结果通知渠道。
+         *
+         * 提示音由应用自己播放。渠道保持静音，避免前台时系统把通知音吃掉，
+         * 或和自己播放的声音叠在一起。
+         */
+        private fun ensureResultChannel(context: Context): String {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return RESULT_CHANNEL_ID
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.deleteNotificationChannel(LEGACY_RESULT_CHANNEL_ID)
+            GenerationNotificationSound.entries.forEach { sound ->
+                manager.deleteNotificationChannel(legacySoundChannelId(sound))
+            }
+            if (manager.getNotificationChannel(RESULT_CHANNEL_ID) == null) {
+                val channel = NotificationChannel(
+                    RESULT_CHANNEL_ID,
+                    context.getString(R.string.paint_generation_result_channel_name),
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = context.getString(R.string.paint_generation_result_channel_desc)
+                    setShowBadge(true)
+                    enableVibration(true)
+                    setSound(null, null)
+                }
+                manager.createNotificationChannel(channel)
+            }
+            return RESULT_CHANNEL_ID
+        }
+
+        private fun legacySoundChannelId(sound: GenerationNotificationSound): String {
+            return "image_generation_result_${sound.name.lowercase()}"
+        }
+
+        private fun selectedNotificationSound(): GenerationNotificationSound {
+            return runCatching {
+                GlobalContext.get().get<WallpaperRepository>().getConfigSync().paintGenerationNotificationSound
+            }.getOrDefault(GenerationNotificationSound.TONE_1)
         }
 
         fun start(context: Context, sessionId: String? = null) {
@@ -249,7 +278,9 @@ class ImageGenerationService : Service() {
             sessionId: String?,
             timeoutMs: Long,
         ) {
-            ensureNotificationChannel(context)
+            val sound = selectedNotificationSound()
+            GenerationNotificationSoundPreview.play(context, sound)
+            val channelId = ensureResultChannel(context)
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             val openIntent = Intent(context, PaintActivity::class.java).apply {
@@ -261,14 +292,15 @@ class ImageGenerationService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            val notification = NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
+            val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setSilent(true)
+                .setVibrate(longArrayOf(0, 180, 120, 180))
                 .setTimeoutAfter(timeoutMs)
                 .build()
 

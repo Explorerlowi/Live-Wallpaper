@@ -1,5 +1,6 @@
 package com.example.livewallpaper.feature.dynamicwallpaper.presentation.state
 
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
@@ -27,6 +28,7 @@ sealed interface SettingsEvent {
     data class UpdateLaunchAtStartup(val enabled: Boolean) : SettingsEvent
     data class UpdateRestoreSlideshowOnLaunch(val enabled: Boolean) : SettingsEvent
     data class UpdatePaintGenerationSuccessNotification(val enabled: Boolean) : SettingsEvent
+    data class UpdatePaintGenerationNotificationSound(val sound: GenerationNotificationSound) : SettingsEvent
     data class CheckUpdate(val apiKey: String, val appKey: String, val version: String, val build: Int) : SettingsEvent
     data object ClearUpdateStatus : SettingsEvent
 }

@@ -284,6 +284,10 @@ class DesktopStrings internal constructor(
     val paintTaskClearHistory: String = text("paintTaskClearHistory")
     val paintGenerationSuccessNotification: String = text("paintGenerationSuccessNotification")
     val paintGenerationSuccessNotificationDescription: String = text("paintGenerationSuccessNotificationDescription")
+    val paintGenerationNotificationSound: String = text("paintGenerationNotificationSound")
+    val paintGenerationNotificationSoundOption: (Int) -> String = { number ->
+        text("paintGenerationNotificationSoundOption").format(number)
+    }
     val paintGenerationSuccessTitle: String = text("paintGenerationSuccessTitle")
     val paintGenerationSuccessMessage: (Int) -> String = { count ->
         text("paintGenerationSuccessMessage").format(count)

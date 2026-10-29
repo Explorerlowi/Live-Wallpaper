@@ -25,6 +25,7 @@ exifinterface = "1.4.1"
 runtime = "1.10.0"
 ktor = "3.3.3"
 foundationLayout = "1.10.0"
+jlayer = "1.0.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -80,6 +81,7 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
+jlayer = { group = "javazoom", name = "jlayer", version.ref = "jlayer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -582,6 +582,7 @@ fun WallpaperHomeScreen(
                     currentPlayMode = state.config.playMode,
                     currentLanguageTag = state.config.languageTag,
                     currentThemeMode = state.config.themeMode,
+                    currentNotificationSound = state.config.paintGenerationNotificationSound,
                     updateStatus = state.updateStatus,
                     onConfirm = { interval, scaleMode, playMode ->
                         viewModel.onEvent(SettingsEvent.UpdateInterval(interval))
@@ -594,6 +595,9 @@ fun WallpaperHomeScreen(
                     },
                     onThemeModeChange = { themeMode ->
                         viewModel.onEvent(SettingsEvent.UpdateThemeMode(themeMode))
+                    },
+                    onNotificationSoundChange = { sound ->
+                        viewModel.onEvent(SettingsEvent.UpdatePaintGenerationNotificationSound(sound))
                     },
                     onCheckUpdate = {
                         viewModel.onEvent(SettingsEvent.CheckUpdate(

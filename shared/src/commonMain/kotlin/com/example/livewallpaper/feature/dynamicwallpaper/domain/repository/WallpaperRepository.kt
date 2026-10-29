@@ -1,5 +1,6 @@
 package com.example.livewallpaper.feature.dynamicwallpaper.domain.repository
 
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ImageCropParams
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
@@ -44,5 +45,7 @@ interface WallpaperRepository {
     suspend fun setLaunchAtStartup(enabled: Boolean)
     suspend fun setRestoreSlideshowOnLaunch(enabled: Boolean)
     suspend fun setPaintGenerationSuccessNotification(enabled: Boolean)
+    /** 设置生成完成通知使用的提示音。 */
+    suspend fun setPaintGenerationNotificationSound(sound: GenerationNotificationSound)
     suspend fun checkAppUpdate(apiKey: String, appKey: String, buildVersion: String?, buildBuildVersion: Int?): com.example.livewallpaper.feature.dynamicwallpaper.data.remote.model.PgyerResponse
 }

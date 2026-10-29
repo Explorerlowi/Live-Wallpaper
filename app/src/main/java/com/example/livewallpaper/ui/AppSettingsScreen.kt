@@ -67,6 +67,7 @@ import com.example.livewallpaper.BuildConfig
 import com.example.livewallpaper.R
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataTransferError
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintClientPlatform
+import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.GenerationNotificationSound
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.PlayMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ScaleMode
 import com.example.livewallpaper.feature.dynamicwallpaper.domain.model.ThemeMode
@@ -86,6 +87,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import com.example.livewallpaper.paint.service.GenerationNotificationSoundPreview
 import com.example.livewallpaper.paint.viewmodel.PaintDataTransferUiState
 import com.example.livewallpaper.paint.viewmodel.PaintDataImportPreviewUiState
 import com.example.livewallpaper.paint.viewmodel.PaintDataTransferViewModel
@@ -102,10 +104,12 @@ fun AppSettingsScreen(
     currentPlayMode: PlayMode,
     currentLanguageTag: String?,
     currentThemeMode: ThemeMode,
+    currentNotificationSound: GenerationNotificationSound,
     updateStatus: UpdateStatus,
     onConfirm: (interval: Long, scaleMode: ScaleMode, playMode: PlayMode) -> Unit,
     onLanguageChange: (LanguageOption) -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onNotificationSoundChange: (GenerationNotificationSound) -> Unit,
     onCheckUpdate: () -> Unit,
     onClearUpdateStatus: () -> Unit,
     onBack: () -> Unit,
@@ -154,6 +158,7 @@ fun AppSettingsScreen(
     var showPlayModeSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    var showNotificationSoundSheet by remember { mutableStateOf(false) }
     
     // 缓存管理界面状态
     var showCacheManagement by remember { mutableStateOf(false) }
@@ -327,6 +332,19 @@ fun AppSettingsScreen(
                 // 存储设置组
                 item {
                     SettingsGroupCard {
+                        SettingsItem(
+                            icon = AppIcons.playCircle,
+                            title = stringResource(R.string.paint_generation_notification_sound),
+                            value = stringResource(
+                                R.string.paint_generation_notification_sound_option,
+                                currentNotificationSound.optionNumber,
+                            ),
+                            onClick = { showNotificationSoundSheet = true },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
                         // 缓存管理
                         SettingsItem(
                             icon = AppIcons.storage,
@@ -504,6 +522,23 @@ fun AppSettingsScreen(
                     ScaleMode.FIT_CENTER -> stringResource(R.string.scale_mode_fit)
                 }
             }
+        )
+    }
+
+    if (showNotificationSoundSheet) {
+        SelectionBottomSheet(
+            title = stringResource(R.string.paint_generation_notification_sound),
+            options = GenerationNotificationSound.entries,
+            selectedOption = currentNotificationSound,
+            onOptionSelected = { sound ->
+                onNotificationSoundChange(sound)
+                GenerationNotificationSoundPreview.play(context, sound)
+                showNotificationSoundSheet = false
+            },
+            onDismissRequest = { showNotificationSoundSheet = false },
+            labelProvider = { sound ->
+                stringResource(R.string.paint_generation_notification_sound_option, sound.optionNumber)
+            },
         )
     }
 
