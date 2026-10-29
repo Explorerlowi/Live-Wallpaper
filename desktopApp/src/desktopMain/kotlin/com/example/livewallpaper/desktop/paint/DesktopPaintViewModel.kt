@@ -604,7 +604,7 @@ class DesktopPaintViewModel(
                         assistantMessage.copy(status = MessageStatus.CANCELLED, updatedAt = System.currentTimeMillis())
                     )
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 repository.updateMessage(
                     assistantMessage.copy(
                         messageContent = e.message ?: DesktopPaintErrorText.GENERATION_FAILED,

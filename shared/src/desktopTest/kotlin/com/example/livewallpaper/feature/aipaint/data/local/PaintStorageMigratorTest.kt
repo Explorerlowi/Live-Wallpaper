@@ -283,6 +283,51 @@ class PaintStorageMigratorTest {
     }
 
     @Test
+    fun restartMarksInterruptedGenerationsAsFailed() = runBlocking {
+        val coordinator = PaintStorageCoordinator(
+            migrator = migrator,
+            sqlStore = sqlStore,
+            legacyConversations = fallbackStore,
+            legacyDrafts = EmptyLegacyPaintDraftSource(),
+        )
+        coordinator.initialize()
+        val session = PaintSession(id = "session-interrupted")
+        coordinator.createSession(session)
+        coordinator.addMessage(
+            paintTextMessage("done", session.id, 1L).copy(updatedAt = 20L),
+        )
+        coordinator.addMessage(
+            paintTextMessage("stuck", session.id, 2L).copy(
+                senderIdentity = SenderIdentity.ASSISTANT,
+                status = MessageStatus.GENERATING,
+                updatedAt = 30L,
+            ),
+        )
+        coordinator.addMessage(
+            paintTextMessage("pending", session.id, 3L).copy(
+                senderIdentity = SenderIdentity.ASSISTANT,
+                status = MessageStatus.PENDING,
+                updatedAt = 40L,
+            ),
+        )
+
+        val restarted = PaintStorageCoordinator(
+            migrator = migrator,
+            sqlStore = sqlStore,
+            legacyConversations = fallbackStore,
+            legacyDrafts = EmptyLegacyPaintDraftSource(),
+        )
+        restarted.initialize()
+
+        val messages = restarted.getMessages(session.id).first().associateBy(PaintMessage::id)
+        assertEquals(MessageStatus.SUCCESS, messages.getValue("done").status)
+        assertEquals(MessageStatus.ERROR, messages.getValue("stuck").status)
+        assertEquals(30L, messages.getValue("stuck").updatedAt)
+        assertEquals(MessageStatus.ERROR, messages.getValue("pending").status)
+        assertEquals(40L, messages.getValue("pending").updatedAt)
+    }
+
+    @Test
     fun importGateRejectsCommitUntilLiveGenerationFinishes() = runBlocking {
         val coordinator = PaintStorageCoordinator(
             migrator = migrator,

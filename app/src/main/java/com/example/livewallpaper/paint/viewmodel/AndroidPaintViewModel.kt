@@ -857,7 +857,7 @@ class AndroidPaintViewModel(
                         repository.updateMessage(cancelledMessage)
                         generationResult = GenerationCompletion.Cancelled
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,
@@ -1505,7 +1505,7 @@ class AndroidPaintViewModel(
                         repository.updateMessage(cancelledMessage)
                         generationResult = GenerationCompletion.Cancelled
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     val errorMessage = newAssistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,

@@ -2,6 +2,7 @@ package com.example.livewallpaper.feature.aipaint.data.local
 
 import com.example.livewallpaper.core.coroutines.CoroutineDispatcherProvider
 import com.example.livewallpaper.core.util.TimeProvider
+import com.example.livewallpaper.feature.aipaint.domain.model.MessageStatus
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintDataSnapshot
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintMessage
 import com.example.livewallpaper.feature.aipaint.domain.model.PaintSession
@@ -115,6 +116,23 @@ class LegacyPaintConversationStore(
     ): List<PaintMessage> = withContext(dispatchers.io) {
         snapshot.value.messages.filter { it.sessionId == sessionId && it.versionGroup == versionGroup }
     }
+
+    /**
+     * 把进程退出后仍停在生成中的消息标成失败。
+     *
+     * 不改更新时间，避免把中断前的耗时算成直到下次打开为止。
+     */
+    suspend fun failInterruptedGenerations() {
+        if (readSnapshot().messages.none(::isInterruptedGeneration)) return
+        mutate { data ->
+            data.copy(messages = data.messages.map { message ->
+                if (isInterruptedGeneration(message)) message.copy(status = MessageStatus.ERROR) else message
+            })
+        }
+    }
+
+    private fun isInterruptedGeneration(message: PaintMessage): Boolean =
+        message.status == MessageStatus.GENERATING || message.status == MessageStatus.PENDING
 
     override suspend fun getVersionCount(sessionId: String, versionGroup: String): Int =
         getMessagesByVersionGroup(sessionId, versionGroup).size

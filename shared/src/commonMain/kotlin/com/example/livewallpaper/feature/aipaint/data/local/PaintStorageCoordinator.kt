@@ -47,12 +47,16 @@ class PaintStorageCoordinator(
         } catch (_: Exception) {
             PaintStorageMigrationResult.RecoveryRequired(PaintStorageFailure.UNKNOWN)
         }
-        _storageState.value = when (val result = migrationResult) {
+        val nextState = when (val result = migrationResult) {
             PaintStorageMigrationResult.Ready -> PaintStorageState.Ready
             is PaintStorageMigrationResult.ReadOnly -> PaintStorageState.ReadOnly(result.reason)
             is PaintStorageMigrationResult.LegacyFallback -> PaintStorageState.LegacyFallback(result.reason)
             is PaintStorageMigrationResult.RecoveryRequired -> PaintStorageState.RecoveryRequired(result.reason)
         }
+        if (nextState == PaintStorageState.Ready || nextState is PaintStorageState.LegacyFallback) {
+            failInterruptedGenerations(nextState)
+        }
+        _storageState.value = nextState
         if (_storageState.value !is PaintStorageState.RecoveryRequired) {
             _draftsRevision.value = readableDrafts().draftsRevision.value
         }
@@ -281,6 +285,25 @@ class PaintStorageCoordinator(
                 requireRecovery(PaintStorageFailure.IMPORT_ROLLBACK_FAILED)
                 PaintDataImportCommitResult.RollbackFailed
             }
+        }
+    }
+
+    /**
+     * 启动完成前清掉上次进程留下的生成中消息。
+     *
+     * 此时还没有新的生成任务，当前进程里的生成中记录都是闪退残留。
+     */
+    private suspend fun failInterruptedGenerations(state: PaintStorageState) {
+        try {
+            when (state) {
+                PaintStorageState.Ready -> sqlStore.failInterruptedGenerations()
+                is PaintStorageState.LegacyFallback -> legacyConversations.failInterruptedGenerations()
+                else -> Unit
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // 清理失败不阻止进入可用状态，下次启动会再试。
         }
     }
 

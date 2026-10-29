@@ -428,7 +428,7 @@ class PaintViewModel(
                         updatedAt = TimeProvider.currentTimeMillis()
                     )
                     repository.updateMessage(cancelledMessage)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     val errorMessage = assistantMessage.copy(
                         messageContent = e.message ?: "生成失败",
                         status = MessageStatus.ERROR,

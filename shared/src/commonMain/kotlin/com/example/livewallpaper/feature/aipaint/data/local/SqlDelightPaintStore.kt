@@ -125,6 +125,16 @@ class SqlDelightPaintStore(
         queries.selectMessagesByVersionGroup(sessionId, versionGroup).executeAsList().map(::messageWithImages)
     }
 
+    /**
+     * 把进程退出后仍停在生成中的消息标成失败。
+     *
+     * 内存溢出等闪退不会走到生成任务的收尾，数据库里会留下已经没有任务的生成中消息。
+     * 不改更新时间，避免把中断前的耗时算成直到下次打开为止。
+     */
+    suspend fun failInterruptedGenerations() = withContext(dispatchers.io) {
+        queries.failInterruptedMessages()
+    }
+
     override suspend fun getVersionCount(sessionId: String, versionGroup: String): Int =
         withContext(dispatchers.io) {
             queries.countMessagesByVersionGroup(sessionId, versionGroup).executeAsOne().toInt()

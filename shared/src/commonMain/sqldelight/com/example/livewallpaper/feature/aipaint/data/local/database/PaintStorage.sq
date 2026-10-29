@@ -164,6 +164,11 @@ ORDER BY created_at ASC, id ASC;
 updateMessageSortOrder:
 UPDATE paint_message SET sort_order = :sort_order WHERE id = :id;
 
+failInterruptedMessages:
+UPDATE paint_message
+SET status = 'ERROR'
+WHERE status = 'GENERATING' OR status = 'PENDING';
+
 insertMessage:
 INSERT OR REPLACE INTO paint_message VALUES ?;
 
